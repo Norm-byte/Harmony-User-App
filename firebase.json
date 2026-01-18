@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "source": "src/cloud_functions"
+  },
+  "firestore": {
+    "rules": "src/admin/firestore.rules",
+    "indexes": "src/admin/firestore.indexes.json"
+  }
+}

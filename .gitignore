@@ -1,0 +1,45 @@
+# Temp build folders (Aggressive ignore)
+**/build/
+**/build_old_temp/
+**/build_trash/
+**/build_trash_*/
+**/build_trash_*
+**/build_trash_01/
+**/build_trash_02/
+**/build_trash_03/
+**/build_trash_new/
+src/app/build_trash_01/
+src/app/build_trash/
+
+# Flutter/Dart
+.dart_tool/
+.packages
+.pub/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# Node
+node_modules/
+.env
+
+# Firebase
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/
+
+# Mac
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Misc
+*.swp
+*~

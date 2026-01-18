@@ -1,0 +1,1 @@
+ C:\\Users\\norms\\OneDrive\\Desktop\\CommunityApps\\harmony\ by\ intent\\harmony-by-intent\\src\\app\\.dart_tool\\flutter_build\\942baf205bb48ff1137e500df2bacb54\\native_assets.json: 
