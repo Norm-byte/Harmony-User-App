@@ -35,16 +35,22 @@ class EventService extends ChangeNotifier {
   String _currentEventDescription = '';
   String? _currentEventMediaUrl;
   String? _currentEventId; // Track ID for dismissal logic
+  DateTime? _currentEventStartTime; // Track Start Time for valid dismissal key
   DateTime? _currentEventEndTime; // Track End Time for auto-dismissal
-  final Duration _eventGracePeriod = Duration.zero; // STRICT TIMER: No extra seconds allowed
+  final Duration _eventGracePeriod = const Duration(seconds: 1); // Buffer: Reduced to 1s to match playback safety
   // Track dismissed events by ID and StartTime to allow re-triggering if time changes
   final Map<String, String> _dismissedEventStartTimes = {};
+  // New: Robust cooldown map to prevent immediate re-triggering of the same event ID within a short window
+  final Map<String, DateTime> _recentlyDismissedIds = {};
 
   bool get isEventActive => _isEventActive;
   bool get isWorldwide => _isWorldwide;
   String get currentEventTitle => _currentEventTitle;
   String get currentEventDescription => _currentEventDescription;
   String? get currentEventMediaUrl => _currentEventMediaUrl;
+  
+  // Track Auto-Join processing to prevent spamming Firestore
+  final Set<String> _autoJoinInProgress = {};
 
   // Shared User Intent State
   String _userIntent = '';
@@ -241,6 +247,10 @@ class EventService extends ChangeNotifier {
           final data = doc.data() as Map<String, dynamic>;
           data['id'] = doc.id;
           final event = Event.fromJson(data);
+          
+          if (event.type == EventType.national) {
+             print("DEBUG: National Event '${event.title}': DurationSecs(RAW)=${data['durationSeconds']}, Start=${event.startTime}, End=${event.endTime}, Duration=${event.endTime.difference(event.startTime).inSeconds}s");
+          }
 
           // Filter out invalid events
           if (event.title.trim().isEmpty || event.title.length < 2) {
@@ -421,13 +431,62 @@ class EventService extends ChangeNotifier {
     Event? bestEventToTrigger;
 
     for (final event in _events) {
+      // AUTO-JOIN LOGIC (New Feature)
+      if (event.type == EventType.global) {
+          final userService = UserService();
+          if (userService.autoJoinWorldwide) {
+             // Check memory cache first to avoid async spam checks
+             bool alreadyJoined = _myEvents.any((doc) => doc['eventId'] == event.id);
+             
+             // Check if we are already processing this join to avoid race condition in 1s loop
+             bool pending = _autoJoinInProgress.contains(event.id);
+
+             if (!alreadyJoined && !pending) {
+                _autoJoinInProgress.add(event.id);
+                print("HARMONY_AUTO_JOIN: Initiating auto-join for ${event.title} (${event.id})");
+                
+                joinEvent(
+                   event.id, 
+                   event.title, 
+                   event.mostPopularIntent ?? 'Harmony', 
+                   event.type, 
+                   event.startTime, 
+                   event.endTime, 
+                   visibilityAfterMinutes: event.visibilityAfterMinutes ?? 0
+                ).then((_) {
+                   // Remove from pending after some time or immediately? 
+                   // Ideally keep it in pending until _myEvents updates? 
+                   // Actually, if we remove it, the next tick might try again if _myEvents hasn't updated.
+                   // So we relying on _myEvents eventually updating.
+                   // We'll clear it after 10 seconds just to be safe it doesn't block forever if write fails.
+                   Future.delayed(const Duration(seconds: 10), () {
+                       _autoJoinInProgress.remove(event.id);
+                   });
+                });
+             }
+          }
+      }
+
       final startLocal = event.startTime.toLocal();
       final endLocal = event.endTime.toLocal();
       final isActive = now.isAfter(startLocal) && now.isBefore(endLocal);
 
       bool isDismissed = false;
-      if (_dismissedEventStartTimes.containsKey(event.id)) {
-        if (_dismissedEventStartTimes[event.id] == event.startTime.toIso8601String()) {
+      
+      // 1. Check strict cooldown (Robust anti-loop)
+      if (_recentlyDismissedIds.containsKey(event.id)) {
+          final dismissedAt = _recentlyDismissedIds[event.id]!;
+          if (now.difference(dismissedAt).inMinutes < 2) {
+             // If dismissed less than 2 minutes ago, consider it dismissed regardless of start time string matching
+             isDismissed = true;
+             // print("DEBUG: Event ${event.id} suppressed by cooldown.");
+          }
+      }
+
+      // 2. Check legacy Start Time matching (if cooldown passed or not present)
+      if (!isDismissed && _dismissedEventStartTimes.containsKey(event.id)) {
+        // Compare using toLocal() to ensure consistency with _triggerEvent which converts to local
+        if (_dismissedEventStartTimes[event.id] == event.startTime.toLocal().toIso8601String()) {
           isDismissed = true;
         }
       }
@@ -464,6 +523,14 @@ class EventService extends ChangeNotifier {
     }
 
     if (bestEventToTrigger != null) {
+         // ABSOLUTE STRICT CHECK: If this exact ID is active, DO NOTHING.
+         if (_isEventActive && _currentEventId == bestEventToTrigger.id) {
+             print("HARMONY_STRICT_V3: Event ${bestEventToTrigger.id} is already playing. IGNORING.");
+             return; 
+         }
+
+         print("HARMONY_STRICT_V3: Selecting New Event: ${bestEventToTrigger.title} (${bestEventToTrigger.id})");
+
          _triggerEvent(
            id: bestEventToTrigger.id,
            title: bestEventToTrigger.title,
@@ -471,7 +538,10 @@ class EventService extends ChangeNotifier {
            isWorldwide: bestEventToTrigger.type == EventType.global,
            mediaUrl: bestEventToTrigger.mediaUrl,
            intent: bestEventToTrigger.mostPopularIntent,
-           endTime: bestEventToTrigger.endTime.toLocal(),
+           startTime: bestEventToTrigger.startTime.toLocal(), 
+           // We do NOT pass endTime to trigger anymore to avoid confusion. Logic is purely duration based.
+           // endTime: bestEventToTrigger.endTime.toLocal(), 
+           durationSeconds: bestEventToTrigger.durationSeconds,
          );
     }
   }
@@ -483,28 +553,16 @@ class EventService extends ChangeNotifier {
     required bool isWorldwide,
     String? mediaUrl,
     String? intent,
-    DateTime? endTime,
+    DateTime? startTime,
+    // DateTime? endTime, // REMOVED to prevent accidental usage
+    int? durationSeconds,
   }) {
-    // If the same event (by ID) is already active, check if we need to update the timer
-    if (_isEventActive && _currentEventId == id) {
-       // If the end time has changed significantly (e.g. updated duration), update the timer
-       if (_currentEventEndTime != null && endTime != null && _currentEventEndTime != endTime) {
-          // Fall through to update timer
-          print("DEBUG: Updating active event timer. New End: $endTime");
-       } else {
-          return; // No change needed
-       }
-    } else if (_isEventActive && _currentEventTitle == title) {
-       // If ID is different but Title is same (e.g. duplicates), we SHOULD strictly enforce the new event's params
-       // So we DO NOT return here, we allow overwriting.
-       print("DEBUG: Overwriting event with same title but different ID/Params");
-    }
-
-    print("DEBUG: Triggering Event: $title, Duration: ${endTime?.difference(DateTime.now()).inSeconds}s");
+    print("HARMONY_STRICT_V3: Triggering Event '$title' with Duration: $durationSeconds");
 
     _isEventActive = true;
     _currentEventId = id;
-    _currentEventEndTime = endTime;
+    _currentEventStartTime = startTime;
+    _currentEventEndTime = null; // Explicitly nullify this. use STRICT timer only.
     _currentEventTitle = title;
 
     if (description.isEmpty && intent != null && intent.isNotEmpty && intent != 'Intent') {
@@ -517,41 +575,61 @@ class EventService extends ChangeNotifier {
     _currentEventMediaUrl = mediaUrl;
 
     _dismissTimer?.cancel();
-    if (endTime != null) {
-      final now = DateTime.now();
-      final duration = endTime.difference(now);
-      
-      // Add grace period to timer
-      final timerDuration = duration + _eventGracePeriod;
-      
-      if (timerDuration > Duration.zero) {
-        _dismissTimer = Timer(timerDuration, () {
-          dismissEvent();
-        });
-      } else {
-        dismissEvent();
-        return;
-      }
+    
+    // STRICT TIME ENFORCEMENT V3
+    // NO FALLBACKS. NO CALCULATIONS. NO "WINDOW".
+    int finalSeconds = durationSeconds ?? 10;
+    // Allow short durations if user specifically requested (removed 5s floor)
+    if (finalSeconds < 1) finalSeconds = 1; 
+
+    // Explicitly set the service-level End Time so checkForEvents knows when to stop it.
+    // This is crucial for the watchdog loop.
+    if (_currentEventStartTime != null) {
+       _currentEventEndTime = _currentEventStartTime!.add(Duration(seconds: finalSeconds));
+    } else {
+       // Fallback if start time missing (unlikely)
+       _currentEventEndTime = DateTime.now().add(Duration(seconds: finalSeconds));
     }
+
+    print("HARMONY_STRICT_V3: Setting Hard Timer for $finalSeconds seconds");
+
+    _dismissTimer = Timer(Duration(seconds: finalSeconds), () {
+        print("HARMONY_STRICT_V3: Timer Expired ($finalSeconds s). Dismissing.");
+        dismissEvent();
+    });
 
     notifyListeners();
   }
 
   void dismissEvent() {
+    print("DEBUG: dismissEvent called for ID: $_currentEventId");
     _dismissTimer?.cancel();
     _dismissTimer = null;
 
-    if (_currentEventId != null) {
+    if (_currentEventId != null && _currentEventStartTime != null) {
+        // Use stored start time which is reliable, instead of lookup
+        _dismissedEventStartTimes[_currentEventId!] = _currentEventStartTime!.toIso8601String();
+        // Add to cooldown map
+        _recentlyDismissedIds[_currentEventId!] = DateTime.now();
+        print("DEBUG: Marked $_currentEventId as dismissed for time: ${_currentEventStartTime!.toIso8601String()}");
+    } else if (_currentEventId != null) {
+      // Fallback if start time wasn't captured (legacy support)
       try {
         final event = _events.firstWhere((e) => e.id == _currentEventId);
         _dismissedEventStartTimes[_currentEventId!] = event.startTime.toIso8601String();
-      } catch (_) {
+        // Add to cooldown map
+        _recentlyDismissedIds[_currentEventId!] = DateTime.now();
+        print("DEBUG: (Fallback) Marked $_currentEventId as dismissed from lookup");
+      } catch (e) {
+        print("DEBUG: Could not mark event dismissed (not found in list): $e");
       }
     }
+    
     _isEventActive = false;
     _currentEventMediaUrl = null;
     _currentEventId = null;
     _currentEventEndTime = null;
+    _currentEventStartTime = null;
     notifyListeners();
   }
 

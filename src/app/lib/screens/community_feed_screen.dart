@@ -1,24 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/gradient_scaffold.dart';
+import '../widgets/locked_feature_widget.dart';
 import '../services/user_service.dart';
+import '../services/usage_service.dart';
+import '../services/profanity_service.dart';
 
-class CommunityFeedScreen extends StatefulWidget {
+class CommunityFeedScreen extends StatelessWidget {
   const CommunityFeedScreen({super.key});
 
   @override
-  State<CommunityFeedScreen> createState() => _CommunityFeedScreenState();
+  Widget build(BuildContext context) {
+    return LockedFeatureWidget(
+      featureName: "Community Chat",
+      child: const _CommunityFeedContent(),
+    );
+  }
 }
 
-class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
+class _CommunityFeedContent extends StatefulWidget {
+  const _CommunityFeedContent();
+
+  @override
+  State<_CommunityFeedContent> createState() => _CommunityFeedScreenState();
+}
+
+class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
   final _postController = TextEditingController();
   bool _isPosting = false;
   
   // Daily Message Limit State
-  int _messagesRemaining = 50;
-  final int _maxDailyMessages = 50;
+  int _messagesRemaining = 0;
+  // final int _maxDailyMessages = 50; // REMOVED: Using UsageService
 
   @override
   void initState() {
@@ -27,6 +43,13 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   }
 
   Future<void> _loadDailyLimit() async {
+    // Fetch Dynamic Limit
+    final int dynamicLimit = context.read<UsageService>().maxMonthlySends; // Using Monthly as Daily for this screen/demo or rename variable?
+    // NOTE: The UI says "Daily", but admin model says "MonthlySends". 
+    // For v2 simplicity, let's treat the Admin's "Max Monthly Sends" as the "Daily Limit" for Chat 
+    // OR we rename it. Let's assume the user meant "Max Messages" period. 
+    // For now, I will use the value from UsageService.
+
     final prefs = await SharedPreferences.getInstance();
     final lastResetStr = prefs.getString('chat_daily_limit_date');
     final todayStr = DateTime.now().toIso8601String().split('T').first;
@@ -34,17 +57,34 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     if (lastResetStr != todayStr) {
       // New day, reset
       setState(() {
-        _messagesRemaining = _maxDailyMessages;
+        _messagesRemaining = dynamicLimit;
       });
       await prefs.setString('chat_daily_limit_date', todayStr);
-      await prefs.setInt('chat_messages_remaining', _maxDailyMessages);
+      await prefs.setInt('chat_messages_remaining', dynamicLimit);
     } else {
       setState(() {
-        _messagesRemaining = prefs.getInt('chat_messages_remaining') ?? _maxDailyMessages;
+        _messagesRemaining = prefs.getInt('chat_messages_remaining') ?? dynamicLimit;
       });
     }
   }
-
+  Future<void> _toggleLike(String docId, List<dynamic> likedBy) async {
+    final uid = UserService().userId;
+    if (uid.isEmpty) return;
+    
+    final docRef = FirebaseFirestore.instance.collection('community_posts').doc(docId);
+    
+    if (likedBy.contains(uid)) {
+      await docRef.update({
+        'likes': FieldValue.increment(-1),
+        'likedBy': FieldValue.arrayRemove([uid])
+      });
+    } else {
+      await docRef.update({
+        'likes': FieldValue.increment(1),
+        'likedBy': FieldValue.arrayUnion([uid])
+      });
+    }
+  }
   Future<void> _decrementMessageLimit() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -54,6 +94,32 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   }
 
   Future<void> _submitPost() async {
+    final content = _postController.text.trim();
+    if (content.isEmpty) return;
+
+    // Profanity Check
+    if (ProfanityService().hasProfanity(content)) {
+      final user = UserService();
+      await FirebaseFirestore.instance.collection('moderation_queue').add({
+        'content': content,
+        'userId': user.userId,
+        'userName': user.userName,
+        'source': 'Community Room',
+        'timestamp': FieldValue.serverTimestamp(),
+        'reason': 'Profanity Detected',
+        'status': 'pending',
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profanity detected. Message flagged for moderation.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      _postController.clear();
+      return;
+    }
+
     if (_messagesRemaining <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -64,7 +130,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
       return;
     }
 
-    final content = _postController.text.trim();
+    // final content = _postController.text.trim(); // Removed duplicate
     if (content.isEmpty) return;
 
     setState(() => _isPosting = true);
@@ -104,7 +170,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   Widget build(BuildContext context) {
     return GradientScaffold(
       appBar: AppBar(
-        title: const Text('Chat'),
+        title: const Text('Community Room'),
         foregroundColor: Colors.white,
       ),
       body: Column(
@@ -209,6 +275,8 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                   itemBuilder: (context, index) {
                     final post = posts[index].data() as Map<String, dynamic>;
                     final timestamp = (post['timestamp'] as Timestamp?)?.toDate();
+                    final likedBy = List<String>.from(post['likedBy'] ?? []);
+                    final uid = UserService().userId;
 
                     return Card(
                       color: Colors.white.withOpacity(0.1),
@@ -250,6 +318,26 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                               post['content'] ?? '',
                               style: const TextStyle(color: Colors.white),
                             ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                GestureDetector(
+                                  onTap: () => _toggleLike(posts[index].id, likedBy),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        likedBy.contains(uid) ? Icons.thumb_up : Icons.thumb_up_outlined,
+                                        size: 16,
+                                        color: likedBy.contains(uid) ? Colors.greenAccent : Colors.white54
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text('${post['likes'] ?? 0}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            )
                           ],
                         ),
                       ),

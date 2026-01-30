@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/event_service.dart';
 import '../services/user_service.dart';
+import '../services/profanity_service.dart'; // Added missing import
 import '../widgets/gradient_scaffold.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -56,6 +57,54 @@ class _ChatScreenState extends State<ChatScreen> {
       
       // Force rebuild to show stream
       if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleLike(String messageId, List<dynamic> likedBy, List<dynamic> dislikedBy, bool isLike) async {
+      if (_resolvedGroupId == null) return;
+      
+      final uid = UserService().userId;
+      if (uid.isEmpty) return;
+
+      final docRef = FirebaseFirestore.instance
+          .collection('community_groups')
+          .doc(_resolvedGroupId)
+          .collection('messages')
+          .doc(messageId);
+      
+      if (isLike) {
+         if (likedBy.contains(uid)) {
+            // Unlike
+            await docRef.update({
+               'likes': FieldValue.increment(-1),
+               'likedBy': FieldValue.arrayRemove([uid])
+            });
+         } else {
+            // Like
+             await docRef.update({
+               'likes': FieldValue.increment(1),
+               'likedBy': FieldValue.arrayUnion([uid]),
+               'dislikes': dislikedBy.contains(uid) ? FieldValue.increment(-1) : FieldValue.increment(0),
+               'dislikedBy': FieldValue.arrayRemove([uid])
+            });
+         }
+      } else {
+         // Dislike logic
+          if (dislikedBy.contains(uid)) {
+            // Remove Dislike
+            await docRef.update({
+               'dislikes': FieldValue.increment(-1),
+               'dislikedBy': FieldValue.arrayRemove([uid])
+            });
+         } else {
+            // Dislike
+             await docRef.update({
+               'dislikes': FieldValue.increment(1),
+               'dislikedBy': FieldValue.arrayUnion([uid]),
+               'likes': likedBy.contains(uid) ? FieldValue.increment(-1) : FieldValue.increment(0),
+               'likedBy': FieldValue.arrayRemove([uid])
+            });
+         }
+      }
   }
 
   Future<void> _resolveGroupByName() async {
@@ -136,6 +185,32 @@ class _ChatScreenState extends State<ChatScreen> {
   void _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
+
+    if (ProfanityService().hasProfanity(text)) {
+      final userService = UserService();
+      // Send to moderation queue instead of blocking silently
+      await FirebaseFirestore.instance.collection('moderation_queue').add({
+         'content': text,
+         'userId': userService.userId,
+         'userName': userService.userName,
+         'source': 'Chat Room (${widget.eventTitle})',
+         'timestamp': FieldValue.serverTimestamp(),
+         'reason': 'Profanity Detected',
+         'status': 'pending',
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profanity detected. Message sent for moderation.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      // Clear text so user can't retry immediately? 
+      // User requested "user gets sent straight to moderation queue". 
+      // We interpret this as "their message goes to queue".
+      _messageController.clear(); 
+      return;
+    }
     
     // Check limit
     if (_messagesRemaining <= 0) {
@@ -352,10 +427,13 @@ class _ChatScreenState extends State<ChatScreen> {
                      itemCount: docs.length,
                      itemBuilder: (context, index) {
                        final data = docs[index].data() as Map<String, dynamic>;
-                       final isMe = data['sender'] == 'Me' || (data['isMe'] == true); // Simple check
+                       final isMe = data['sender'] == 'Me' || (data['isMe'] == true) || (data['userId'] == UserService().userId); 
                        final text = data['text'] ?? '';
                        final sender = data['sender'] ?? 'User';
-                       // Parse timestamp if available
+                       final likedBy = List<String>.from(data['likedBy'] ?? []);
+                       final dislikedBy = List<String>.from(data['dislikedBy'] ?? []);
+                       final likes = data['likes'] ?? 0;
+                       final docId = docs[index].id;
                        
                        return Align(
                          alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -389,6 +467,40 @@ class _ChatScreenState extends State<ChatScreen> {
                                  text,
                                  style: const TextStyle(color: Colors.white),
                                ),
+                               const SizedBox(height: 4),
+                               Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Thumbs Up
+                                    InkWell(
+                                      onTap: () => _toggleLike(docId, likedBy, dislikedBy, true),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            likedBy.contains(UserService().userId) ? Icons.thumb_up : Icons.thumb_up_outlined, 
+                                            size: 14, 
+                                            color: likedBy.contains(UserService().userId) ? Colors.greenAccent : Colors.white38
+                                          ),
+                                          if (likes > 0)
+                                            Padding(
+                                              padding: const EdgeInsets.only(left: 4),
+                                              child: Text('$likes', style: const TextStyle(fontSize: 10, color: Colors.white54)),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    // Thumbs Down
+                                    InkWell(
+                                      onTap: () => _toggleLike(docId, likedBy, dislikedBy, false),
+                                      child: Icon(
+                                        dislikedBy.contains(UserService().userId) ? Icons.thumb_down : Icons.thumb_down_outlined, 
+                                        size: 14, 
+                                        color: dislikedBy.contains(UserService().userId) ? Colors.redAccent : Colors.white38
+                                      ),
+                                    ),
+                                  ],
+                                ),
                              ],
                            ),
                          ),
@@ -469,15 +581,24 @@ class _ChatScreenState extends State<ChatScreen> {
                             // Thumbs Up
                             InkWell(
                               onTap: () {
-                                setState(() {
-                                  msg['liked'] = !(msg['liked'] ?? false);
-                                  msg['disliked'] = false; // Toggle
-                                });
+                                  // Local mock toggle
+                                  setState(() {
+                                    msg['liked'] = !(msg['liked'] ?? false);
+                                  });
                               },
-                              child: Icon(
-                                Icons.thumb_up, 
-                                size: 14, 
-                                color: (msg['liked'] ?? false) ? Colors.greenAccent : Colors.white38
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.thumb_up, 
+                                    size: 14, 
+                                    color: (msg['liked'] ?? false) ? Colors.greenAccent : Colors.white38
+                                  ),
+                                  if (msg['likes'] != null && msg['likes'] > 0)
+                                    Padding(
+                                      padding: const EdgeInsets.only(left: 4),
+                                      child: Text('${msg['likes']}', style: const TextStyle(fontSize: 10, color: Colors.white54)),
+                                    ),
+                                ],
                               ),
                             ),
                             const SizedBox(width: 8),

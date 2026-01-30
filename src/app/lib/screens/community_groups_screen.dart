@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart' as Foundation;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/group_service.dart';
+import '../services/subscription_service.dart';
 import '../widgets/gradient_scaffold.dart';
+import '../services/usage_service.dart';
 
 class CommunityGroupsScreen extends StatelessWidget {
   const CommunityGroupsScreen({super.key});
@@ -26,7 +28,7 @@ class CommunityGroupsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return GradientScaffold(
       appBar: AppBar(
-        title: const Text('Community Forums'),
+        title: const Text('Community Chat Rooms'),
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
       ),
@@ -52,7 +54,7 @@ class CommunityGroupsScreen extends StatelessWidget {
                         Icon(Icons.coffee, size: 48, color: Colors.white54),
                         SizedBox(height: 16),
                         Text(
-                          'Forums are being prepared...',
+                          'Chat Rooms are being prepared...',
                           style: TextStyle(color: Colors.white, fontSize: 16),
                         ),
                         SizedBox(height: 8),
@@ -85,7 +87,7 @@ class CommunityGroupsScreen extends StatelessWidget {
                         Icon(Icons.hourglass_empty, size: 48, color: Colors.white54),
                         SizedBox(height: 16),
                         Text(
-                          'New forums are on their way!',
+                          'New chat rooms are on their way!',
                           style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         SizedBox(height: 8),
@@ -104,7 +106,7 @@ class CommunityGroupsScreen extends StatelessWidget {
                 itemCount: docs.length,
                 itemBuilder: (context, index) {
                   final data = docs[index].data() as Map<String, dynamic>;
-                  final name = data['name'] ?? 'Unknown Forum';
+                  final name = data['name'] ?? 'Unknown Chat Room';
                   final description = data['description'] ?? '';
                   final memberCount = data['memberCount'] ?? 0;
                   final iconName = data['iconName'] as String?;
@@ -135,6 +137,29 @@ class CommunityGroupsScreen extends StatelessWidget {
                             SnackBar(content: Text('Already a member of $name')),
                           );
                         } else {
+                          // Check Subscription Limits
+                          final subscriptionService = context.read<SubscriptionService>();
+                          final usageService = context.read<UsageService>();
+                          final int maxGroups = usageService.maxActiveForums;
+
+                          // Check if user has reached their limit
+                          if (groupService.myGroups.length >= maxGroups) {
+                             // Prompt to Upgrade
+                             try {
+                               // Optional: Show specific message "You reached your limit of $maxGroups chat rooms"
+                               final didSubscribe = await subscriptionService.showPaywall();
+                               if (!didSubscribe) return; // User cancelled
+                             } catch (e) {
+                               debugPrint("Paywall error: $e");
+                               if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text("Could not load subscription options. Please try again later."))
+                                  );
+                               }
+                               return;
+                             }
+                          }
+
                           await groupService.joinGroup(groupMap);
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(

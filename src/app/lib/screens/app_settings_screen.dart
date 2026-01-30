@@ -183,6 +183,20 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             activeColor: Colors.amber,
             contentPadding: EdgeInsets.zero,
           ),
+          SwitchListTile(
+            title: const Text('Auto-Join Worldwide Events', style: TextStyle(color: Colors.white)),
+            subtitle: const Text('Automatically participate in global events (Members Only)', style: TextStyle(color: Colors.white70)),
+            value: userService.autoJoinWorldwide, 
+            onChanged: (val) {
+                 userService.setAutoJoinWorldwide(val);
+                 if (val) {
+                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Auto-Join Enabled: You will automatically join all worldwide events.')));
+                 }
+            },
+            secondary: const Icon(Icons.autorenew, color: Colors.white70),
+            activeColor: Colors.amber,
+            contentPadding: EdgeInsets.zero,
+          ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(

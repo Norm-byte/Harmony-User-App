@@ -198,51 +198,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
               const SizedBox(height: 32),
               
-              // VIP Code Section
+              /* Removed VIP Code Section as per request - handled Seamlessly at login now
               const Text(
                 'Have a VIP Code?',
-                style: TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _vipCodeController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: 'Enter Code',
-                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
-                        filled: true,
-                        fillColor: Colors.black.withOpacity(0.2),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  IconButton.filled(
-                    onPressed: _isLoading ? null : _handleVipCode,
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.1),
-                    ),
-                    icon: _isLoading 
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.arrow_forward, color: Colors.white),
-                  ),
-                ],
-              ),
-              if (_errorMessage != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: Text(
-                    _errorMessage!,
-                    style: const TextStyle(color: Colors.redAccent, fontSize: 12),
-                  ),
-                ),
+                ...
+              )
+              */
 
               const SizedBox(height: 24),
               TextButton(

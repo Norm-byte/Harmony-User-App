@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../widgets/favorite_item_card.dart';
 import '../widgets/gradient_scaffold.dart';
+import '../widgets/locked_feature_widget.dart';
 
 class CategoryFavoritesScreen extends StatelessWidget {
   final String categoryName;
@@ -20,22 +21,25 @@ class CategoryFavoritesScreen extends StatelessWidget {
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
       ),
-      body: favorites.isEmpty
-          ? const Center(child: Text("No items found", style: TextStyle(color: Colors.white)))
-          : GridView.builder(
-              padding: const EdgeInsets.all(16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 0.65,
+      body: LockedFeatureWidget(
+        featureName: "Favorites",
+        child: favorites.isEmpty
+            ? const Center(child: Text("No items found", style: TextStyle(color: Colors.white)))
+            : GridView.builder(
+                padding: const EdgeInsets.all(16),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 0.65,
+                ),
+                itemCount: favorites.length,
+                itemBuilder: (context, index) {
+                  final item = favorites[index];
+                  return FavoriteItemCard(topic: item);
+                },
               ),
-              itemCount: favorites.length,
-              itemBuilder: (context, index) {
-                final item = favorites[index];
-                return FavoriteItemCard(topic: item);
-              },
-            ),
+      ),
     );
   }
 }

@@ -5,6 +5,16 @@
 # IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
 # invoked from the command line by running `flutter analyze`.
 
+analyzer:
+  exclude:
+    - build_trash/**
+    - build_trash_01/**
+    - build_trash_02/**
+    - build_trash_03/**
+    - build_trash_new/**
+    - build_old_temp/**
+    - .dart_tool_trash/**
+
 # The following line activates a set of recommended lints for Flutter apps,
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml

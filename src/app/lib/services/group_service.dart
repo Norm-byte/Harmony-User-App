@@ -152,6 +152,28 @@ class GroupService extends ChangeNotifier {
     }
   }
 
+  Future<void> leaveGroupById(String groupId) async {
+    final userId = UserService().userId;
+    if (userId.isEmpty) return;
+    
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('joined_groups')
+          .doc(groupId)
+          .delete();
+
+       // Update global member count
+      await FirebaseFirestore.instance
+          .collection('community_groups')
+          .doc(groupId)
+          .update({'memberCount': FieldValue.increment(-1)});
+    } catch (e) {
+      debugPrint('GroupService: Error leaving group by ID: $e');
+    }
+  }
+
   bool isJoined(String groupName) {
     return _myGroups.any((g) => g['name'] == groupName);
   }

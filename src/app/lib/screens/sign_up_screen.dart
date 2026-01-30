@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
 import '../widgets/gradient_scaffold.dart';
 import '../services/user_service.dart';
+import '../services/subscription_service.dart';
 import 'home_screen.dart';
 import 'subscription_screen.dart';
 
@@ -21,27 +23,39 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   Future<void> _handleSignUp() async {
     final inputUsername = _usernameController.text.trim();
+    // Codes are stored as Uppercase only in Admin/DB. Convert input to check.
+    final potentialCode = inputUsername.toUpperCase();
     
     setState(() => _isLoading = true);
 
-    // 1. Check for Super Admin Code (Bypass everything)
+    // 1. Check for ANY VIP Code (Super Admin OR Beta Tester)
     try {
-      final superAdminQuery = await FirebaseFirestore.instance
+      final vipQuery = await FirebaseFirestore.instance
           .collection('vip_codes')
-          .where('code', isEqualTo: inputUsername)
-          .where('type', isEqualTo: 'super_admin')
+          .where('code', isEqualTo: potentialCode)
           .where('status', isEqualTo: 'active')
           .limit(1)
           .get();
 
-      if (superAdminQuery.docs.isNotEmpty || inputUsername == 'ADMIN2025') {
+      if (vipQuery.docs.isNotEmpty) {
+        final vipData = vipQuery.docs.first.data();
+        final type = vipData['type'] ?? 'beta_tester';
+        
+        // Both types bypass subscription now (Privileged Access)
         if (mounted) {
-          _completeSignUp(isSuperAdmin: true, username: 'Super Admin', bypassSubscription: true);
+          _completeSignUp(
+            isSuperAdmin: type == 'super_admin', 
+            username: potentialCode, // Use the standardized uppercase code as username 
+            bypassSubscription: true 
+          );
         }
         return;
+      } else {
+        // Not found as a VIP code, continue to standard sign up
+        print('Code "$potentialCode" not found, checking if valid as standard username.');
       }
     } catch (e) {
-      print('Error checking admin code: $e');
+      print('Error checking vip code: $e');
     }
 
     // Standard validation
@@ -63,15 +77,24 @@ class _SignUpScreenState extends State<SignUpScreen> {
     UserService().setUser(username, username);
 
     if (bypassSubscription) {
+      // CRITICAL: Tell SubscriptionService we are VIP!
+      Provider.of<SubscriptionService>(context, listen: false).setVipStatus(true);
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Welcome Super Admin!'), backgroundColor: Colors.green),
+        SnackBar(
+          content: Text(isSuperAdmin ? 'Welcome Super Admin!' : 'VIP Code Accepted - Subscription Unlocked!'), 
+          backgroundColor: Colors.green
+        ),
       );
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
+        MaterialPageRoute(builder: (context) => HomeScreen(isSuperAdmin: isSuperAdmin)),
       );
     } else {
       // Regular user -> Go to Subscription Screen
+      // Ensure VIP is OFF
+      Provider.of<SubscriptionService>(context, listen: false).setVipStatus(false);
+      
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const SubscriptionScreen()),

@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:share_plus/share_plus.dart';
 import '../services/favorites_service.dart';
+import '../widgets/locked_feature_widget.dart'; // Import Lock
 import 'video_player_screen.dart';
 import 'generic_video_player_screen.dart';
 import '../widgets/media/content_viewer.dart';
@@ -13,34 +14,38 @@ class InterestingTopicsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Navigator(
-      onGenerateRoute: (settings) {
-        Widget page;
-        if (settings.name == '/') {
-          page = const TopicsLandingScreen();
-        } else if (settings.name == '/section') {
-          final args = settings.arguments as Map<String, dynamic>;
-          page = SectionDetailScreen(
-            sectionId: args['sectionId'],
-            sectionTitle: args['sectionTitle'],
-            featuredContentId: args['featuredContentId'],
-            allVideos: args['allVideos'],
-            subcategories: args['subcategories'],
-            subcategoryFeaturedContentIds: args['subcategoryFeaturedContentIds'],
-          );
-        } else if (settings.name == '/subcategory') {
-          final args = settings.arguments as Map<String, dynamic>;
-          page = SubcategoryDetailScreen(
-            sectionTitle: args['sectionTitle'],
-            subcategoryTitle: args['subcategoryTitle'],
-            videos: args['videos'],
-            featuredContentId: args['featuredContentId'],
-          );
-        } else {
-          page = const TopicsLandingScreen();
-        }
-        return MaterialPageRoute(builder: (_) => page);
-      },
+    // Lock the Topics Screen
+    return LockedFeatureWidget(
+      featureName: "Interesting Topics",
+      child: Navigator(
+        onGenerateRoute: (settings) {
+          Widget page;
+          if (settings.name == '/') {
+            page = const TopicsLandingScreen();
+          } else if (settings.name == '/section') {
+            final args = settings.arguments as Map<String, dynamic>;
+            page = SectionDetailScreen(
+              sectionId: args['sectionId'],
+              sectionTitle: args['sectionTitle'],
+              featuredContentId: args['featuredContentId'],
+              allVideos: args['allVideos'],
+              subcategories: args['subcategories'],
+              subcategoryFeaturedContentIds: args['subcategoryFeaturedContentIds'],
+            );
+          } else if (settings.name == '/subcategory') {
+            final args = settings.arguments as Map<String, dynamic>;
+            page = SubcategoryDetailScreen(
+              sectionTitle: args['sectionTitle'],
+              subcategoryTitle: args['subcategoryTitle'],
+              videos: args['videos'],
+              featuredContentId: args['featuredContentId'],
+            );
+          } else {
+            page = const TopicsLandingScreen();
+          }
+          return MaterialPageRoute(builder: (_) => page);
+        },
+      ),
     );
   }
 }

@@ -4,6 +4,7 @@ class ContentViewer extends StatelessWidget {
   final String url;
   final bool controls;
   final bool autoPlay;
+  final bool loop;
   final BoxFit fit;
 
   const ContentViewer({
@@ -11,6 +12,7 @@ class ContentViewer extends StatelessWidget {
     required this.url,
     this.controls = true,
     this.autoPlay = false,
+    this.loop = false,
     this.fit = BoxFit.contain,
   });
 

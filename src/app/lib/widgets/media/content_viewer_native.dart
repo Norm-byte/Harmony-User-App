@@ -11,6 +11,7 @@ class ContentViewer extends StatelessWidget {
   final String url;
   final bool controls;
   final bool autoPlay; // Added autoPlay
+  final bool loop; // Added loop
   final BoxFit fit;
 
   const ContentViewer({
@@ -18,6 +19,7 @@ class ContentViewer extends StatelessWidget {
     required this.url,
     this.controls = true,
     this.autoPlay = false,
+    this.loop = false,
     this.fit = BoxFit.contain,
   });
 
@@ -65,7 +67,7 @@ class ContentViewer extends StatelessWidget {
     }
 
     if (isVideo) {
-      return _NativeVideoPlayer(url: url, controls: controls, autoPlay: autoPlay, fit: fit, volume: volume);
+      return _NativeVideoPlayer(url: url, controls: controls, autoPlay: autoPlay, loop: loop, fit: fit, volume: volume);
     } else if (isPdf) {
       return SfPdfViewer.network(
         url,
@@ -224,6 +226,7 @@ class _NativeVideoPlayer extends StatefulWidget {
   final String url;
   final bool controls;
   final bool autoPlay;
+  final bool loop;
   final BoxFit fit;
   final double volume;
 
@@ -231,6 +234,7 @@ class _NativeVideoPlayer extends StatefulWidget {
     required this.url,
     required this.controls,
     required this.autoPlay,
+    required this.loop,
     required this.fit,
     required this.volume,
   });
@@ -265,12 +269,9 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer> {
           _initialized = true;
         });
         _controller!.setVolume(widget.volume);
+        _controller!.setLooping(widget.loop);
         if (widget.autoPlay) {
           _controller!.play();
-          // Ensure looping is explicit if autoPlay is true (for events)
-          _controller!.setLooping(true);
-        } else {
-             _controller!.setLooping(true);
         }
       }
     });

@@ -146,7 +146,7 @@ class EventsScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      if (intentStr != 'Intent' && intentStr.isNotEmpty && descriptionStr.isNotEmpty)
+                      if (intentStr != 'Intent' && intentStr != 'N/A' && intentStr.isNotEmpty && descriptionStr.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 4.0),
                           child: Text(
@@ -161,7 +161,7 @@ class EventsScreen extends StatelessWidget {
                       Text(
                         descriptionStr.isNotEmpty
                             ? descriptionStr
-                            : (intentStr != 'Intent' && intentStr.isNotEmpty ? intentStr : 'Join us for a moment of shared intention...'),
+                            : (intentStr != 'Intent' && intentStr != 'N/A' && intentStr.isNotEmpty ? intentStr : 'Join us for a moment of shared intention...'),
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: 12,
@@ -169,6 +169,20 @@ class EventsScreen extends StatelessWidget {
                         maxLines: 4,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      if (event.type == EventType.global && event.originTime != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.public, color: Colors.white60, size: 12),
+                              const SizedBox(width: 4),
+                              Text(
+                                "Origin: ${event.originTime} (${event.originTime != null ? 'Source' : 'UTC'})",  // Simplified since we don't store TimeZone name in User Model yet
+                                style: const TextStyle(color: Colors.white60, fontSize: 11, fontStyle: FontStyle.italic),
+                              ),
+                            ],
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -190,7 +204,7 @@ class EventsScreen extends StatelessWidget {
                     Expanded(
                       child: _buildStatCard(
                         'Manifesting',
-                        intentStr != 'Intent' && intentStr.isNotEmpty ? intentStr : 'N/A',
+                        intentStr != 'Intent' && intentStr != 'N/A' && intentStr.isNotEmpty ? intentStr : 'Harmony',
                         Icons.trending_up,
                       ),
                     ),
@@ -274,75 +288,133 @@ class EventsScreen extends StatelessWidget {
                           ),
                           const SizedBox(width: 16),
                           Expanded(
-                            child: ElevatedButton(
-                              onPressed: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => IntentSelectionDialog(
-                                    onIntentSelected: (intent) async {
-                                      // Save intent to shared state and register in Firestore
-                                      final result = await Provider.of<EventService>(
-                                        context,
-                                        listen: false, // Don't listen to updates here
-                                      ).joinEvent(
-                                          event.id, 
-                                          event.title, 
-                                          intent, 
-                                          event.type, 
-                                          event.startTime, 
-                                          event.endTime,
-                                          visibilityAfterMinutes: event.visibilityAfterMinutes ?? 0 // Pass visibility param
-                                      );
+                            child: Consumer<EventService>(
+                              builder: (context, eventService, child) {
+                                final userService = Provider.of<UserService>(context, listen: false);
+                                
+                                final isExplicitlyJoined = eventService.myEvents.any((e) {
+                                  if (e['eventId'] != event.id) return false;
+                                  
+                                  if (e['startTime'] != null) {
+                                     DateTime? recordTime;
+                                     if (e['startTime'] is Timestamp) {
+                                        recordTime = (e['startTime'] as Timestamp).toDate();
+                                     } else if (e['startTime'] is String) {
+                                        recordTime = DateTime.tryParse(e['startTime']);
+                                     } else if (e['startTime'] is DateTime) {
+                                        recordTime = e['startTime'];
+                                     }
+                                     
+                                     if (recordTime != null) {
+                                         // Strict UTC check
+                                         final diff = recordTime.toUtc().difference(event.startTime.toUtc()).abs();
+                                         return diff.inMinutes < 2;
+                                     }
+                                  }
+                                  
+                                  // Fallback: If we can't verify time, we MUST assume NOT JOINED for safety against "Green Button" bugs.
+                                  return false;
+                                });
 
-                                      if (context.mounted) {
+                                final isJoined = isExplicitlyJoined || (userService.autoJoinWorldwide && event.type == EventType.global);
+
+                                return ElevatedButton(
+                                  onPressed: isJoined 
+                                      ? () {
                                           ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                result.startsWith('Success') 
-                                                    ? 'Intent set! (Joined)' 
-                                                    : 'Failed: $result',
-                                              ),
-                                              backgroundColor: result.startsWith('Success') ? Colors.green : Colors.red,
-                                              duration: const Duration(seconds: 4), // Longer duration to read
-                                            ),
+                                            SnackBar(content: Text(userService.autoJoinWorldwide ? 'You are auto-joined to this Worldwide Event.' : 'You have already joined this event!'))
                                           );
-                                      }
-                                      
-                                      // BUG FIX: Delay the overlay trigger to allow dialog to close cleanly
-                                      // and prevent "Black Screen" hang.
-                                      await Future.delayed(const Duration(milliseconds: 500));
+                                        }
+                                      : () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (context) => IntentSelectionDialog(
+                                        onIntentSelected: (intent) async {
+                                          // Save intent to shared state and register in Firestore
+                                          final result = await Provider.of<EventService>(
+                                            context,
+                                            listen: false, // Don't listen to updates here
+                                          ).joinEvent(
+                                              event.id, 
+                                              event.title, 
+                                              intent, 
+                                              event.type, 
+                                              event.startTime, 
+                                              event.endTime,
+                                              visibilityAfterMinutes: event.visibilityAfterMinutes ?? 0 // Pass visibility param
+                                          );
 
-                                      if (context.mounted) {
-                                        Provider.of<EventService>(
-                                          context,
-                                          listen: false,
-                                        ).triggerEventFromModel(
-                                          event.title,
-                                          event.description,
-                                          true,
-                                          mediaUrl: event.mediaUrl,
-                                          intent: intent, // Pass user's intent to overlay
-                                        );
-                                      }
-                                    },
+                                          if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    result.startsWith('Success') 
+                                                        ? 'Intent set! (Joined)' 
+                                                        : (result.contains('Already Joined') ? 'You are already joined!' : 'Failed: $result'),
+                                                  ),
+                                                  backgroundColor: result.startsWith('Success') || result.contains('Already Joined') 
+                                                      ? Colors.green 
+                                                      : Colors.red,
+                                                  duration: const Duration(seconds: 4), // Longer duration to read
+                                                ),
+                                              );
+                                          }
+                                          
+                                          // BUG FIX: Delay the overlay trigger to allow dialog to close cleanly
+                                          // and prevent "Black Screen" hang.
+                                          await Future.delayed(const Duration(milliseconds: 500));
+
+                                          if (context.mounted) {
+                                            Provider.of<EventService>(
+                                              context,
+                                              listen: false,
+                                            ).triggerEventFromModel(
+                                              event.title,
+                                              event.description,
+                                              true,
+                                              mediaUrl: event.mediaUrl,
+                                              intent: intent, // Pass user's intent to overlay
+                                            );
+                                          }
+                                        },
+                                      ),
+                                    );
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: isJoined ? Colors.green : Colors.amber.shade800, 
+                                    // FORCE CHECK: If isJoined is true, it is Green. If false, it is Amber/Blue.
+                                    // If the user sees Green, isJoined IS true.
+                                    // Why is isJoined true?
+                                    // 1. myEvents list has a match.
+                                    // 2. The match passes the time check.
+                                    // 3. Or logic is broken.
+                                    
+                                    // I will add a paranoid print here if possible? No.
+                                    // I will tighten the isJoined logic even further above by checking type.
+                                    foregroundColor: isJoined ? Colors.white : Colors.white,
+                                    elevation: 2,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      if (isJoined) const Padding(
+                                        padding: EdgeInsets.only(right: 8.0),
+                                        child: Icon(Icons.check, size: 16),
+                                      ),
+                                      Text(
+                                        isJoined ? 'Joined' : 'Join In',
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
                                   ),
                                 );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.amber,
-                                foregroundColor: Colors.black87,
-                                elevation: 2,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: const Text(
-                                'Join In',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
+                              }
                             ),
                           ),
                         ],
@@ -378,69 +450,108 @@ class EventsScreen extends StatelessWidget {
                       Row(
                         children: [
                           Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => IntentSelectionDialog(
-                                    onIntentSelected: (intent) async {
-                                      // Save intent to shared state and History
-                                      final result = await Provider.of<EventService>(
-                                        context,
-                                        listen: false,
-                                      ).joinEvent(
-                                          event.id, 
-                                          event.title, 
-                                          intent, 
-                                          event.type, 
-                                          event.startTime, 
-                                          event.endTime,
-                                          visibilityAfterMinutes: event.visibilityAfterMinutes ?? 0 // Pass visibility param
-                                      ); 
+                            child: Consumer<EventService>(
+                              builder: (context, eventService, child) {
+                                final isJoined = eventService.myEvents.any((e) {
+                                  if (e['eventId'] != event.id) return false;
+                                  
+                                  // Check start time logic
+                                  if (e['startTime'] != null) {
+                                     DateTime? recordTime;
+                                     if (e['startTime'] is Timestamp) {
+                                        recordTime = (e['startTime'] as Timestamp).toDate();
+                                     } else if (e['startTime'] is String) {
+                                        recordTime = DateTime.tryParse(e['startTime']);
+                                     }
+                                     
+                                     if (recordTime != null) {
+                                        // Allow 1 minute buffer for safety, but essentially checking for same slot
+                                        return recordTime.difference(event.startTime).abs().inMinutes < 2;
+                                     }
+                                  }
+                                  
+                                  // Fallback for Global Events:
+                                  // If startTime is missing in history, it is a legacy/previous slot -> Not Joined
+                                  return false; 
+                                });
 
-                                      if (context.mounted) {
+                                return isJoined
+                                    ? ElevatedButton.icon(
+                                        onPressed: () {
                                           ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                result.startsWith('Success') 
-                                                    ? 'Intent set! (Joined)' 
-                                                    : 'Failed: $result',
-                                              ),
-                                              backgroundColor: result.startsWith('Success') ? Colors.green : Colors.red,
-                                              duration: const Duration(seconds: 4),
+                                            const SnackBar(content: Text('Intent already added! You can edit this in "My Harmony".'))
+                                          );
+                                        },
+                                        icon: const Icon(Icons.check, size: 18),
+                                        label: const Text('Intent Added'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.green.withOpacity(0.8),
+                                          foregroundColor: Colors.white,
+                                          elevation: 2,
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                        ),
+                                      )
+                                    : OutlinedButton.icon(
+                                        onPressed: () {
+                                          showDialog(
+                                            context: context,
+                                            builder: (context) => IntentSelectionDialog(
+                                              onIntentSelected: (intent) async {
+                                                // Save intent to shared state and History
+                                                final result = await Provider.of<EventService>(
+                                                  context,
+                                                  listen: false,
+                                                ).joinEvent(
+                                                    event.id, 
+                                                    event.title, 
+                                                    intent, 
+                                                    event.type, 
+                                                    event.startTime, 
+                                                    event.endTime,
+                                                    visibilityAfterMinutes: event.visibilityAfterMinutes ?? 0 // Pass visibility param
+                                                ); 
+
+                                                if (context.mounted) {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      SnackBar(
+                                                        content: Text(
+                                                          result.startsWith('Success') 
+                                                              ? 'Intent set! (Joined)' 
+                                                              : (result.contains('Already Joined') ? 'You are already joined!' : 'Failed: $result'),
+                                                        ),
+                                                        backgroundColor: result.startsWith('Success') || result.contains('Already Joined') ? Colors.green : Colors.red,
+                                                        duration: const Duration(seconds: 4),
+                                                      ),
+                                                    );
+                                                }
+                                              },
                                             ),
                                           );
-                                      }
-                                    },
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.edit_note, size: 18),
-                              label: const Text('Add Intent'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.amber,
-                                side: const BorderSide(color: Colors.amber),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
+                                        },
+                                        icon: const Icon(Icons.edit_note, size: 18),
+                                        label: const Text('Join my Intent to this event'), 
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.blueAccent, // Changed to Blue as requested ("blue button")
+                                          side: const BorderSide(color: Colors.blueAccent), // Blue border
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 12,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                        ),
+                                      );
+                              }
                             ),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
                             child: TextButton.icon(
                               onPressed: () {
-                                // Mock Invite Functionality
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Invite link copied to clipboard! Share it with your friends.',
-                                    ),
-                                  ),
-                                );
+                                Share.share('Join me for a National Event on Harmony by Intent!');
                               },
                               icon: const Icon(
                                 Icons.share,

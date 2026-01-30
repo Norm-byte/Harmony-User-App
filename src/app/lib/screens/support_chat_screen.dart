@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../widgets/gradient_scaffold.dart';
 import '../services/user_service.dart';
+import '../services/profanity_service.dart';
 
 class SupportChatScreen extends StatefulWidget {
   const SupportChatScreen({super.key});
@@ -18,23 +19,73 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   Future<void> _sendMessage() async {
     final content = _messageController.text.trim();
     if (content.isEmpty) return;
+    
+    // Profanity Check
+    if (ProfanityService().hasProfanity(content)) {
+      // 1. Notify User (Visual Warning)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Profanity detected. Message flagged for review.'),
+          backgroundColor: Colors.orange, // Warning color, not error, as it goes to queue
+        ),
+      );
+      
+      // 2. Clear Input to reset
+      _messageController.clear();
+      
+      // 3. Send to Moderation Queue (Silent Background Operation)
+      final user = UserService();
+      try {
+        await FirebaseFirestore.instance.collection('moderation_queue').add({
+          'content': content,
+          'userId': user.userId,
+          'userName': user.userName,
+          // 'userEmail': user.userEmail, // Removed as not available
+          'source': 'Support Chat',
+          'timestamp': FieldValue.serverTimestamp(),
+          'reason': 'Profanity Detected',
+          'status': 'pending', // pending, resolved, rejected
+        });
+      } catch (e) {
+        // Silent fail
+      }
+      return;
+    }
 
     setState(() => _isSending = true);
 
     try {
       final user = UserService();
-      // Write to users/{uid}/messages
-      await FirebaseFirestore.instance
+      final batch = FirebaseFirestore.instance.batch();
+      
+      // 1. Write to user's private message thread
+      final userMsgRef = FirebaseFirestore.instance
           .collection('users')
           .doc(user.userId)
           .collection('messages')
-          .add({
+          .doc();
+          
+      batch.set(userMsgRef, {
         'content': content,
         'sender': 'user',
         'timestamp': FieldValue.serverTimestamp(),
         'read': false,
-        'title': 'Support Request', // Default title
+        'title': 'Support Request',
       });
+      
+      // 2. Write to Central Support Inbox (For Admin Alerts/Dash)
+      final inboxRef = FirebaseFirestore.instance.collection('support_inbox').doc();
+      batch.set(inboxRef, {
+        'content': content,
+        'userId': user.userId,
+        'userName': user.userName,
+        // 'userEmail': user.userEmail,
+        'timestamp': FieldValue.serverTimestamp(),
+        'read': false,
+        'messageId': userMsgRef.id, // Reference to original
+      });
+      
+      await batch.commit();
 
       _messageController.clear();
     } catch (e) {

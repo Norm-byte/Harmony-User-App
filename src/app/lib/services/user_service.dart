@@ -25,14 +25,17 @@ class UserService extends ChangeNotifier {
   // Settings
   double _eventVolume = 1.0;
   bool _globalPriority = true; // Added for Global Priority
+  bool _autoJoinWorldwide = true; // New Auto-Join setting (Default ON)
 
   double get eventVolume => _eventVolume;
   bool get globalPriority => _globalPriority;
+  bool get autoJoinWorldwide => _autoJoinWorldwide;
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _eventVolume = prefs.getDouble('event_volume') ?? 1.0;
     _globalPriority = prefs.getBool('global_priority') ?? true; // Load priority
+    _autoJoinWorldwide = prefs.getBool('auto_join_worldwide') ?? true; // Load Auto-Join (Default ON)
     
     // Generate a persistent ID for this installation if not found
     if (!prefs.containsKey('user_id')) {
@@ -76,6 +79,7 @@ class UserService extends ChangeNotifier {
         'timeZone': _timeZone,
         'timeZoneOffset': now.timeZoneOffset.inHours,
         'platform': defaultTargetPlatform.toString(),
+        'autoJoinWorldwide': _autoJoinWorldwide,
       }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Error syncing user to Firestore: $e');
@@ -106,6 +110,11 @@ class UserService extends ChangeNotifier {
     await prefs.setBool('global_priority', enabled);
   }
 
-
-  // In a real app, you would have methods to sign in, sign out, etc.
+  Future<void> setAutoJoinWorldwide(bool enabled) async {
+    _autoJoinWorldwide = enabled;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('auto_join_worldwide', enabled);
+    _syncUserToFirestore(); 
+  }
 }

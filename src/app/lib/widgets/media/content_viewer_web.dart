@@ -8,12 +8,16 @@ import 'dart:ui_web' as ui_web;
 class ContentViewer extends StatelessWidget {
   final String url;
   final bool controls;
+  final bool autoPlay;
+  final bool loop;
   final BoxFit fit;
 
   const ContentViewer({
     super.key,
     required this.url,
     this.controls = true,
+    this.autoPlay = false,
+    this.loop = false,
     this.fit = BoxFit.contain,
   });
 
@@ -51,7 +55,7 @@ class ContentViewer extends StatelessWidget {
     if (isYoutube) {
       final videoId = _extractYoutubeId(url);
       // Autoplay enabled (autoplay=1)
-      final embedUrl = 'https://www.youtube.com/embed/$videoId?autoplay=1&rel=0';
+      final embedUrl = 'https://www.youtube.com/embed/$videoId?autoplay=${autoPlay ? 1 : 0}&rel=0';
       final viewId = 'content-viewer-youtube-${url.hashCode}';
       
       // ignore: undefined_prefixed_name
@@ -77,13 +81,14 @@ class ContentViewer extends StatelessWidget {
       ui_web.platformViewRegistry.registerViewFactory(viewId, (int viewId) {
         final video = html.VideoElement()
           ..src = url
-          ..autoplay = false
-          ..loop = false
+          ..autoplay = autoPlay
+          ..loop = loop
           ..controls = controls
           ..style.objectFit = fit == BoxFit.cover ? 'cover' : 'contain'
           ..style.width = '100%'
           ..style.height = '100%';
         video.setAttribute('playsinline', 'true');
+        // video.muted = true; // User needs sound mostly
         return video;
       });
       return Stack(

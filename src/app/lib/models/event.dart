@@ -23,6 +23,7 @@ class Event {
   final String? noticeBoardBgImage; // Specific background for notice board
   final String? noticeBoardBgColor; // Specific background color for notice board
   final bool isPublished; // Added to filter drafts
+  final int? durationSeconds; // Added for guaranteed playback duration
 
   Event({
     required this.id,
@@ -45,6 +46,7 @@ class Event {
     this.noticeBoardBgImage,
     this.noticeBoardBgColor,
     this.isPublished = true,
+    this.durationSeconds,
   });
 
   factory Event.fromJson(Map<String, dynamic> json) {
@@ -66,23 +68,36 @@ class Event {
     }
 
     DateTime end = start.add(const Duration(hours: 1));
+    int? durationSecs; // Store locally to pass to constructor
+
+    // ALWAYS try to parse durationSeconds independent of endTime
+    if (json['durationSeconds'] != null) {
+        durationSecs = json['durationSeconds'] is int 
+            ? json['durationSeconds'] as int 
+            : int.tryParse(json['durationSeconds'].toString());
+        
+        // Safety check: Ensure minimal reasonable duration if present
+        if (durationSecs != null && durationSecs < 1) durationSecs = 1;
+    }
+
     try {
-      if (json['endTime'] != null) {
+      // 1. Duration takes PRIORITY for National Events (Scheduler) per user request.
+      // If we have a duration, End Time = Start + Duration.
+      if (durationSecs != null) {
+         end = start.add(Duration(seconds: durationSecs));
+      } 
+      // 2. Fallback to explicit endTime if no duration provided
+      else if (json['endTime'] != null) {
         if (json['endTime'] is Timestamp) {
           end = (json['endTime'] as Timestamp).toDate();
         } else if (json['endTime'] is String) {
           end = DateTime.parse(json['endTime']);
         }
-      } else if (json['durationSeconds'] != null) {
-        // Calculate endTime from durationSeconds if available
-        int durationSecs = json['durationSeconds'] is int 
-            ? json['durationSeconds'] as int 
-            : int.tryParse(json['durationSeconds'].toString()) ?? 3600;
-        
-        // Safety check: Ensure minimum duration of 5 seconds (was 300)
-        if (durationSecs < 5) durationSecs = 5;
-            
-        end = start.add(Duration(seconds: durationSecs));
+      } else {
+         // 3. Fallback default: 10 seconds. 
+         // Do NOT default to 1 hour or 15 minutes for National Events.
+         durationSecs = 10;
+         end = start.add(const Duration(seconds: 10));
       }
     } catch (e) {
       print("Error parsing endTime for event ${json['id']}: $e");
@@ -96,6 +111,7 @@ class Event {
       description: json['noticeBoardText'] ?? json['description'] ?? '',
       startTime: start,
       endTime: end,
+      durationSeconds: durationSecs, // Explicitly use the calculated/validated integer
       imageUrl: json['visualUrl'] ?? json['imageUrl'] ?? '', // Map visualUrl to imageUrl
       isOnline: json['isOnline'] ?? true,
       type: _parseEventType(json['type']),
@@ -137,6 +153,7 @@ class Event {
       noticeBoardBgImage: noticeBoardBgImage,
       noticeBoardBgColor: noticeBoardBgColor,
       isPublished: isPublished,
+      durationSeconds: durationSeconds,
     );
   }
 
@@ -147,6 +164,7 @@ class Event {
       'description': description,
       'startTime': startTime.toIso8601String(),
       'endTime': endTime.toIso8601String(),
+      'durationSeconds': durationSeconds,
       'imageUrl': imageUrl,
       'isOnline': isOnline,
       'type': type.name, // 'global' or 'national'

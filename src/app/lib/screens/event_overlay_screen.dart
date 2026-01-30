@@ -36,6 +36,7 @@ class EventOverlayScreen extends StatelessWidget {
                     fit: BoxFit.cover,
                     controls: false,
                     autoPlay: true,
+                    loop: true,
                   ),
                 ),
               )

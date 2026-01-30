@@ -11,6 +11,8 @@ import 'services/user_service.dart';
 import 'services/subscription_service.dart';
 import 'services/notification_service.dart';
 import 'services/group_service.dart';
+import 'services/usage_service.dart';
+import 'services/profanity_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +27,7 @@ void main() async {
     // Initialize Services
     await SubscriptionService().init();
     await NotificationService().init();
+    await ProfanityService().init();
   } catch (e) {
     print("HARMONY_APP_FIREBASE_ERROR: $e");
   }
@@ -36,6 +39,10 @@ void main() async {
         ChangeNotifierProvider(create: (_) => FavoritesService()),
         ChangeNotifierProvider(create: (_) => UserService()),
         ChangeNotifierProvider(create: (_) => SubscriptionService()),
+        ChangeNotifierProxyProvider<SubscriptionService, UsageService>(
+           create: (context) => UsageService(context.read<SubscriptionService>()),
+           update: (context, subscription, previous) => UsageService(subscription),
+        ),
         ChangeNotifierProvider(create: (_) => GroupService(), lazy: false),
       ],
       child: const HarmonyUserApp(),

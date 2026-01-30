@@ -45,13 +45,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
 
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              // Force a rebuild to try fetching again
-              setState(() {});
-            },
-          ),
           if (widget.isSuperAdmin)
             Container(
               margin: const EdgeInsets.only(right: 16),
@@ -103,7 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.chat),
-            label: 'Chat',
+            label: 'Community',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.lightbulb_outline),

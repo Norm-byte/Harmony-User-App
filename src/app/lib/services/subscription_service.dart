@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SubscriptionService extends ChangeNotifier {
   static final SubscriptionService _instance = SubscriptionService._internal();
@@ -11,7 +13,17 @@ class SubscriptionService extends ChangeNotifier {
   SubscriptionService._internal();
 
   bool _isSubscribed = false;
-  bool get isSubscribed => _isSubscribed;
+  bool _isVipOverride = false; // Add VIP Override
+
+  bool get isSubscribed {
+    return _isSubscribed || _isVipOverride; 
+  }
+
+  // Prevent disposal of the singleton instance
+  @override
+  void dispose() {
+    // Do nothing. This is a singleton.
+  }
 
   CustomerInfo? _customerInfo;
   CustomerInfo? get customerInfo => _customerInfo;
@@ -26,6 +38,16 @@ class SubscriptionService extends ChangeNotifier {
   Future<void> init() async {
     await Purchases.setLogLevel(LogLevel.debug);
 
+    // Resume VIP status
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _isVipOverride = prefs.getBool('is_vip_override') ?? false;
+      debugPrint("HARMONY_VIP_INIT: Loaded VIP Status from Disk: $_isVipOverride");
+    } catch (e) {
+      debugPrint("HARMONY_VIP_ERROR: Could not load prefs: $e");
+    }
+    notifyListeners();
+    
     PurchasesConfiguration configuration;
     if (Platform.isAndroid) {
       configuration = PurchasesConfiguration(_apiKey);
@@ -50,6 +72,26 @@ class SubscriptionService extends ChangeNotifier {
     }
   }
 
+  Future<void> setVipStatus(bool status) async {
+    debugPrint("HARMONY_VIP_SET: Setting VIP status to $status");
+    _isVipOverride = status;
+    notifyListeners();
+    
+    // Persist
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_vip_override', status);
+      debugPrint("HARMONY_VIP_SAVED: VIP status saved to disk.");
+    } catch (e) {
+      debugPrint("HARMONY_VIP_SAVE_ERROR: $e");
+    }
+
+    // Re-sync with correct status
+    if (_customerInfo != null) {
+       _syncBillingStatus(_customerInfo!);
+    }
+  }
+
   Future<void> _checkSubscriptionStatus() async {
     try {
       _customerInfo = await Purchases.getCustomerInfo();
@@ -66,7 +108,31 @@ class SubscriptionService extends ChangeNotifier {
     final entitlement = customerInfo.entitlements.all[_entitlementId];
     _isSubscribed = entitlement?.isActive ?? false;
     
+    // Sync critical billing info to Firestore for Admin Visibility
+    _syncBillingStatus(customerInfo);
+
     notifyListeners();
+  }
+
+  Future<void> _syncBillingStatus(CustomerInfo info) async {
+    try {
+      final entitlement = info.entitlements.all[_entitlementId];
+      final willRenew = entitlement?.willRenew ?? false;
+      final expirationDate = entitlement?.expirationDate;
+      
+      final userId = info.originalAppUserId;
+      if (userId.isNotEmpty) {
+          await FirebaseFirestore.instance.collection('users').doc(userId).set({
+            'willRenew': _isVipOverride ? true : willRenew, // VIP always renews
+            'subscriptionPlan': (_isSubscribed || _isVipOverride) ? 'Premium' : 'Free', // True status
+            'renewalDate': _isVipOverride ? DateTime.now().add(const Duration(days: 3650)) : expirationDate, // VIP = 10 years
+            'status': (_isSubscribed || _isVipOverride) ? 'active' : 'trial', // Simplified status logic
+            'isVip': _isVipOverride,
+          }, SetOptions(merge: true));
+      }
+    } catch (e) {
+      debugPrint("Error syncing billing status: $e");
+    }
   }
 
   Future<void> _fetchOfferings() async {
@@ -86,9 +152,7 @@ class SubscriptionService extends ChangeNotifier {
 
   Future<bool> purchasePackage(Package package) async {
     try {
-      // purchasePackage returns PurchaseResult in newer versions, which wraps customerInfo
       var result = await Purchases.purchasePackage(package);
-      // We access the customerInfo property from the result
       _updateSubscriptionStatus(result.customerInfo);
       return _isSubscribed;
     } on PlatformException catch (e) {
@@ -111,26 +175,20 @@ class SubscriptionService extends ChangeNotifier {
     }
   }
   
-  /// Presents the Paywall to the user. 
-  /// Returns [true] if the user purchased or restored a subscription (is subscribed).
-  /// Returns [false] if they closed the paywall without subscribing.
   Future<bool> showPaywall() async {
     try {
-      // Ensure offerings are loaded
       if (_offerings == null || _offerings!.current == null) {
          debugPrint("HARMONY_RC: Offerings missing, fetching now...");
          await _fetchOfferings();
       }
       
       if (_offerings?.current == null) {
-        // Throwing here allows the UI to catch it and show a SnackBar
         throw PlatformException(
           code: 'NO_OFFERINGS', 
           message: 'No subscription offerings found. Please check configuration.'
         );
       }
 
-      // Check for available packages in the current offering
       if (_offerings!.current!.availablePackages.isEmpty) {
          throw PlatformException(
           code: 'NO_PACKAGES', 
@@ -138,7 +196,6 @@ class SubscriptionService extends ChangeNotifier {
         );
       }
       
-      // Explicitly pass the offering to ensure the UI knows what to show
       final paywallResult = await RevenueCatUI.presentPaywall(
         offering: _offerings!.current
       );
@@ -152,12 +209,10 @@ class SubscriptionService extends ChangeNotifier {
       
     } catch (e) {
       debugPrint("Error displaying paywall: $e");
-      // Rethrow so the UI knows something went wrong
       rethrow;
     }
   }
 
-  /// Presents the Customer Center
   Future<void> showCustomerCenter() async {
     try {
        await RevenueCatUI.presentCustomerCenter();
