@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'legal_document_screen.dart';
+import '../services/user_service.dart';
 
 class PersonalInformationScreen extends StatefulWidget {
   const PersonalInformationScreen({super.key});
@@ -10,10 +13,9 @@ class PersonalInformationScreen extends StatefulWidget {
 }
 
 class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
-  bool _autoSubscribe = true;
-
   @override
   Widget build(BuildContext context) {
+    final userService = context.watch<UserService>();
     return GradientScaffold(
       appBar: AppBar(
         title: const Text('Personal Information'),
@@ -41,44 +43,18 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           _buildSettingsTile(
             icon: Icons.badge_outlined,
             title: 'Profile Information',
-            subtitle: 'Name, Location, Timezone',
+            subtitle: '${userService.userName} • ${userService.timeZone}',
             onTap: () {},
           ),
           _buildSettingsTile(
             icon: Icons.email_outlined,
             title: 'Email Address',
-            subtitle: 'user@example.com',
+            subtitle: FirebaseAuth.instance.currentUser?.email ?? 'Not available',
             onTap: () {
               // Edit Email
             },
           ),
-          _buildSettingsTile(
-            icon: Icons.account_balance_outlined,
-            title: 'Bank Details',
-            subtitle: 'Manage payment methods',
-            onTap: () {
-              // Edit Bank Details
-            },
-          ),
-
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(vertical: 8),
-            leading: const Icon(Icons.subscriptions_outlined, color: Colors.white70),
-            title: const Text('Auto-Subscribe', style: TextStyle(color: Colors.white)),
-            subtitle: const Text('Automatically renew subscription payment', style: TextStyle(color: Colors.white54)),
-            trailing: Transform.scale(
-              scale: 0.8,
-              child: Switch(
-                value: _autoSubscribe,
-                onChanged: (val) => setState(() => _autoSubscribe = val),
-                activeThumbColor: Colors.white,
-                activeTrackColor: Colors.white24,
-                inactiveThumbColor: Colors.white54,
-                inactiveTrackColor: Colors.white10,
-              ),
-            ),
-            onTap: () => setState(() => _autoSubscribe = !_autoSubscribe),
-          ),
+          // Bank Details and Auto-Subscribe removed for compliance
 
           const Padding(
             padding: EdgeInsets.only(left: 16, top: 0),

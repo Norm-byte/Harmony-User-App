@@ -73,8 +73,8 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
         'title': 'Support Request',
       });
       
-      // 2. Write to Central Support Inbox (For Admin Alerts/Dash)
-      final inboxRef = FirebaseFirestore.instance.collection('support_inbox').doc();
+      // 2. Write to Central Support Inbox (Upsert: One entry per user = Threaded View)
+      final inboxRef = FirebaseFirestore.instance.collection('support_inbox').doc(user.userId);
       batch.set(inboxRef, {
         'content': content,
         'userId': user.userId,
@@ -82,8 +82,8 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
         // 'userEmail': user.userEmail,
         'timestamp': FieldValue.serverTimestamp(),
         'read': false,
-        'messageId': userMsgRef.id, // Reference to original
-      });
+        'messageId': userMsgRef.id, // Reference to latest message
+      }, SetOptions(merge: true));
       
       await batch.commit();
 
