@@ -42,12 +42,18 @@ class _SignUpScreenState extends State<SignUpScreen> {
         final type = vipData['type'] ?? 'beta_tester';
         
         // Both types bypass subscription now (Privileged Access)
+        // BUG FIX: Don't use code as username.
         if (mounted) {
-          _completeSignUp(
-            isSuperAdmin: type == 'super_admin', 
-            username: potentialCode, // Use the standardized uppercase code as username 
-            bypassSubscription: true 
-          );
+           // Use Full Name as the display username if they used a VIP Code
+           // This protects the code from being displayed in Chat
+           final fullName = _nameController.text.trim();
+           
+           _completeSignUp(
+             isSuperAdmin: type == 'super_admin',
+             username: potentialCode, // ID remains the code (for login)
+             displayName: fullName.isNotEmpty ? fullName : "VIP Member", // Display Name
+             bypassSubscription: true
+           );
         }
         return;
       } else {
@@ -69,12 +75,23 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
     // Complete Sign Up -> Go to Subscription
     if (mounted) {
-      _completeSignUp(isSuperAdmin: false, username: inputUsername, bypassSubscription: false);
+      _completeSignUp(
+        isSuperAdmin: false, 
+        username: inputUsername, 
+        displayName: inputUsername, // Standard user: Username is Display Name
+        bypassSubscription: false
+      );
     }
   }
 
-  void _completeSignUp({required bool isSuperAdmin, required String username, required bool bypassSubscription}) {
-    UserService().setUser(username, username);
+  void _completeSignUp({
+    required bool isSuperAdmin, 
+    required String username, 
+    required String displayName,
+    required bool bypassSubscription
+  }) {
+    // Set ID (username variable) and Display Name separately
+    UserService().setUser(username, displayName);
 
     if (bypassSubscription) {
       // CRITICAL: Tell SubscriptionService we are VIP!
@@ -102,45 +119,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     }
   }
 
-  Future<void> _showPublicUsernameDialog() async {
-    final publicUsernameController = TextEditingController();
-    return showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('VIP Code Accepted'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Please choose your public username for the app:'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: publicUsernameController,
-              decoration: const InputDecoration(
-                labelText: 'Public Username',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              if (publicUsernameController.text.isNotEmpty) {
-                Navigator.pop(context);
-                _completeSignUp(
-                  isSuperAdmin: false, 
-                  username: publicUsernameController.text.trim(),
-                  bypassSubscription: false,
-                );
-              }
-            },
-            child: const Text('Continue'),
-          ),
-        ],
-      ),
-    );
-  }
+  // _showPublicUsernameDialog removed (Logic simplified to use Full Name)
 
   @override
   Widget build(BuildContext context) {

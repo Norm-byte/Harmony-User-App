@@ -18,6 +18,8 @@ class SubscriptionService extends ChangeNotifier {
   bool get isSubscribed {
     return _isSubscribed || _isVipOverride; 
   }
+  
+  bool get isVip => _isVipOverride; // Expose VIP status
 
   // Prevent disposal of the singleton instance
   @override
@@ -99,6 +101,11 @@ class SubscriptionService extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error checking subscription status: $e');
     }
+  }
+
+  // Public wrapper to force refresh
+  Future<void> refreshSubscriptionStatus() async {
+    await _checkSubscriptionStatus();
   }
 
   void _updateSubscriptionStatus(CustomerInfo? customerInfo) {

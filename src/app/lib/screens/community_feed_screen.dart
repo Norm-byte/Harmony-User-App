@@ -34,38 +34,56 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
   
   // Daily Message Limit State
   int _messagesRemaining = 0;
-  // final int _maxDailyMessages = 50; // REMOVED: Using UsageService
+  UsageService? _usageService;
 
   @override
   void initState() {
     super.initState();
-    _loadDailyLimit();
   }
 
-  Future<void> _loadDailyLimit() async {
-    // Fetch Dynamic Limit
-    final int dynamicLimit = context.read<UsageService>().maxMonthlySends; // Using Monthly as Daily for this screen/demo or rename variable?
-    // NOTE: The UI says "Daily", but admin model says "MonthlySends". 
-    // For v2 simplicity, let's treat the Admin's "Max Monthly Sends" as the "Daily Limit" for Chat 
-    // OR we rename it. Let's assume the user meant "Max Messages" period. 
-    // For now, I will use the value from UsageService.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final newService = context.read<UsageService>();
+    if (_usageService != newService) {
+      _usageService?.removeListener(_calculateRemaining);
+      _usageService = newService;
+      _usageService?.addListener(_calculateRemaining);
+      _calculateRemaining();
+    }
+  }
 
+  @override
+  void dispose() {
+    _usageService?.removeListener(_calculateRemaining);
+    _postController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _calculateRemaining() async {
+    if (!mounted) return;
     final prefs = await SharedPreferences.getInstance();
+    
+    // Check for new day reset
     final lastResetStr = prefs.getString('chat_daily_limit_date');
     final todayStr = DateTime.now().toIso8601String().split('T').first;
 
     if (lastResetStr != todayStr) {
-      // New day, reset
-      setState(() {
-        _messagesRemaining = dynamicLimit;
-      });
+      await prefs.setInt('chat_messages_sent_today', 0);
       await prefs.setString('chat_daily_limit_date', todayStr);
-      await prefs.setInt('chat_messages_remaining', dynamicLimit);
-    } else {
-      setState(() {
-        _messagesRemaining = prefs.getInt('chat_messages_remaining') ?? dynamicLimit;
-      });
+      await prefs.remove('chat_messages_remaining'); // Cleanup legacy
+    } else if (prefs.containsKey('chat_messages_remaining') && !prefs.containsKey('chat_messages_sent_today')) {
+       // Migration: Reset to 0 sent
+       await prefs.setInt('chat_messages_sent_today', 0);
+       await prefs.remove('chat_messages_remaining');
     }
+
+    final int sentToday = prefs.getInt('chat_messages_sent_today') ?? 0;
+    final int limit = _usageService?.maxDailySends ?? 5;
+
+    setState(() {
+      _messagesRemaining = (limit - sentToday).clamp(0, 9999);
+    });
   }
   Future<void> _toggleLike(String docId, List<dynamic> likedBy) async {
     final uid = UserService().userId;
@@ -87,10 +105,10 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
   }
   Future<void> _decrementMessageLimit() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _messagesRemaining--;
-    });
-    await prefs.setInt('chat_messages_remaining', _messagesRemaining);
+    int sent = prefs.getInt('chat_messages_sent_today') ?? 0;
+    sent++;
+    await prefs.setInt('chat_messages_sent_today', sent);
+    _calculateRemaining();
   }
 
   Future<void> _submitPost() async {
@@ -377,10 +395,10 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                     margin: const EdgeInsets.only(right: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: _messagesRemaining <= 10 ? Colors.red.withOpacity(0.2) : Colors.white.withOpacity(0.1),
+                      color: _messagesRemaining <= 3 ? Colors.red.withOpacity(0.2) : Colors.white.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: _messagesRemaining <= 10 ? Colors.red.withOpacity(0.5) : Colors.white24,
+                        color: _messagesRemaining <= 3 ? Colors.red.withOpacity(0.5) : Colors.white24,
                       ),
                     ),
                     child: Row(
@@ -388,13 +406,13 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                         Icon(
                           Icons.bolt, 
                           size: 14, 
-                          color: _messagesRemaining <= 10 ? Colors.redAccent : Colors.amber
+                          color: _messagesRemaining <= 3 ? Colors.redAccent : Colors.amber
                         ),
                         const SizedBox(width: 4),
                         Text(
                           '$_messagesRemaining',
                           style: TextStyle(
-                            color: _messagesRemaining <= 10 ? Colors.redAccent : Colors.white70,
+                            color: _messagesRemaining <= 3 ? Colors.redAccent : Colors.white70,
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),

@@ -145,7 +145,8 @@ class EventsScreen extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
+                      // Intent (Orange)
                       if (intentStr != 'Intent' && intentStr != 'N/A' && intentStr.isNotEmpty && descriptionStr.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 4.0),
@@ -158,17 +159,33 @@ class EventsScreen extends StatelessWidget {
                             ),
                           ),
                         ),
-                      Text(
-                        descriptionStr.isNotEmpty
-                            ? descriptionStr
-                            : (intentStr != 'Intent' && intentStr != 'N/A' && intentStr.isNotEmpty ? intentStr : 'Join us for a moment of shared intention...'),
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.8),
-                          fontSize: 12,
+                      // Description (White)
+                      if (descriptionStr.isNotEmpty)
+                         Text(
+                          descriptionStr,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.95), // Brighter white for better visibility
+                            fontSize: 13,
+                            height: 1.3,
+                          ),
+                          maxLines: 6, // Increased lines
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      else if (intentStr != 'Intent' && intentStr != 'N/A' && intentStr.isNotEmpty)
+                        // Fallback to Intent if no description
+                         Text(
+                          intentStr,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 12,
+                          ),
+                        )
+                      else 
+                         Text(
+                          'Join us for a moment of shared intention...', 
+                          style: TextStyle(color: Colors.white.withOpacity(0.6), fontStyle: FontStyle.italic, fontSize: 12)
                         ),
-                        maxLines: 4,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                        
                       if (event.type == EventType.global && event.originTime != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 8.0),

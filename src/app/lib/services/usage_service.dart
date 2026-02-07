@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'subscription_service.dart';
@@ -5,91 +6,116 @@ import 'subscription_service.dart';
 class UsageService extends ChangeNotifier {
   final SubscriptionService _subscriptionService;
   
-  // Default Limits (Free Tier)
-  static const int _defaultMaxMonthlySends = 50;
+  // Default Limits (Fallback)
+  static const int _defaultMaxDailySends = 5;
   static const int _defaultMaxActiveForums = 2;
   static const int _defaultMaxMediaStorageMb = 100;
   static const bool _defaultAllowVideoUploads = false;
 
-  int _maxMonthlySends = _defaultMaxMonthlySends;
+  int _maxDailySends = _defaultMaxDailySends;
   int _maxActiveForums = _defaultMaxActiveForums;
   int _maxMediaStorageMb = _defaultMaxMediaStorageMb;
   bool _allowVideoUploads = _defaultAllowVideoUploads;
+
+  StreamSubscription? _tiersSubscription;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _latestDocs = [];
 
   UsageService(this._subscriptionService) {
     _init();
   }
 
-  int get maxMonthlySends => _maxMonthlySends;
+  int get maxDailySends => _maxDailySends;
   int get maxActiveForums => _maxActiveForums;
   int get maxMediaStorageMb => _maxMediaStorageMb;
   bool get allowVideoUploads => _allowVideoUploads;
 
-  void _init() {
-    _subscriptionService.addListener(_updateLimits);
-    _updateLimits(); // Initial check
+  @override
+  void dispose() {
+    _tiersSubscription?.cancel();
+    _subscriptionService.removeListener(_evaluateLimits);
+    super.dispose();
   }
 
-  Future<void> _updateLimits() async {
-    // 1. If not subscribed, use defaults
-    if (!_subscriptionService.isSubscribed) {
-      _setDefaults();
-      return;
-    }
-
-    // 2. If subscribed, find the matching offer in Firestore
-    final customerInfo = _subscriptionService.customerInfo;
-    if (customerInfo == null) {
-      _setDefaults();
-      return;
-    }
+  void _init() {
+    _subscriptionService.addListener(_evaluateLimits);
     
-    // Check active entitlements to find the product/offering ID
-    // Note: This logic depends on how RevenueCat maps entitlements.
-    // simpler approach: fetch ALL active offers from Firestore and match against entitlements
+    // Listen to real-time changes in Product Tiers
+    _tiersSubscription = FirebaseFirestore.instance
+        .collection('product_tiers')
+        .snapshots()
+        .listen((snapshot) {
+      _latestDocs = snapshot.docs;
+      _evaluateLimits();
+    }, onError: (e) {
+      debugPrint("Error listening to product_tiers: $e");
+    });
+  }
+
+  void _evaluateLimits() {
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('monetization_offers')
-          .where('isActive', isEqualTo: true)
-          .get();
+      if (_latestDocs.isEmpty) {
+        // If we haven't received data yet, we might want to wait or keep defaults.
+        // But usually snapshots emit immediately.
+        // We can just return and wait for the first snapshot.
+        // Or check if we should fetch once? The listener handles it.
+        return;
+      }
 
-      bool foundMatch = false;
+      // Convert to map for lookup
+      final tierDocs = { for (var doc in _latestDocs) doc.id : doc.data() };
+      
+      Map<String, dynamic> limitsToApply = {};
+      bool limitsFound = false;
 
-      // Iterate through our defined offers to see if the user has a matching active entitlement
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final rcOfferingId = data['revenueCatOfferingId'] as String?;
+      // Logic to determine which Tier applies
+      if (!_subscriptionService.isSubscribed) {
+        // CASE A: User is NOT subscribed -> Use 'tier_free' configuration
+        if (tierDocs.containsKey('tier_free')) {
+          limitsToApply = tierDocs['tier_free']?['limits'] ?? {};
+          limitsFound = true;
+        }
+      } else {
+        // CASE B: User IS subscribed -> Find matching Tier based on RevenueCat Offering ID
+        final customerInfo = _subscriptionService.customerInfo;
         
-        // We assume the Entitlement ID or Product Identifier might match or be related.
-        // For simplicity in this v2 phase, we'll assume if they have ANY active entitlement
-        // and we find a matching limit config for "Standard" or "Premium", we use it.
-        // A more robust way is to store the 'tier' in the User object or check specific entitlement names.
-        
-        // CHECK: Does the user have an entitlement that matches this offer's logic?
-        // For now, we will perform a simple check: 
-        // If the user is subscribed, we look for the "Premium" offer in Firestore.
-        if (rcOfferingId != null && customerInfo.entitlements.all[rcOfferingId]?.isActive == true) {
-             _applyLimitsFromMap(data['limits'] ?? {});
-             foundMatch = true;
-             break;
+        if (customerInfo != null) {
+          // Iterate through current docs
+          for (var doc in _latestDocs) {
+            final data = doc.data();
+            final rcOfferingId = data['revenueCatOfferingId'] as String?;
+            
+            if (rcOfferingId != null && 
+                rcOfferingId.isNotEmpty && 
+                customerInfo.entitlements.all[rcOfferingId]?.isActive == true) {
+              
+              limitsToApply = data['limits'] ?? {};
+              limitsFound = true;
+              break; 
+            }
+          }
+        }
+
+        // Fallback: If subscribed but no RC match found
+        if (!limitsFound && tierDocs.containsKey('tier_free')) {
+           limitsToApply = tierDocs['tier_free']?['limits'] ?? {};
+           limitsFound = true;
         }
       }
 
-      // Fallback: If subscribed but no specific match found (e.g. legacy), apply a generous default?
-      // Or just keep free tier? Let's keep free tier to be safe, or a "Generic Premium" if you prefer.
-      if (!foundMatch) {
-         // Try to find a 'default' premium offer or just stick to defaults
-         _setDefaults(); 
+      if (limitsFound) {
+        _applyLimitsFromMap(limitsToApply);
+      } else {
+        _setDefaults();
       }
 
     } catch (e) {
-      debugPrint("Error fetching usage limits: $e");
+      debugPrint("Error evaluating usage limits: $e");
       _setDefaults();
     }
   }
 
   void _setDefaults() {
-    _maxMonthlySends = _defaultMaxMonthlySends;
+    _maxDailySends = _defaultMaxDailySends;
     _maxActiveForums = _defaultMaxActiveForums;
     _maxMediaStorageMb = _defaultMaxMediaStorageMb;
     _allowVideoUploads = _defaultAllowVideoUploads;
@@ -97,10 +123,35 @@ class UsageService extends ChangeNotifier {
   }
 
   void _applyLimitsFromMap(Map<String, dynamic> limits) {
-    _maxMonthlySends = limits['maxMonthlySends'] ?? _defaultMaxMonthlySends;
-    _maxActiveForums = limits['maxActiveForums'] ?? _defaultMaxActiveForums;
+    // Prefer 'maxDailySends', support legacy 'maxMonthlySends'
+    int newMaxDailySends = _defaultMaxDailySends;
+
+    if (limits.containsKey('maxDailySends')) {
+      newMaxDailySends = limits['maxDailySends'] as int;
+    } else if (limits.containsKey('maxMonthlySends')) {
+       newMaxDailySends = (limits['maxMonthlySends'] as int) ~/ 30; 
+    }
+
+    // Only notify if something changed
+    bool changed = false;
+    if (_maxDailySends != newMaxDailySends) {
+      _maxDailySends = newMaxDailySends;
+      changed = true;
+    }
+    
+    if (limits.containsKey('maxActiveForums') && _maxActiveForums != limits['maxActiveForums']) {
+      _maxActiveForums = limits['maxActiveForums'];
+      changed = true;
+    }
+    
+    // ... ignoring others for brevity unless easy
+    // Actually better to just set them and let notifyListeners handle it (if we optimized)
+    // But basic check is fine.
+    
     _maxMediaStorageMb = limits['maxMediaStorageMb'] ?? _defaultMaxMediaStorageMb;
     _allowVideoUploads = limits['allowVideoUploads'] ?? _defaultAllowVideoUploads;
+    
+    // Always notify if we are reapplying limits, UI might need refresh
     notifyListeners();
   }
 }

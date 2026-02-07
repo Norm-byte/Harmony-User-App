@@ -110,7 +110,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                   ),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.white54),
                   onTap: () async {
-                     // 1. Show Loading Indicator
+                     // 1. Show Loading Answer
                      showDialog(
                        context: context,
                        barrierDismissible: false,
@@ -118,11 +118,61 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                      );
 
                      try {
-                       if (isSubscribed) {
-                         if (context.mounted) Navigator.pop(context);
-                         await subscriptionService.showCustomerCenter();
+                        // Check VIP
+                        if (subscriptionService.isVip) {
+                            if (context.mounted) Navigator.pop(context);
+                            showDialog(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                backgroundColor: const Color(0xFF2A2A2A),
+                                title: const Text('VIP Member', style: TextStyle(color: Colors.amber)),
+                                content: const Text('You have full access via VIP Override.', style: TextStyle(color: Colors.white)),
+                                actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                              )
+                            );
+                            return;
+                        }
+
+                       // Refresh
+                       await subscriptionService.refreshSubscriptionStatus();
+
+                       if (subscriptionService.isSubscribed) {
+                          // Subscribed: Offer Choice (Fix for 'Expired' confusion)
+                          if (context.mounted) Navigator.pop(context); // Close Loader
+                          
+                          showModalBottomSheet(
+                            context: context, 
+                            backgroundColor: const Color(0xFF2A2A2A),
+                            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+                            builder: (context) => SafeArea(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  ListTile(
+                                    leading: const Icon(Icons.settings, color: Colors.white),
+                                    title: const Text('Manage Subscription', style: TextStyle(color: Colors.white)),
+                                    subtitle: const Text('View details, cancel, or restore', style: TextStyle(color: Colors.white70)),
+                                    onTap: () {
+                                      Navigator.pop(context);
+                                      subscriptionService.showCustomerCenter();
+                                    },
+                                  ),
+                                  ListTile(
+                                    leading: const Icon(Icons.star, color: Colors.amber),
+                                    title: const Text('View Plans & Renew', style: TextStyle(color: Colors.white)),
+                                    subtitle: const Text('See available plans and pricing', style: TextStyle(color: Colors.white70)),
+                                    onTap: () {
+                                      Navigator.pop(context);
+                                      subscriptionService.showPaywall();
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                              ),
+                            )
+                          );
                        } else {
-                         // 2. Attempt to show Paywall
+                         // 2. Not Subscribed -> Show Paywall directly
                          await subscriptionService.showPaywall();
                          
                          // 3. Remove Loader

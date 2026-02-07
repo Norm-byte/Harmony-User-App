@@ -7,6 +7,7 @@ import '../services/favorites_service.dart';
 import '../services/group_service.dart';
 import '../services/event_service.dart';
 import '../services/user_service.dart';
+import '../services/subscription_service.dart';
 import '../widgets/favorite_item_card.dart';
 import 'category_favorites_screen.dart';
 import 'chat_screen.dart';
@@ -607,41 +608,206 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               ),
 
               // 2. Settings Tab (Technical/Personal)
-              ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                   ListTile(
-                     leading: const Icon(Icons.email, color: Colors.white),
-                     title: const Text('Email', style: TextStyle(color: Colors.white)),
-                     subtitle: const Text('user@example.com', style: TextStyle(color: Colors.white54)),
-                     trailing: const Icon(Icons.edit, color: Colors.white54, size: 16),
-                     onTap: () {},
-                   ),
-                   const Divider(color: Colors.white12),
-                   ListTile(
-                     leading: const Icon(Icons.lock, color: Colors.white),
-                     title: const Text('Change Password', style: TextStyle(color: Colors.white)),
-                     trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
-                     onTap: () {},
-                   ),
-                   const Divider(color: Colors.white12),
-                   ListTile(
-                     leading: const Icon(Icons.notifications, color: Colors.white),
-                     title: const Text('Notifications', style: TextStyle(color: Colors.white)),
-                     trailing: Switch(value: true, onChanged: (val){}, activeColor: Colors.amber),
-                   ),
-                   const Divider(color: Colors.white12),
-                   ListTile(
-                     leading: const Icon(Icons.logout, color: Colors.redAccent),
-                     title: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
-                     onTap: () {},
-                   ),
-                ],
+              Consumer2<UserService, SubscriptionService>(
+                builder: (context, userService, subscriptionService, _) {
+                  return ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                       ListTile(
+                         leading: const Icon(Icons.stars, color: Colors.amber),
+                         title: Text(subscriptionService.isSubscribed ? 'Manage Subscription' : 'Subscribe to Premium', style: const TextStyle(color: Colors.white)), 
+                         subtitle: Text(subscriptionService.isSubscribed ? 'Active Plan' : 'Unlock full potential', style: const TextStyle(color: Colors.white54)),
+                         trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
+                         onTap: () async {
+                              // loading
+                              showDialog(
+                                context: context,
+                                barrierDismissible: false,
+                                builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.amber)),
+                              );
+
+                              try {
+                                // 1. Check if VIP (Local Override) - Do NOT show Customer Center
+                                if (subscriptionService.isVip) {
+                                  if (context.mounted) Navigator.pop(context); // Close loader
+                                  showDialog(
+                                    context: context,
+                                    builder: (_) => AlertDialog(
+                                      backgroundColor: const Color(0xFF2A2A2A),
+                                      title: const Text('VIP Member', style: TextStyle(color: Colors.amber)),
+                                      content: const Text(
+                                        'You have full access via VIP Override.\n\nNo subscription management is needed.',
+                                        style: TextStyle(color: Colors.white),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(context),
+                                          child: const Text('OK', style: TextStyle(color: Colors.amber)),
+                                        )
+                                      ],
+                                    )
+                                  );
+                                  return;
+                                }
+
+                                // 2. Refresh Status from RevenueCat
+                                await subscriptionService.refreshSubscriptionStatus();
+
+                                // 3. Decide: Customer Center OR Paywall
+                                // We check 'isSubscribed' again after refresh.
+                                // NOTE: We specifically check the underlying Real Subscription status if needed, 
+                                // but 'isSubscribed' covers both. Since we handled isVip above, 
+                                // isSubscribed here implies Real Subscription.
+                                
+                                if (subscriptionService.isSubscribed) {
+                                  if (context.mounted) Navigator.pop(context); // Close loader
+                                  await subscriptionService.showCustomerCenter();
+                                } else {
+                                  await subscriptionService.showPaywall();
+                                  if (context.mounted) Navigator.pop(context); // Close loader (paywall handles its own dismissal)
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  Navigator.pop(context);
+                                  // Fallback: If network fails, offer Paywall anyway? No, show error.
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+                                }
+                              }
+                         },
+                       ),
+                       const Divider(color: Colors.white12),
+                       ListTile(
+                         leading: const Icon(Icons.email, color: Colors.white),
+                         title: const Text('Email', style: TextStyle(color: Colors.white)),
+                         subtitle: const Text('Managed by App Store', style: TextStyle(color: Colors.white54)), // Since simulated
+                         trailing: const Icon(Icons.edit_off, color: Colors.white54, size: 16),
+                         onTap: () {
+                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account managed by device ID for privacy')));
+                         },
+                       ),
+                       const Divider(color: Colors.white12),
+                       ListTile(
+                         leading: const Icon(Icons.lock, color: Colors.white),
+                         title: const Text('Change Password', style: TextStyle(color: Colors.white)),
+                         trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
+                         onTap: () => _showChangePasswordDialog(context),
+                       ),
+                       const Divider(color: Colors.white12),
+                       ListTile(
+                         leading: const Icon(Icons.notifications, color: Colors.white),
+                         title: const Text('Notifications', style: TextStyle(color: Colors.white)),
+                         trailing: Switch(
+                           value: userService.globalPriority, // Mapping to Global Priority for now
+                           onChanged: (val) => userService.setGlobalPriority(val),
+                           activeColor: Colors.amber,
+                         ),
+                       ),
+                       const Divider(color: Colors.white12),
+                       ListTile(
+                         leading: const Icon(Icons.logout, color: Colors.redAccent),
+                         title: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
+                         onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are signed in anonymously on this device.')));
+                         },
+                       ),
+                    ],
+                  );
+                }
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  void _showChangePasswordDialog(BuildContext context) {
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('Change Password', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Enter your new password below.',
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: newPasswordController,
+              obscureText: true,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'New Password',
+                labelStyle: TextStyle(color: Colors.white60),
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: confirmPasswordController,
+              obscureText: true,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Confirm Password',
+                labelStyle: TextStyle(color: Colors.white60),
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          TextButton(
+            child: const Text('Update', style: TextStyle(color: Colors.amber)),
+            onPressed: () async {
+              if (newPasswordController.text != confirmPasswordController.text) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Passwords do not match')),
+                );
+                return;
+              }
+              if (newPasswordController.text.length < 6) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Password must be at least 6 characters')),
+                );
+                return;
+              }
+
+              Navigator.pop(context); // Close input dialog
+
+              // Show loading
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.amber)),
+              );
+
+              // Simulate network delay
+              await Future.delayed(const Duration(seconds: 2));
+
+              if (context.mounted) {
+                Navigator.pop(context); // Close loading
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Password updated successfully')),
+                );
+
+                // Touch the backend
+                final userService = Provider.of<UserService>(context, listen: false);
+                await userService.setUser(userService.userId, userService.userName);
+              }
+            },
+          ),
+        ],
+      ),
     );
   }
 

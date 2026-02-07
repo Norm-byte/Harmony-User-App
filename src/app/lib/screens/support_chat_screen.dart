@@ -131,7 +131,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                     child: Padding(
                       padding: const EdgeInsets.all(32.0),
                       child: Text(
-                        'How can we help you today? Send us a message.',
+                        'Support Chat\n\nHow can we help you today? Send us a message.',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 16),
                       ),
