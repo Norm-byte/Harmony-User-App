@@ -255,11 +255,30 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer> {
 
   Future<void> _initializePlayer() async {
     try {
-      // CACHE STRATEGY: Check disk cache first, download if needed.
-      final file = await DefaultCacheManager().getSingleFile(widget.url);
-      _controller = VideoPlayerController.file(file);
+      // CACHE STRATEGY IMPROVED (v4+): 
+      // 1. Check if file exists in cache WITHOUT blocking for download.
+      // 2. If cached -> Play file (Instant).
+      // 3. If NOT cached -> Stream from Network (Instant Start) while caching in background.
+      
+      final fileInfo = await DefaultCacheManager().getFileFromCache(widget.url);
+      
+      if (fileInfo != null && await fileInfo.file.exists()) {
+         debugPrint("Playing from local cache: ${widget.url}");
+         _controller = VideoPlayerController.file(fileInfo.file);
+      } else {
+         debugPrint("File not in cache. Streaming network URL for immediate playback: ${widget.url}");
+         _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+         
+         // Verify connection/validity implicitly by letting initialize() run below.
+         // Trigger background download for next time (Fire and Forget)
+         DefaultCacheManager().downloadFile(widget.url).then((_) {
+            debugPrint("Background download complete for: ${widget.url}");
+         }).catchError((e) {
+            debugPrint("Background download failed (non-fatal): $e");
+         });
+      }
     } catch (e) {
-      debugPrint("Streaming fallback due to cache error: $e");
+      debugPrint("Player init error: $e. Fallback to network stream.");
       _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
     }
 

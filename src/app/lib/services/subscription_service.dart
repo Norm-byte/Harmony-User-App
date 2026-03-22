@@ -34,8 +34,9 @@ class SubscriptionService extends ChangeNotifier {
   Offerings? get offerings => _offerings;
 
   // Configuration
-  final String _apiKey = 'test_VNgSNIfuNujYsdVozVnbGQaadOn'; 
-  final String _entitlementId = 'Harmony by Intent Pro';
+  final String _apiKey = 'goog_ObzZGAhZOHyXwpOTXHfBhTWBvuo'; 
+  final String _starterEntitlement = 'starter_access';
+  final String _unlimitedEntitlement = 'unlimited_access';
 
   Future<void> init() async {
     await Purchases.setLogLevel(LogLevel.debug);
@@ -44,6 +45,24 @@ class SubscriptionService extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       _isVipOverride = prefs.getBool('is_vip_override') ?? false;
+      
+      // SYNC: Check Firestore for latest status (Remote Revoke/Grant)
+      try {
+         final userId = await Purchases.appUserID; 
+         if (userId.isNotEmpty) {
+             final doc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+             if (doc.exists) {
+                final remoteVip = doc.data()?['isVip'] as bool?;
+                if (remoteVip != null && remoteVip != _isVipOverride) {
+                   debugPrint("HARMONY_VIP_SYNC: Updating local VIP to $remoteVip from Firestore");
+                   setVipStatus(remoteVip);
+                }
+             }
+         }
+      } catch (e) {
+         debugPrint("HARMONY_VIP_SYNC_ERROR: $e");
+      }
+      
       debugPrint("HARMONY_VIP_INIT: Loaded VIP Status from Disk: $_isVipOverride");
     } catch (e) {
       debugPrint("HARMONY_VIP_ERROR: Could not load prefs: $e");
@@ -112,8 +131,10 @@ class SubscriptionService extends ChangeNotifier {
     if (customerInfo == null) return;
     _customerInfo = customerInfo;
     
-    final entitlement = customerInfo.entitlements.all[_entitlementId];
-    _isSubscribed = entitlement?.isActive ?? false;
+    final starter = customerInfo.entitlements.all[_starterEntitlement];
+    final unlimited = customerInfo.entitlements.all[_unlimitedEntitlement];
+    
+    _isSubscribed = (starter?.isActive ?? false) || (unlimited?.isActive ?? false);
     
     // Sync critical billing info to Firestore for Admin Visibility
     _syncBillingStatus(customerInfo);
@@ -123,15 +144,26 @@ class SubscriptionService extends ChangeNotifier {
 
   Future<void> _syncBillingStatus(CustomerInfo info) async {
     try {
-      final entitlement = info.entitlements.all[_entitlementId];
-      final willRenew = entitlement?.willRenew ?? false;
-      final expirationDate = entitlement?.expirationDate;
+      // Determine active plan
+      EntitlementInfo? activeEntitlement;
+      String planName = 'Free';
+      
+      if (info.entitlements.all[_unlimitedEntitlement]?.isActive == true) {
+        activeEntitlement = info.entitlements.all[_unlimitedEntitlement];
+        planName = 'Harmony 100';
+      } else if (info.entitlements.all[_starterEntitlement]?.isActive == true) {
+        activeEntitlement = info.entitlements.all[_starterEntitlement];
+        planName = 'Starter';
+      }
+      
+      final willRenew = activeEntitlement?.willRenew ?? false;
+      final expirationDate = activeEntitlement?.expirationDate;
       
       final userId = info.originalAppUserId;
       if (userId.isNotEmpty) {
           await FirebaseFirestore.instance.collection('users').doc(userId).set({
             'willRenew': _isVipOverride ? true : willRenew, // VIP always renews
-            'subscriptionPlan': (_isSubscribed || _isVipOverride) ? 'Premium' : 'Free', // True status
+            'subscriptionPlan': (_isSubscribed || _isVipOverride) ? (_isVipOverride ? 'VIP' : planName) : 'Free', // True status
             'renewalDate': _isVipOverride ? DateTime.now().add(const Duration(days: 3650)) : expirationDate, // VIP = 10 years
             'status': (_isSubscribed || _isVipOverride) ? 'active' : 'trial', // Simplified status logic
             'isVip': _isVipOverride,

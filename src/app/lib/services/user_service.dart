@@ -27,15 +27,19 @@ class UserService extends ChangeNotifier {
   bool _globalPriority = true; // Added for Global Priority
   bool _autoJoinWorldwide = true; // New Auto-Join setting (Default ON)
 
+  List<String> _blockedUsers = []; // Local block list
+
   double get eventVolume => _eventVolume;
   bool get globalPriority => _globalPriority;
   bool get autoJoinWorldwide => _autoJoinWorldwide;
+  List<String> get blockedUsers => _blockedUsers;
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _eventVolume = prefs.getDouble('event_volume') ?? 1.0;
     _globalPriority = prefs.getBool('global_priority') ?? true; // Load priority
     _autoJoinWorldwide = prefs.getBool('auto_join_worldwide') ?? true; // Load Auto-Join (Default ON)
+    _blockedUsers = prefs.getStringList('blocked_users') ?? [];
     
     // Generate a persistent ID for this installation if not found
     if (!prefs.containsKey('user_id')) {
@@ -116,5 +120,32 @@ class UserService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('auto_join_worldwide', enabled);
     _syncUserToFirestore(); 
+  }
+
+  Future<void> blockUser(String userId) async {
+    if (!_blockedUsers.contains(userId)) {
+      _blockedUsers.add(userId);
+      notifyListeners();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('blocked_users', _blockedUsers);
+      debugPrint("HARMONY_BLOCK: Blocked user $userId");
+    }
+  }
+
+  Future<void> reportContent(String reportedUserId, String content, String reason, String context) async {
+    try {
+      await FirebaseFirestore.instance.collection('moderation_queue').add({
+        'reporterId': _userId,
+        'reportedUserId': reportedUserId,
+        'content': content,
+        'reason': reason,
+        'context': context, // e.g., "Chat Room (Event X)"
+        'timestamp': FieldValue.serverTimestamp(),
+        'status': 'pending',
+      });
+      debugPrint("HARMONY_REPORT: Report sent successfully.");
+    } catch (e) {
+      debugPrint("HARMONY_REPORT_ERROR: $e");
+    }
   }
 }

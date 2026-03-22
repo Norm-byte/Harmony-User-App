@@ -419,7 +419,11 @@ class _ChatScreenState extends State<ChatScreen> {
                    if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.white)));
                    if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Colors.white));
                    
-                   final docs = snapshot.data!.docs;
+                   final docs = snapshot.data!.docs.where((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final senderId = data['userId'] ?? '';
+                      return !UserService().blockedUsers.contains(senderId);
+                   }).toList();
                    
                    return ListView.builder(
                      reverse: true, // Chat usually bottom-up
@@ -430,6 +434,7 @@ class _ChatScreenState extends State<ChatScreen> {
                        final isMe = data['sender'] == 'Me' || (data['isMe'] == true) || (data['userId'] == UserService().userId); 
                        final text = data['text'] ?? '';
                        final sender = data['sender'] ?? 'User';
+                       final senderId = data['userId'] ?? '';
                        final likedBy = List<String>.from(data['likedBy'] ?? []);
                        final dislikedBy = List<String>.from(data['dislikedBy'] ?? []);
                        final likes = data['likes'] ?? 0;
@@ -454,13 +459,46 @@ class _ChatScreenState extends State<ChatScreen> {
                              crossAxisAlignment: CrossAxisAlignment.start,
                              children: [
                                if (!isMe)
-                                 Text(
-                                   sender,
-                                   style: const TextStyle(
-                                     fontSize: 12,
-                                     fontWeight: FontWeight.bold,
-                                     color: Colors.amber, 
-                                   ),
+                                 Row(
+                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                   children: [
+                                     Text(
+                                       sender,
+                                       style: const TextStyle(
+                                         fontSize: 12,
+                                         fontWeight: FontWeight.bold,
+                                         color: Colors.amber, 
+                                       ),
+                                     ),
+                                     PopupMenuButton<String>(
+                                        icon: const Icon(Icons.more_vert, size: 16, color: Colors.white54),
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(maxHeight: 100),
+                                        color: const Color(0xFF2A2A2A),
+                                        onSelected: (value) async {
+                                          if (value == 'report') {
+                                             await UserService().reportContent(senderId, text, 'User Reported', widget.eventTitle);
+                                             if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report sent to moderation.')));
+                                          } else if (value == 'block') {
+                                             await UserService().blockUser(senderId);
+                                             if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User blocked.')));
+                                             setState(() {}); // Refresh list
+                                          }
+                                        },
+                                        itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                                          const PopupMenuItem<String>(
+                                            value: 'report',
+                                            height: 32,
+                                            child: Text('Report', style: TextStyle(color: Colors.white, fontSize: 12)),
+                                          ),
+                                          const PopupMenuItem<String>(
+                                            value: 'block',
+                                            height: 32,
+                                            child: Text('Block User', style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+                                          ),
+                                        ],
+                                      ),
+                                   ],
                                  ),
                                if (!isMe) const SizedBox(height: 4),
                                Text(
@@ -487,16 +525,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                               child: Text('$likes', style: const TextStyle(fontSize: 10, color: Colors.white54)),
                                             ),
                                         ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    // Thumbs Down
-                                    InkWell(
-                                      onTap: () => _toggleLike(docId, likedBy, dislikedBy, false),
-                                      child: Icon(
-                                        dislikedBy.contains(UserService().userId) ? Icons.thumb_down : Icons.thumb_down_outlined, 
-                                        size: 14, 
-                                        color: dislikedBy.contains(UserService().userId) ? Colors.redAccent : Colors.white38
                                       ),
                                     ),
                                   ],
