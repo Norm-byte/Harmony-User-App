@@ -265,7 +265,14 @@ class EventService extends ChangeNotifier {
           Event displayEvent = event;
 
           if (event.type == EventType.national) {
+            // Fix: Use the event's actual date (for standard events) unless it is 'Daily' recurrence
+            DateTime baseDate = event.startTime;
             final localNow = DateTime.now();
+            
+            if (event.recurrenceType == 'Daily') {
+               baseDate = localNow;
+            }
+
             int hour = event.startTime.hour;
             int minute = event.startTime.minute;
 
@@ -278,9 +285,9 @@ class EventService extends ChangeNotifier {
             }
 
             DateTime localStart = DateTime(
-              localNow.year,
-              localNow.month, 
-              localNow.day,
+              baseDate.year,
+              baseDate.month, 
+              baseDate.day,
               hour,
               minute
             );
