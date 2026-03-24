@@ -305,15 +305,17 @@ class EventService extends ChangeNotifier {
             DateTime localEnd = localStart.add(duration);
 
             
-            // Fix for Weekly Events appearing in the past or disappearing
-            // We need to advance 'localStart' to be >= (now - visibilityAfter)
-            // Or just >= now?
+            // Fix: Check if event is in the past, accounting for 'showBeforeMinutes'
+            // If the event ended in the past, but we are within the 'Show Before' window of the NEXT occurrence, advance.
+            // But if we are within the 'Show Before' window of THIS occurrence (even if 'isBefore(localNow)' was false), show it.
             
-            // Actually, we should just let _getNextOccurrence handle everything for 'Weekly' 
-            // instead of this custom block, but this block is specifically for 'National' events logic override.
+            // Wait, localEnd.isBefore(localNow) means the event has ENDED.
+            // If it ended, we should look for the NEXT one.
+            // BUT, what if we have visibilityAfterMinutes?
+            // If localEnd is before now, but now < localEnd + visibilityAfter, we should still show THIS one.
             
-            
-            if (localEnd.isBefore(localNow) && (event.recurrenceType == 'Daily' || event.recurrenceType == 'Weekly')) {
+            final visibilityAfter = Duration(minutes: event.visibilityAfterMinutes ?? 0);
+            if (localEnd.add(visibilityAfter).isBefore(localNow) && (event.recurrenceType == 'Daily' || event.recurrenceType == 'Weekly')) {
                if (event.recurrenceType == 'Daily') {
                   localStart = localStart.add(const Duration(days: 1));
                   localEnd = localStart.add(duration);
