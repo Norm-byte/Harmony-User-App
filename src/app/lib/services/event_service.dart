@@ -271,6 +271,15 @@ class EventService extends ChangeNotifier {
             
             if (event.recurrenceType == 'Daily') {
                baseDate = localNow;
+            } else if (event.recurrenceType == 'Weekly') {
+               // Fix: If weekly, we must ensure baseDate has the correct weekday
+               // But be careful not to override standard events
+               // Let's find the most recent occurrence of this weekday
+               // This prevents "5 notice boards" by normalizing to *one* date
+               
+               // Find the difference in days to align back to this week
+               // int dayDiff = localNow.weekday - baseDate.weekday;
+               // baseDate = localNow.subtract(Duration(days: dayDiff));
             }
 
             int hour = event.startTime.hour;
@@ -295,10 +304,25 @@ class EventService extends ChangeNotifier {
             final duration = event.endTime.difference(event.startTime);
             DateTime localEnd = localStart.add(duration);
 
+            
+            // Fix for Weekly Events appearing in the past or disappearing
+            // We need to advance 'localStart' to be >= (now - visibilityAfter)
+            // Or just >= now?
+            
+            // Actually, we should just let _getNextOccurrence handle everything for 'Weekly' 
+            // instead of this custom block, but this block is specifically for 'National' events logic override.
+            
+            
             if (localEnd.isBefore(localNow) && (event.recurrenceType == 'Daily' || event.recurrenceType == 'Weekly')) {
                if (event.recurrenceType == 'Daily') {
                   localStart = localStart.add(const Duration(days: 1));
                   localEnd = localStart.add(duration);
+               } else if (event.recurrenceType == 'Weekly') {
+                  // Keep adding 7 days until we are in the future (or present)
+                  while (localEnd.isBefore(localNow)) {
+                     localStart = localStart.add(const Duration(days: 7));
+                     localEnd = localStart.add(duration);
+                  }
                }
             }
 
