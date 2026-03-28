@@ -1,9 +1,8 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../services/user_service.dart';
 import '../services/subscription_service.dart';
+import '../services/notification_service.dart';
 import 'personal_information_screen.dart';
 import 'support_chat_screen.dart';
 import 'subscription_screen.dart'; // Ensure this matches what we have
@@ -17,56 +16,12 @@ class AppSettingsScreen extends StatefulWidget {
 }
 
 class _AppSettingsScreenState extends State<AppSettingsScreen> {
-  // Chime settings state
-  // bool _worldwideEventsEnabled = true; // Removed local state
-  // Representations: 
-  // _hourlyChimes[hour][0] = :00
-  // _hourlyChimes[hour][1] = :15
-  // _hourlyChimes[hour][2] = :30
-  // _hourlyChimes[hour][3] = :45
-  late List<List<bool>> _hourlyChimes;
   late PageController _chimePageController;
-  bool _isLoadingChimes = true;
 
   @override
   void initState() {
     super.initState();
     _chimePageController = PageController(viewportFraction: 0.9);
-    // Initialize with default (all on)
-    _hourlyChimes = List.generate(24, (_) => [true, true, true, true]);
-    _loadChimeSettings();
-  }
-
-  Future<void> _loadChimeSettings() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final String? savedChimes = prefs.getString('hourly_chimes_matrix');
-      
-      if (savedChimes != null) {
-        final List<dynamic> decoded = jsonDecode(savedChimes);
-        setState(() {
-          _hourlyChimes = decoded.map<List<bool>>((row) {
-            return (row as List).map<bool>((val) => val as bool).toList();
-          }).toList();
-          _isLoadingChimes = false;
-        });
-      } else {
-        if (mounted) setState(() => _isLoadingChimes = false);
-      }
-    } catch (e) {
-      debugPrint("Error loading chimes: $e");
-      if (mounted) setState(() => _isLoadingChimes = false);
-    }
-  }
-
-  Future<void> _saveChimeSettings() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final String encoded = jsonEncode(_hourlyChimes);
-      await prefs.setString('hourly_chimes_matrix', encoded);
-    } catch (e) {
-      debugPrint("Error saving chimes: $e");
-    }
   }
 
   @override
@@ -97,113 +52,169 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
               return Card(
                 elevation: 2,
                 color: Colors.white.withOpacity(0.1),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 child: ListTile(
                   leading: const Icon(Icons.stars, color: Colors.amber),
                   title: Text(
-                    isSubscribed ? 'Manage Subscription' : 'Upgrade to Harmony Pro', 
-                    style: const TextStyle(color: Colors.white)
+                    isSubscribed
+                        ? 'Manage Subscription'
+                        : 'Upgrade to Harmony Pro',
+                    style: const TextStyle(color: Colors.white),
                   ),
                   subtitle: Text(
-                    isSubscribed ? 'Manage your plan and billing' : 'Unlock detailed stats and more', 
-                    style: const TextStyle(color: Colors.white70)
+                    isSubscribed
+                        ? 'Manage your plan and billing'
+                        : 'Unlock detailed stats and more',
+                    style: const TextStyle(color: Colors.white70),
                   ),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.white54),
+                  trailing: const Icon(
+                    Icons.arrow_forward_ios,
+                    size: 16,
+                    color: Colors.white54,
+                  ),
                   onTap: () async {
-                     // 1. Show Loading Answer
-                     showDialog(
-                       context: context,
-                       barrierDismissible: false,
-                       builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.amber)),
-                     );
+                    // 1. Show Loading Answer
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => const Center(
+                        child: CircularProgressIndicator(color: Colors.amber),
+                      ),
+                    );
 
-                     try {
-                        // Check VIP
-                        if (subscriptionService.isVip) {
-                            if (context.mounted) Navigator.pop(context);
-                            showDialog(
-                              context: context,
-                              builder: (_) => AlertDialog(
-                                backgroundColor: const Color(0xFF2A2A2A),
-                                title: const Text('VIP Member', style: TextStyle(color: Colors.amber)),
-                                content: const Text('You have full access via VIP Override.', style: TextStyle(color: Colors.white)),
-                                actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
-                              )
-                            );
-                            return;
-                        }
-
-                       // Refresh
-                       await subscriptionService.refreshSubscriptionStatus();
-
-                       if (subscriptionService.isSubscribed) {
-                          // Subscribed: Offer Choice (Fix for 'Expired' confusion)
-                          if (context.mounted) Navigator.pop(context); // Close Loader
-                          
-                          showModalBottomSheet(
-                            context: context, 
+                    try {
+                      // Check VIP
+                      if (subscriptionService.isVip) {
+                        if (context.mounted) Navigator.pop(context);
+                        showDialog(
+                          context: context,
+                          builder: (_) => AlertDialog(
                             backgroundColor: const Color(0xFF2A2A2A),
-                            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-                            builder: (context) => SafeArea(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  ListTile(
-                                    leading: const Icon(Icons.settings, color: Colors.white),
-                                    title: const Text('Manage Subscription', style: TextStyle(color: Colors.white)),
-                                    subtitle: const Text('View details, cancel, or restore', style: TextStyle(color: Colors.white70)),
-                                    onTap: () {
-                                      Navigator.pop(context);
-                                      subscriptionService.showCustomerCenter();
-                                    },
-                                  ),
-                                  ListTile(
-                                    leading: const Icon(Icons.star, color: Colors.amber),
-                                    title: const Text('View Plans & Renew', style: TextStyle(color: Colors.white)),
-                                    subtitle: const Text('See available plans and pricing', style: TextStyle(color: Colors.white70)),
-                                    onTap: () {
-                                      Navigator.pop(context);
-                                      subscriptionService.showPaywall();
-                                    },
-                                  ),
-                                  const SizedBox(height: 12),
-                                ],
+                            title: const Text(
+                              'VIP Member',
+                              style: TextStyle(color: Colors.amber),
+                            ),
+                            content: const Text(
+                              'You have full access via VIP Override.',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('OK'),
                               ),
-                            )
-                          );
-                       } else {
-                         // 2. Not Subscribed -> Show Paywall directly
-                         await subscriptionService.showPaywall();
-                         
-                         // 3. Remove Loader
-                         if (context.mounted) Navigator.pop(context);
-                       }
-                     } catch (e) {
-                       // 4. Handle Errors with a Popup
-                       if (context.mounted) {
-                         Navigator.pop(context); // Remove loader
-                         showDialog(
-                           context: context,
-                           builder: (context) => AlertDialog(
-                             title: const Text("Connection Issue"),
-                             content: Text("Details: $e\n\nPlease check your internet connection."),
-                             backgroundColor: Colors.grey[900],
-                             titleTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                             contentTextStyle: const TextStyle(color: Colors.white70),
-                             actions: [
-                               TextButton(
-                                 onPressed: () => Navigator.pop(context),
-                                 child: const Text("OK", style: TextStyle(color: Colors.amber)),
-                               )
-                             ],
-                           ),
-                         );
-                       }
-                     }
-                   },
+                            ],
+                          ),
+                        );
+                        return;
+                      }
+
+                      // Refresh
+                      await subscriptionService.refreshSubscriptionStatus();
+
+                      if (subscriptionService.isSubscribed) {
+                        // Subscribed: Offer Choice (Fix for 'Expired' confusion)
+                        if (context.mounted)
+                          Navigator.pop(context); // Close Loader
+
+                        showModalBottomSheet(
+                          context: context,
+                          backgroundColor: const Color(0xFF2A2A2A),
+                          shape: const RoundedRectangleBorder(
+                            borderRadius: BorderRadius.vertical(
+                              top: Radius.circular(20),
+                            ),
+                          ),
+                          builder: (context) => SafeArea(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ListTile(
+                                  leading: const Icon(
+                                    Icons.settings,
+                                    color: Colors.white,
+                                  ),
+                                  title: const Text(
+                                    'Manage Subscription',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                  subtitle: const Text(
+                                    'View details, cancel, or restore',
+                                    style: TextStyle(color: Colors.white70),
+                                  ),
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    subscriptionService.showCustomerCenter();
+                                  },
+                                ),
+                                ListTile(
+                                  leading: const Icon(
+                                    Icons.star,
+                                    color: Colors.amber,
+                                  ),
+                                  title: const Text(
+                                    'View Plans & Renew',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                  subtitle: const Text(
+                                    'See available plans and pricing',
+                                    style: TextStyle(color: Colors.white70),
+                                  ),
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    subscriptionService.showPaywall();
+                                  },
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                            ),
+                          ),
+                        );
+                      } else {
+                        // 2. Not Subscribed -> Show Paywall directly
+                        await subscriptionService.showPaywall();
+
+                        // 3. Remove Loader
+                        if (context.mounted) Navigator.pop(context);
+                      }
+                    } catch (e) {
+                      // 4. Handle Errors with a Popup
+                      if (context.mounted) {
+                        Navigator.pop(context); // Remove loader
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text("Connection Issue"),
+                            content: Text(
+                              "Details: $e\n\nPlease check your internet connection.",
+                            ),
+                            backgroundColor: Colors.grey[900],
+                            titleTextStyle: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            contentTextStyle: const TextStyle(
+                              color: Colors.white70,
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text(
+                                  "OK",
+                                  style: TextStyle(color: Colors.amber),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+                    }
+                  },
                 ),
               );
-            }
+            },
           ),
           const SizedBox(height: 24),
 
@@ -216,7 +227,9 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const PersonalInformationScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const PersonalInformationScreen(),
+                ),
               );
             },
           ),
@@ -225,23 +238,42 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           // Chime Settings
           _buildSectionHeader('Chime Configuration'),
           SwitchListTile(
-            title: const Text('Global Priority', style: TextStyle(color: Colors.white)),
-            subtitle: const Text('Prioritize worldwide events over local chimes', style: TextStyle(color: Colors.white70)),
+            title: const Text(
+              'Global Priority',
+              style: TextStyle(color: Colors.white),
+            ),
+            subtitle: const Text(
+              'Prioritize worldwide events over local chimes',
+              style: TextStyle(color: Colors.white70),
+            ),
             value: userService.globalPriority, // Use UserService
-            onChanged: (val) => userService.setGlobalPriority(val), // Update UserService
+            onChanged: (val) =>
+                userService.setGlobalPriority(val), // Update UserService
             secondary: const Icon(Icons.public, color: Colors.white70),
             activeColor: Colors.amber,
             contentPadding: EdgeInsets.zero,
           ),
           SwitchListTile(
-            title: const Text('Auto-Join Worldwide Events', style: TextStyle(color: Colors.white)),
-            subtitle: const Text('Automatically participate in global events (Members Only)', style: TextStyle(color: Colors.white70)),
-            value: userService.autoJoinWorldwide, 
+            title: const Text(
+              'Auto-Join Worldwide Events',
+              style: TextStyle(color: Colors.white),
+            ),
+            subtitle: const Text(
+              'Automatically participate in global events (Members Only)',
+              style: TextStyle(color: Colors.white70),
+            ),
+            value: userService.autoJoinWorldwide,
             onChanged: (val) {
-                 userService.setAutoJoinWorldwide(val);
-                 if (val) {
-                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Auto-Join Enabled: You will automatically join all worldwide events.')));
-                 }
+              userService.setAutoJoinWorldwide(val);
+              if (val) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Auto-Join Enabled: You will automatically join all worldwide events.',
+                    ),
+                  ),
+                );
+              }
             },
             secondary: const Icon(Icons.autorenew, color: Colors.white70),
             activeColor: Colors.amber,
@@ -250,15 +282,64 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(
-              userService.eventVolume == 0 ? Icons.volume_off : Icons.volume_up, 
-              color: Colors.white70
+              userService.eventVolume == 0 ? Icons.volume_off : Icons.volume_up,
+              color: Colors.white70,
             ),
-            title: const Text('Event Volume', style: TextStyle(color: Colors.white)),
+            title: const Text(
+              'Event Volume',
+              style: TextStyle(color: Colors.white),
+            ),
             subtitle: Slider(
               value: userService.eventVolume,
               onChanged: (val) => userService.setEventVolume(val),
               activeColor: Colors.amber,
               inactiveColor: Colors.white24,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            elevation: 2,
+            color: Colors.white.withOpacity(0.1),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SwitchListTile(
+                    title: const Text(
+                      'Dormant Device Override',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    subtitle: const Text(
+                      'Keep Harmony Chimes active whilst your phone is idle.',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    value: userService.dormantPlaybackEnabled,
+                    onChanged: (value) async {
+                      await userService.setDormantPlaybackEnabled(value);
+                      if (!mounted) return;
+                      if (value) {
+                        _showDormantPlaybackSetup(context, userService);
+                      }
+                    },
+                    activeColor: Colors.amber,
+                    contentPadding: EdgeInsets.zero,
+                    secondary: const Icon(
+                      Icons.bedtime_outlined,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Build marker: 28 Mar 00:05',
+                    style: TextStyle(color: Colors.white38, fontSize: 11),
+                  ),
+
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -268,6 +349,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           ),
           const SizedBox(height: 8),
           _build24HourChimeSelector(),
+          const SizedBox(height: 10),
+          _buildChimeLegend(),
           const SizedBox(height: 24),
 
           // Community & Support
@@ -279,11 +362,13 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const SupportChatScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const SupportChatScreen(),
+                ),
               );
             },
           ),
-          
+
           const SizedBox(height: 32),
           OutlinedButton(
             onPressed: () {
@@ -334,7 +419,11 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
         leading: Icon(icon, color: Colors.white70),
         title: Text(title, style: const TextStyle(color: Colors.white)),
         subtitle: Text(subtitle, style: const TextStyle(color: Colors.white54)),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.white54),
+        trailing: const Icon(
+          Icons.arrow_forward_ios,
+          size: 16,
+          color: Colors.white54,
+        ),
         onTap: onTap,
       ),
     );
@@ -342,12 +431,15 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
 
   Widget _build24HourChimeSelector() {
     return SizedBox(
-      height: 220, 
+      height: 220,
       child: PageView.builder(
         controller: _chimePageController,
         itemCount: 24,
         itemBuilder: (context, hourIndex) {
-          final hour = hourIndex == 0 ? 12 : (hourIndex > 12 ? hourIndex - 12 : hourIndex);
+          final userService = context.watch<UserService>();
+          final hour = hourIndex == 0
+              ? 12
+              : (hourIndex > 12 ? hourIndex - 12 : hourIndex);
           final period = hourIndex < 12 ? 'AM' : 'PM';
           final timeLabel = '$hour:00 $period';
 
@@ -377,16 +469,16 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          _buildChimeSlot(hourIndex, 0, ':00'),
-                          _buildChimeSlot(hourIndex, 1, ':15'),
+                          _buildChimeSlot(userService, hourIndex, 0, ':00'),
+                          _buildChimeSlot(userService, hourIndex, 1, ':15'),
                         ],
                       ),
                       const SizedBox(height: 16),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          _buildChimeSlot(hourIndex, 2, ':30'),
-                          _buildChimeSlot(hourIndex, 3, ':45'),
+                          _buildChimeSlot(userService, hourIndex, 2, ':30'),
+                          _buildChimeSlot(userService, hourIndex, 3, ':45'),
                         ],
                       ),
                     ],
@@ -400,9 +492,13 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     );
   }
 
-  Widget _buildChimeSlot(int hourIndex, int slotIndex, String label) {
-    // If loading, disable interaction slightly or just show default
-    if (_isLoadingChimes) {
+  Widget _buildChimeSlot(
+    UserService userService,
+    int hourIndex,
+    int slotIndex,
+    String label,
+  ) {
+    if (!userService.settingsLoaded) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
@@ -412,33 +508,177 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
         child: Text(label, style: const TextStyle(color: Colors.white24)),
       );
     }
-    
-    final isSelected = _hourlyChimes[hourIndex][slotIndex];
+
+    final state = userService.getChimeSlotState(hourIndex, slotIndex);
+    // 0 = video (indigo), 1 = audio (amber), 2 = off (grey)
+    final Color bgColor;
+    final Color borderColor;
+    final Color textColor;
+    final IconData? icon;
+
+    switch (state) {
+      case 1:
+        bgColor = Colors.amber;
+        borderColor = Colors.amber;
+        textColor = Colors.black87;
+        icon = Icons.volume_up_rounded;
+        break;
+      case 2:
+        bgColor = Colors.white.withOpacity(0.04);
+        borderColor = Colors.white.withOpacity(0.08);
+        textColor = Colors.white30;
+        icon = null;
+        break;
+      default: // 0 = video
+        bgColor = Colors.indigoAccent;
+        borderColor = Colors.indigoAccent;
+        textColor = Colors.white;
+        icon = Icons.play_circle_filled_rounded;
+    }
+
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          _hourlyChimes[hourIndex][slotIndex] = !isSelected;
-        });
-        _saveChimeSettings();
-      },
+      onTap: () => userService.cycleChimeSlot(hourIndex, slotIndex),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.indigoAccent : Colors.white.withOpacity(0.05),
+          color: bgColor,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isSelected ? Colors.indigoAccent : Colors.white.withOpacity(0.1),
-          ),
+          border: Border.all(color: borderColor),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.white54,
-            fontWeight: FontWeight.bold,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[Icon(icon, size: 13, color: textColor), const SizedBox(width: 4)],
+            Text(
+              label,
+              style: TextStyle(
+                color: textColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+              ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _buildChimeLegend() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        children: [
+          _legendChip(Colors.indigoAccent, Icons.play_circle_filled_rounded),
+          const SizedBox(width: 4),
+          const Text('Video', style: TextStyle(color: Colors.white70, fontSize: 11)),
+          const SizedBox(width: 14),
+          _legendChip(Colors.amber, Icons.volume_up_rounded),
+          const SizedBox(width: 4),
+          const Text('Audio', style: TextStyle(color: Colors.white70, fontSize: 11)),
+          const SizedBox(width: 14),
+          _legendChip(Colors.white24, null),
+          const SizedBox(width: 4),
+          const Text('Off  —  tap to cycle', style: TextStyle(color: Colors.white54, fontSize: 11)),
+        ],
+      ),
+    );
+  }
+
+  Widget _legendChip(Color color, IconData? icon) {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: icon != null ? Icon(icon, size: 13, color: Colors.white) : null,
+    );
+  }
+
+  void _showDormantPlaybackSetup(
+    BuildContext context,
+    UserService userService,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF202020),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Dormant Device Setup',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'These options help Harmony deliver your chimes while your phone is dormant. Your paused hourly slots still stay paused.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.notifications_active,
+                    color: Colors.amber,
+                  ),
+                  title: const Text(
+                    'Allow notifications',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  subtitle: const Text(
+                    'Needed so Harmony can alert your device at the right time.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  onTap: () =>
+                      NotificationService().requestNotificationPermission(),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.alarm, color: Colors.amber),
+                  title: const Text(
+                    'Allow exact alarms',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  subtitle: const Text(
+                    'Helps your hourly chimes fire on time while the phone is inactive.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  onTap: () => NotificationService().openExactAlarmSettings(),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.battery_saver, color: Colors.amber),
+                  title: const Text(
+                    'Battery unrestricted',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  subtitle: const Text(
+                    'Helps stop Android from silencing Harmony while the phone is dormant.',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  onTap: () =>
+                      NotificationService().openBatteryOptimizationSettings(),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

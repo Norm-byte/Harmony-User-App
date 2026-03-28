@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math';
+
+enum PlaybackMode { video, audio }
 
 class UserService extends ChangeNotifier {
   // Singleton instance
@@ -26,21 +29,66 @@ class UserService extends ChangeNotifier {
   double _eventVolume = 1.0;
   bool _globalPriority = true; // Added for Global Priority
   bool _autoJoinWorldwide = true; // New Auto-Join setting (Default ON)
+  bool _dormantPlaybackEnabled = false;
+  bool _settingsLoaded = false;
+  // 0 = video (active), 1 = audio (active), 2 = off
+  List<List<int>> _hourlyChimes = List.generate(
+    24,
+    (_) => [0, 0, 0, 0],
+  );
 
   List<String> _blockedUsers = []; // Local block list
 
   double get eventVolume => _eventVolume;
   bool get globalPriority => _globalPriority;
   bool get autoJoinWorldwide => _autoJoinWorldwide;
+  bool get dormantPlaybackEnabled => _dormantPlaybackEnabled;
+  bool get settingsLoaded => _settingsLoaded;
+  List<List<int>> get hourlyChimes => _hourlyChimes;
   List<String> get blockedUsers => _blockedUsers;
+
+  /// Returns the playback mode for the slot matching [dt].
+  PlaybackMode playbackModeFor(DateTime dt) {
+    final slotIndex = _slotIndexForMinute(dt.minute);
+    if (slotIndex == null) return PlaybackMode.video;
+    final state = _hourlyChimes[dt.hour][slotIndex];
+    return state == 1 ? PlaybackMode.audio : PlaybackMode.video;
+  }
+
+  /// Returns the current state for a slot: 0=video, 1=audio, 2=off.
+  int getChimeSlotState(int hourIndex, int slotIndex) {
+    if (hourIndex < 0 || hourIndex >= 24 || slotIndex < 0 || slotIndex >= 4) {
+      return 0;
+    }
+    return _hourlyChimes[hourIndex][slotIndex];
+  }
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _eventVolume = prefs.getDouble('event_volume') ?? 1.0;
     _globalPriority = prefs.getBool('global_priority') ?? true; // Load priority
-    _autoJoinWorldwide = prefs.getBool('auto_join_worldwide') ?? true; // Load Auto-Join (Default ON)
+    _autoJoinWorldwide =
+        prefs.getBool('auto_join_worldwide') ??
+        true; // Load Auto-Join (Default ON)
+    _dormantPlaybackEnabled =
+        prefs.getBool('dormant_playback_enabled') ?? false;
     _blockedUsers = prefs.getStringList('blocked_users') ?? [];
-    
+
+    final savedChimes = prefs.getString('hourly_chimes_matrix');
+    if (savedChimes != null) {
+      try {
+        final List<dynamic> decoded = jsonDecode(savedChimes);
+        _hourlyChimes = decoded.map<List<int>>((row) {
+          return (row as List).map<int>((val) {
+            if (val is bool) return val ? 0 : 2; // migrate old bool format
+            return (val as num).toInt();
+          }).toList();
+        }).toList();
+      } catch (e) {
+        debugPrint('Error loading hourly chimes: $e');
+      }
+    }
+
     // Generate a persistent ID for this installation if not found
     if (!prefs.containsKey('user_id')) {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -48,13 +96,17 @@ class UserService extends ChangeNotifier {
       final newId = 'user_${timestamp}_$random';
       await prefs.setString('user_id', newId);
     }
-    
-    _userId = prefs.getString('user_id')!; // Safe bang operator as we just ensured it exists
+
+    _userId = prefs.getString(
+      'user_id',
+    )!; // Safe bang operator as we just ensured it exists
     _userName = prefs.getString('user_name') ?? 'Guest';
-    
+
     // FORCE RESET if ID is "Super Admin" (Debug Cleanup)
     if (_userId == 'Super Admin' || _userId.contains(' ')) {
-      debugPrint("HARMONY_DEBUG: Detected invalid ID '$_userId'. Resetting identity...");
+      debugPrint(
+        "HARMONY_DEBUG: Detected invalid ID '$_userId'. Resetting identity...",
+      );
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final random = Random().nextInt(10000);
       _userId = 'user_${timestamp}_$random';
@@ -67,9 +119,10 @@ class UserService extends ChangeNotifier {
     // Detect Time Zone
     final now = DateTime.now();
     _timeZone = now.timeZoneName;
-    
+    _settingsLoaded = true;
+
     notifyListeners();
-    
+
     // Sync to Firestore
     _syncUserToFirestore();
   }
@@ -84,6 +137,7 @@ class UserService extends ChangeNotifier {
         'timeZoneOffset': now.timeZoneOffset.inHours,
         'platform': defaultTargetPlatform.toString(),
         'autoJoinWorldwide': _autoJoinWorldwide,
+        'dormantPlaybackEnabled': _dormantPlaybackEnabled,
       }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Error syncing user to Firestore: $e');
@@ -119,7 +173,49 @@ class UserService extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('auto_join_worldwide', enabled);
-    _syncUserToFirestore(); 
+    _syncUserToFirestore();
+  }
+
+  Future<void> setDormantPlaybackEnabled(bool enabled) async {
+    _dormantPlaybackEnabled = enabled;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('dormant_playback_enabled', enabled);
+    _syncUserToFirestore();
+  }
+
+  Future<void> cycleChimeSlot(int hourIndex, int slotIndex) async {
+    if (hourIndex < 0 || hourIndex >= 24 || slotIndex < 0 || slotIndex >= 4) {
+      return;
+    }
+    // Cycle: 0 (video) → 1 (audio) → 2 (off) → 0 (video)
+    _hourlyChimes[hourIndex][slotIndex] =
+        (_hourlyChimes[hourIndex][slotIndex] + 1) % 3;
+    notifyListeners();
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('hourly_chimes_matrix', jsonEncode(_hourlyChimes));
+  }
+
+  bool isChimeEnabledFor(DateTime dateTime) {
+    final slotIndex = _slotIndexForMinute(dateTime.minute);
+    if (slotIndex == null) return true;
+    return _hourlyChimes[dateTime.hour][slotIndex] != 2;
+  }
+
+  int? _slotIndexForMinute(int minute) {
+    switch (minute) {
+      case 0:
+        return 0;
+      case 15:
+        return 1;
+      case 30:
+        return 2;
+      case 45:
+        return 3;
+      default:
+        return null;
+    }
   }
 
   Future<void> blockUser(String userId) async {
@@ -132,7 +228,12 @@ class UserService extends ChangeNotifier {
     }
   }
 
-  Future<void> reportContent(String reportedUserId, String content, String reason, String context) async {
+  Future<void> reportContent(
+    String reportedUserId,
+    String content,
+    String reason,
+    String context,
+  ) async {
     try {
       await FirebaseFirestore.instance.collection('moderation_queue').add({
         'reporterId': _userId,

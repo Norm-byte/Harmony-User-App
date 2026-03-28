@@ -19,9 +19,12 @@ class Event {
   final int? showBeforeMinutes;
   final String? recurrenceType; // 'None', 'Daily', 'Weekly', 'Monthly'
   final String? originTime; // 'HH:mm' for National events
+  final String? soundUrl;
+  final String? visualUrl;
   final String? mediaUrl; // Audio or Video URL for the event
   final String? noticeBoardBgImage; // Specific background for notice board
-  final String? noticeBoardBgColor; // Specific background color for notice board
+  final String?
+  noticeBoardBgColor; // Specific background color for notice board
   final bool isPublished; // Added to filter drafts
   final int? durationSeconds; // Added for guaranteed playback duration
 
@@ -42,6 +45,8 @@ class Event {
     this.showBeforeMinutes,
     this.recurrenceType,
     this.originTime,
+    this.soundUrl,
+    this.visualUrl,
     this.mediaUrl,
     this.noticeBoardBgImage,
     this.noticeBoardBgColor,
@@ -52,7 +57,7 @@ class Event {
   factory Event.fromJson(Map<String, dynamic> json) {
     // Handle Admin App's date format (ISO String or Firestore Timestamp)
     DateTime start = DateTime.now();
-    
+
     try {
       if (json['startTimeUTC'] != null) {
         start = DateTime.parse(json['startTimeUTC']);
@@ -72,20 +77,20 @@ class Event {
 
     // ALWAYS try to parse durationSeconds independent of endTime
     if (json['durationSeconds'] != null) {
-        durationSecs = json['durationSeconds'] is int 
-            ? json['durationSeconds'] as int 
-            : int.tryParse(json['durationSeconds'].toString());
-        
-        // Safety check: Ensure minimal reasonable duration if present
-        if (durationSecs != null && durationSecs < 1) durationSecs = 1;
+      durationSecs = json['durationSeconds'] is int
+          ? json['durationSeconds'] as int
+          : int.tryParse(json['durationSeconds'].toString());
+
+      // Safety check: Ensure minimal reasonable duration if present
+      if (durationSecs != null && durationSecs < 1) durationSecs = 1;
     }
 
     try {
       // 1. Duration takes PRIORITY for National Events (Scheduler) per user request.
       // If we have a duration, End Time = Start + Duration.
       if (durationSecs != null) {
-         end = start.add(Duration(seconds: durationSecs));
-      } 
+        end = start.add(Duration(seconds: durationSecs));
+      }
       // 2. Fallback to explicit endTime if no duration provided
       else if (json['endTime'] != null) {
         if (json['endTime'] is Timestamp) {
@@ -94,10 +99,10 @@ class Event {
           end = DateTime.parse(json['endTime']);
         }
       } else {
-         // 3. Fallback default: 10 seconds. 
-         // Do NOT default to 1 hour or 15 minutes for National Events.
-         durationSecs = 10;
-         end = start.add(const Duration(seconds: 10));
+        // 3. Fallback default: 10 seconds.
+        // Do NOT default to 1 hour or 15 minutes for National Events.
+        durationSecs = 10;
+        end = start.add(const Duration(seconds: 10));
       }
     } catch (e) {
       print("Error parsing endTime for event ${json['id']}: $e");
@@ -111,18 +116,28 @@ class Event {
       description: json['noticeBoardText'] ?? json['description'] ?? '',
       startTime: start,
       endTime: end,
-      durationSeconds: durationSecs, // Explicitly use the calculated/validated integer
-      imageUrl: json['visualUrl'] ?? json['imageUrl'] ?? '', // Map visualUrl to imageUrl
+      durationSeconds:
+          durationSecs, // Explicitly use the calculated/validated integer
+      imageUrl:
+          json['visualUrl'] ??
+          json['imageUrl'] ??
+          '', // Map visualUrl to imageUrl
       isOnline: json['isOnline'] ?? true,
       type: _parseEventType(json['type']),
-      mostPopularIntent: json['intent'] ?? json['mostPopularIntent'], // Map intent
+      mostPopularIntent:
+          json['intent'] ?? json['mostPopularIntent'], // Map intent
       learnMoreContent: json['learnMoreContent'],
       learnMoreYoutubeUrl: json['learnMoreYoutubeUrl'],
       participantCount: json['participantCount'] ?? 0,
-      visibilityAfterMinutes: json['visibilityAfterMinutes'] ?? json['noticeBoardVisibilityAfterMinutes'], // Support both keys
-      showBeforeMinutes: json['showBeforeMinutes'] ?? json['noticeBoardShowBeforeMinutes'],
+      visibilityAfterMinutes:
+          json['visibilityAfterMinutes'] ??
+          json['noticeBoardVisibilityAfterMinutes'], // Support both keys
+      showBeforeMinutes:
+          json['showBeforeMinutes'] ?? json['noticeBoardShowBeforeMinutes'],
       recurrenceType: json['recurrenceType'],
       originTime: json['originTime'],
+      soundUrl: json['soundUrl'] ?? json['audioUrl'],
+      visualUrl: json['visualUrl'],
       // Map visualUrl to mediaUrl if mediaUrl/audioUrl is missing, so video plays in overlay
       mediaUrl: json['mediaUrl'] ?? json['audioUrl'] ?? json['visualUrl'],
       noticeBoardBgImage: json['noticeBoardBgImage'],
@@ -132,7 +147,7 @@ class Event {
   }
 
   // Helper to create a copy with new times
-  Event copyWith({DateTime? startTime, DateTime? endTime}) {
+  Event copyWith({DateTime? startTime, DateTime? endTime, EventType? type}) {
     return Event(
       id: id,
       title: title,
@@ -141,7 +156,7 @@ class Event {
       endTime: endTime ?? this.endTime,
       imageUrl: imageUrl,
       isOnline: isOnline,
-      type: type,
+      type: type ?? this.type,
       mostPopularIntent: mostPopularIntent,
       learnMoreContent: learnMoreContent,
       learnMoreYoutubeUrl: learnMoreYoutubeUrl,
@@ -149,6 +164,8 @@ class Event {
       visibilityAfterMinutes: visibilityAfterMinutes,
       showBeforeMinutes: showBeforeMinutes,
       recurrenceType: recurrenceType,
+      soundUrl: soundUrl,
+      visualUrl: visualUrl,
       mediaUrl: mediaUrl,
       noticeBoardBgImage: noticeBoardBgImage,
       noticeBoardBgColor: noticeBoardBgColor,
@@ -174,6 +191,8 @@ class Event {
       'participantCount': participantCount,
       'noticeBoardBgImage': noticeBoardBgImage,
       'noticeBoardBgColor': noticeBoardBgColor,
+      'soundUrl': soundUrl,
+      'visualUrl': visualUrl,
       'mediaUrl': mediaUrl,
     };
   }
@@ -185,4 +204,3 @@ class Event {
     return EventType.global;
   }
 }
-
