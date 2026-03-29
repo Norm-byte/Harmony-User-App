@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -26,6 +27,10 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   static const String _highImportanceChannelId = 'high_importance_channel';
   static const String _dormantPlaybackChannelId = 'dormant_playback_channel';
+  static const String _methodChannelName = 'com.harmonybyintent.harmony_user_app/dormant_alarm';
+  final MethodChannel _dormantAlarmChannel = const MethodChannel(
+    _methodChannelName,
+  );
 
   bool _isInitialized = false;
 
@@ -48,7 +53,8 @@ class NotificationService {
       debugPrint('User granted permission');
     } else {
       debugPrint('User declined or has not accepted permission');
-      return;
+      // Continue initializing local notifications so dormant scheduling can
+      // still work after permissions are granted from system settings.
     }
 
     // 2. Initialize Local Notifications
@@ -223,12 +229,108 @@ class NotificationService {
     await intent.launch();
   }
 
-  Future<void> cancelDormantPlaybackReminders() async {
-    final pending = await _localNotifications.pendingNotificationRequests();
-    for (final notification in pending) {
-      if (notification.payload?.startsWith('harmony_dormant:') ?? false) {
-        await _localNotifications.cancel(notification.id);
+  Future<bool> scheduleNativeDebugProbe({int delaySeconds = 15}) async {
+    if (!Platform.isAndroid) return false;
+
+    try {
+      final ok = await _dormantAlarmChannel.invokeMethod<bool>(
+        'schedule_debug_alarm',
+        {
+          'delay_seconds': delaySeconds,
+        },
+      );
+      return ok ?? false;
+    } catch (e) {
+      debugPrint('Failed to schedule native debug probe: $e');
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>> getNativeDebugState() async {
+    if (!Platform.isAndroid) return <String, dynamic>{};
+
+    try {
+      final response = await _dormantAlarmChannel.invokeMethod<dynamic>(
+        'get_last_alarm_debug',
+      );
+      if (response is Map) {
+        return Map<String, dynamic>.from(response as Map);
       }
+      return <String, dynamic>{};
+    } catch (e) {
+      debugPrint('Failed to read native debug state: $e');
+      return <String, dynamic>{};
+    }
+  }
+
+  Future<String?> consumeLaunchEventId() async {
+    if (!Platform.isAndroid) return null;
+
+    try {
+      final value = await _dormantAlarmChannel.invokeMethod<dynamic>(
+        'consume_launch_event_id',
+      );
+      if (value is String && value.trim().isNotEmpty) {
+        return value;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Failed to consume native launch event id: $e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>> consumeLaunchPayload() async {
+    if (!Platform.isAndroid) return const <String, dynamic>{};
+
+    try {
+      final response = await _dormantAlarmChannel.invokeMethod<dynamic>(
+        'consume_launch_payload',
+      );
+      if (response is Map) {
+        return Map<String, dynamic>.from(response as Map);
+      }
+      return const <String, dynamic>{};
+    } catch (e) {
+      debugPrint('Failed to consume launch payload: $e');
+      return const <String, dynamic>{};
+    }
+  }
+
+  Future<void> restoreLockscreenPresentation() async {
+    if (!Platform.isAndroid) return;
+
+    try {
+      debugPrint('HARMONY_ALARM: requesting native lockscreen restore');
+      final ok = await _dormantAlarmChannel.invokeMethod<dynamic>(
+        'restore_lockscreen_presentation',
+      );
+      debugPrint('HARMONY_ALARM: native lockscreen restore result=$ok');
+    } catch (e) {
+      debugPrint('Failed to restore lockscreen presentation: $e');
+    }
+  }
+
+  Future<void> cancelDormantPlaybackReminders() async {
+    if (!Platform.isAndroid) return;
+
+    try {
+      // Cancel any plugin-scheduled notifications (legacy fallback)
+      final pending = await _localNotifications.pendingNotificationRequests();
+      for (final notification in pending) {
+        if (notification.payload?.startsWith('harmony_dormant:') ?? false) {
+          await _localNotifications.cancel(notification.id);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error cancelling plugin notifications: $e');
+    }
+
+    try {
+      // Best-effort native cancel sweep for upcoming events is handled during sync
+      // where we have access to event-derived alarm IDs.
+    } catch (e) {
+      debugPrint('Error in native cancel pre-check: $e');
     }
   }
 
@@ -239,62 +341,151 @@ class NotificationService {
     await cancelDormantPlaybackReminders();
 
     if (!userService.dormantPlaybackEnabled) {
+      debugPrint('Dormant playback reminders skipped: override disabled.');
+      return;
+    }
+
+    if (!Platform.isAndroid) {
+      debugPrint('Dormant playback reminders skipped: Android-only feature.');
       return;
     }
 
     final notificationsGranted = await requestNotificationPermission();
     if (!notificationsGranted) {
       debugPrint(
-        'Dormant playback reminders skipped: notifications not granted.',
+        'Dormant playback reminders warning: notifications not confirmed; continuing schedule attempt.',
       );
-      return;
     }
 
     final now = DateTime.now();
     final windowEnd = now.add(const Duration(hours: 24));
+    int scheduledCount = 0;
+    int fallbackCount = 0;
+    int attemptCount = 0;
 
     for (final event in events) {
-      if (event.type != EventType.national) continue;
-
       final startLocal = event.startTime.toLocal();
-      if (startLocal.isBefore(now) || startLocal.isAfter(windowEnd)) continue;
-      if (!userService.isChimeEnabledFor(startLocal)) continue;
+      if (startLocal.isAfter(windowEnd)) continue;
+      if (startLocal.isBefore(now.subtract(const Duration(seconds: 15)))) {
+        continue;
+      }
+
+      // Avoid re-arming the same slot while it is already active.
+      final slotGuardStart = startLocal.subtract(const Duration(seconds: 2));
+      final slotGuardEnd = startLocal.add(const Duration(seconds: 90));
+      if (now.isAfter(slotGuardStart) && now.isBefore(slotGuardEnd)) {
+        debugPrint(
+          'Dormant reminder guard: skipping in-slot reschedule for ${event.id} at $now',
+        );
+        continue;
+      }
 
       final slotMode = userService.playbackModeFor(startLocal);
-      final mediaUrl = _preferredMediaUrl(event, slotMode);
-      final notificationId =
-          event.id.hashCode ^ startLocal.millisecondsSinceEpoch;
+        final slotKey = '${startLocal.year.toString().padLeft(4, '0')}'
+          '${startLocal.month.toString().padLeft(2, '0')}'
+          '${startLocal.day.toString().padLeft(2, '0')}_'
+          '${startLocal.hour.toString().padLeft(2, '0')}'
+          '${startLocal.minute.toString().padLeft(2, '0')}';
+      final notificationTitle = event.title.isEmpty ? 'Harmony by Intent' : event.title;
       final notificationBody = slotMode == PlaybackMode.video
-          ? 'Harmony event starting now. Tap to open video playback.'
+          ? 'Harmony event starting now. Opening video playback.'
           : 'Harmony audio chime is ready for playback.';
 
-      await _localNotifications.zonedSchedule(
-        notificationId,
-        event.title.isEmpty ? 'Harmony by Intent' : event.title,
-        notificationBody,
-        tz.TZDateTime.from(startLocal.toUtc(), tz.UTC),
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            _dormantPlaybackChannelId,
-            'Dormant Playback Reminders',
-            channelDescription:
-                'Timed reminders for Harmony events while your device is idle.',
-            importance: Importance.max,
-            priority: Priority.high,
-            icon: '@mipmap/ic_launcher',
-            category: AndroidNotificationCategory.alarm,
-            visibility: NotificationVisibility.public,
-            fullScreenIntent: slotMode == PlaybackMode.video,
-            playSound: true,
-          ),
-          iOS: const DarwinNotificationDetails(),
-        ),
-        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        payload: 'harmony_dormant:${event.id}:${mediaUrl ?? ''}',
-      );
+      // Use multiple close attempts to improve delivery under OEM idle policies.
+      final attempts = <DateTime>[
+        startLocal.subtract(const Duration(seconds: 5)),
+        startLocal,
+        startLocal.add(const Duration(seconds: 7)),
+      ];
+
+      for (int i = 0; i < attempts.length; i++) {
+        final candidate = attempts[i];
+        if (candidate.isAfter(windowEnd)) continue;
+        if (candidate.isBefore(now.subtract(const Duration(seconds: 15)))) {
+          continue;
+        }
+
+        final scheduleLocal = candidate.isBefore(now)
+            ? now.add(const Duration(seconds: 1))
+            : candidate;
+
+        final alarmId = ((event.id.hashCode ^
+                    startLocal.millisecondsSinceEpoch ^
+                    ((i + 1) * 9973)) &
+                0x7fffffff);
+
+        try {
+          // Clear any existing native alarm for this ID before scheduling.
+          await _dormantAlarmChannel.invokeMethod<bool>(
+            'cancel_alarm',
+            {
+              'alarm_id': alarmId,
+            },
+          );
+
+          // Call native Android alarm scheduling
+          final nativeScheduled = await _dormantAlarmChannel.invokeMethod<bool>(
+            'schedule_exact_alarm',
+            {
+              'alarm_id': alarmId,
+              'trigger_time_ms': scheduleLocal.millisecondsSinceEpoch,
+              'event_id': event.id,
+              'slot_key': slotKey,
+              'event_title': notificationTitle,
+              'event_body': notificationBody,
+              'is_full_screen': slotMode == PlaybackMode.video,
+            },
+          );
+
+          attemptCount++;
+          if (nativeScheduled == true) {
+            scheduledCount++;
+            debugPrint(
+              'Native alarm scheduled for ${event.id} attempt=$i at $scheduleLocal (alarm_id=$alarmId)',
+            );
+          } else {
+            await _localNotifications.zonedSchedule(
+              alarmId,
+              notificationTitle,
+              notificationBody,
+              tz.TZDateTime.from(scheduleLocal.toUtc(), tz.UTC),
+              NotificationDetails(
+                android: AndroidNotificationDetails(
+                  _dormantPlaybackChannelId,
+                  'Dormant Playback Reminders',
+                  channelDescription:
+                      'Timed reminders for Harmony events while your device is idle.',
+                  importance: Importance.max,
+                  priority: Priority.high,
+                  icon: '@mipmap/ic_launcher',
+                  category: AndroidNotificationCategory.alarm,
+                  visibility: NotificationVisibility.public,
+                  fullScreenIntent: slotMode == PlaybackMode.video,
+                  playSound: true,
+                ),
+                iOS: const DarwinNotificationDetails(),
+              ),
+              androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+              uiLocalNotificationDateInterpretation:
+                  UILocalNotificationDateInterpretation.absoluteTime,
+              payload: 'harmony_dormant:${event.id}:',
+            );
+            fallbackCount++;
+            debugPrint(
+              'Native alarm rejected; plugin fallback scheduled for ${event.id} attempt=$i at $scheduleLocal (alarm_id=$alarmId)',
+            );
+          }
+        } catch (e) {
+          debugPrint(
+            'Native alarm schedule failed for ${event.id} attempt=$i at $scheduleLocal: $e',
+          );
+        }
+      }
     }
+
+    debugPrint(
+      'Dormant reminder sync complete: attempts=$attemptCount, native=$scheduledCount, fallback=$fallbackCount',
+    );
   }
 
   String? _preferredMediaUrl(Event event, PlaybackMode playbackMode) {

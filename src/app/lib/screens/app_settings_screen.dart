@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../services/user_service.dart';
 import '../services/subscription_service.dart';
 import '../services/notification_service.dart';
+import '../services/event_service.dart';
 import 'personal_information_screen.dart';
 import 'support_chat_screen.dart';
 import 'subscription_screen.dart'; // Ensure this matches what we have
@@ -320,6 +321,42 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                     value: userService.dormantPlaybackEnabled,
                     onChanged: (value) async {
                       await userService.setDormantPlaybackEnabled(value);
+
+                      if (value) {
+                        var probeArmed = false;
+
+                        try {
+                          await NotificationService().syncDormantPlaybackReminders(
+                            events: EventService().events,
+                            userService: userService,
+                          );
+                        } catch (e) {
+                          debugPrint('Dormant sync on toggle failed: $e');
+                        }
+
+                        try {
+                          probeArmed = await NotificationService()
+                              .scheduleNativeDebugProbe(delaySeconds: 15);
+                        } catch (e) {
+                          debugPrint('Dormant debug probe on toggle failed: $e');
+                        }
+
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                probeArmed
+                                    ? 'Dormant probe armed. Lock now and wait 20 seconds.'
+                                    : 'Dormant enabled. Probe arm failed; scheduling still attempted.',
+                              ),
+                              duration: const Duration(seconds: 3),
+                            ),
+                          );
+                        }
+                      } else {
+                        await NotificationService().cancelDormantPlaybackReminders();
+                      }
+
                       if (!mounted) return;
                       if (value) {
                         _showDormantPlaybackSetup(context, userService);

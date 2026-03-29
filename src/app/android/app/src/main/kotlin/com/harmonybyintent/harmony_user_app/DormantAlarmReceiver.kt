@@ -1,0 +1,298 @@
+package com.harmonybyintent.harmony_user_app
+
+import android.app.AlarmManager
+import android.app.ActivityManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.media.RingtoneManager
+import android.os.Build
+import android.os.PowerManager
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+
+class DormantAlarmReceiver : BroadcastReceiver() {
+    companion object {
+        private const val NOTIFICATION_CHANNEL_ID = "dormant_playback_channel"
+        private const val ACTION_DORMANT_ALARM = "com.harmonybyintent.harmony_user_app.DORMANT_ALARM"
+        private const val PREFS = "harmony_dormant_debug"
+        private const val DEDUPE_WINDOW_MS = 90_000L
+
+        fun scheduleExactAlarm(
+            context: Context,
+            alarmId: Int,
+            triggerTimeMillis: Long,
+            eventId: String,
+            slotKey: String,
+            eventTitle: String,
+            eventBody: String,
+            isFullScreen: Boolean
+        ): Boolean {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+            val intent = Intent(context, DormantAlarmReceiver::class.java).apply {
+                action = ACTION_DORMANT_ALARM
+                putExtra("event_id", eventId)
+                putExtra("slot_key", slotKey)
+                putExtra("event_title", eventTitle)
+                putExtra("event_body", eventBody)
+                putExtra("is_full_screen", isFullScreen)
+            }
+
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                alarmId,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val showIntent = PendingIntent.getActivity(
+                context,
+                alarmId,
+                context.packageManager.getLaunchIntentForPackage(context.packageName)
+                    ?: Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    // AlarmClock is exempt from most idle batching and is generally more reliable on OEM-tuned devices.
+                    alarmManager.setAlarmClock(
+                        AlarmManager.AlarmClockInfo(triggerTimeMillis, showIntent),
+                        pendingIntent
+                    )
+                    android.util.Log.d("DormantAlarmReceiver", "Scheduled alarm clock for $eventId at $triggerTimeMillis")
+                    return true
+                } else {
+                    // Pre-Android 12
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerTimeMillis,
+                        pendingIntent
+                    )
+                    android.util.Log.d("DormantAlarmReceiver", "Scheduled exact alarm for $eventId at $triggerTimeMillis")
+                    return true
+                }
+            } catch (e: SecurityException) {
+                android.util.Log.e("DormantAlarmReceiver", "SecurityException scheduling alarm: ${e.message}")
+                return false
+            } catch (e: Exception) {
+                android.util.Log.e("DormantAlarmReceiver", "Exception scheduling alarm: ${e.message}")
+                return false
+            }
+        }
+
+        fun cancelAlarm(context: Context, alarmId: Int) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, DormantAlarmReceiver::class.java).apply {
+                action = ACTION_DORMANT_ALARM
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                alarmId,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            try {
+                alarmManager.cancel(pendingIntent)
+                android.util.Log.d("DormantAlarmReceiver", "Cancelled alarm $alarmId")
+            } catch (e: Exception) {
+                android.util.Log.e("DormantAlarmReceiver", "Error cancelling alarm: ${e.message}")
+            }
+        }
+    }
+
+    override fun onReceive(context: Context?, intent: Intent?) {
+        if (context == null || intent == null) return
+        if (intent.action != ACTION_DORMANT_ALARM) return
+
+        val wakeLock = try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "harmony:DormantAlarmWakeLock"
+            ).apply {
+                setReferenceCounted(false)
+                acquire(15_000L)
+            }
+        } catch (_: Exception) {
+            null
+        }
+
+        val eventId = intent.getStringExtra("event_id") ?: "Unknown"
+        val slotKey = intent.getStringExtra("slot_key") ?: eventId
+        val eventTitle = intent.getStringExtra("event_title") ?: "Harmony by Intent"
+        val eventBody = intent.getStringExtra("event_body") ?: "Event starting now"
+        val isFullScreen = intent.getBooleanExtra("is_full_screen", false)
+        val now = System.currentTimeMillis()
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        val lastHandledEvent = prefs.getString("last_handled_event", null)
+        val lastHandledSlot = prefs.getString("last_handled_slot", null)
+        val lastHandledMs = prefs.getLong("last_handled_ms", 0L)
+        if ((lastHandledSlot == slotKey || lastHandledEvent == eventId) &&
+            (now - lastHandledMs) in 0 until DEDUPE_WINDOW_MS
+        ) {
+            android.util.Log.d(
+                "DormantAlarmReceiver",
+                "Duplicate alarm suppressed for event=$eventId slot=$slotKey within ${DEDUPE_WINDOW_MS}ms window"
+            )
+            try {
+                wakeLock?.release()
+            } catch (_: Exception) {
+            }
+            return
+        }
+
+        android.util.Log.d("DormantAlarmReceiver", "Alarm received for event: $eventId")
+
+        prefs
+            .edit()
+            .putLong("last_receive_ms", now)
+            .putString("last_receive_event", eventId)
+            .putString("last_receive_slot", slotKey)
+            .putLong("last_handled_ms", now)
+            .putString("last_handled_event", eventId)
+            .putString("last_handled_slot", slotKey)
+            .apply()
+
+        if (isAppInForeground(context)) {
+            android.util.Log.d("DormantAlarmReceiver", "Skipping dormant notification for foreground app: $eventId")
+        } else {
+            postNotification(context, eventId, eventTitle, eventBody, isFullScreen)
+        }
+
+        // Best-effort wake path: open the app so Flutter can evaluate/play the active event immediately.
+        launchAppForEvent(context, eventId, isFullScreen)
+
+        try {
+            wakeLock?.release()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun postNotification(
+        context: Context,
+        eventId: String,
+        eventTitle: String,
+        eventBody: String,
+        isFullScreen: Boolean
+    ) {
+        try {
+            ensureDormantChannel(context)
+
+            val notificationId = eventId.hashCode()
+            
+            // Create intent to launch the app
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                ?: Intent(context, MainActivity::class.java)
+            launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            launchIntent.putExtra("event_id", eventId)
+            launchIntent.putExtra("auto_play_video", isFullScreen)
+
+            val contentPendingIntent = PendingIntent.getActivity(
+                context,
+                eventId.hashCode(),
+                launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+
+            val notificationBuilder = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(eventTitle)
+                .setContentText(eventBody)
+                .setAutoCancel(true)
+                .setContentIntent(contentPendingIntent)
+                .setSound(soundUri)
+                .setVibrate(longArrayOf(0, 500, 250, 500))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+            if (isFullScreen) {
+                notificationBuilder.setFullScreenIntent(contentPendingIntent, true)
+            }
+
+            val notification = notificationBuilder.build()
+            
+            NotificationManagerCompat.from(context).apply {
+                notify(notificationId, notification)
+                android.util.Log.d("DormantAlarmReceiver", "Notification posted for $eventId")
+            }
+
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("last_post_ok", true)
+                .apply()
+        } catch (e: Exception) {
+            android.util.Log.e("DormantAlarmReceiver", "Error posting notification: ${e.message}")
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("last_post_ok", false)
+                .apply()
+        }
+    }
+
+    private fun ensureDormantChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val existing = manager.getNotificationChannel(NOTIFICATION_CHANNEL_ID)
+        if (existing != null) return
+
+        val channel = NotificationChannel(
+            NOTIFICATION_CHANNEL_ID,
+            "Dormant Playback Reminders",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Timed reminders for Harmony events while your device is idle."
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+            setBypassDnd(true)
+            setSound(
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+                null
+            )
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 500, 250, 500)
+        }
+
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun launchAppForEvent(context: Context, eventId: String, autoPlayVideo: Boolean) {
+        try {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                ?: Intent(context, MainActivity::class.java)
+            launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP
+            launchIntent.putExtra("event_id", eventId)
+            launchIntent.putExtra("auto_play_video", autoPlayVideo)
+            context.startActivity(launchIntent)
+            android.util.Log.d("DormantAlarmReceiver", "Launch intent fired for $eventId")
+        } catch (e: Exception) {
+            android.util.Log.e("DormantAlarmReceiver", "Error launching app for alarm: ${e.message}")
+        }
+    }
+
+    private fun isAppInForeground(context: Context): Boolean {
+        return try {
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val running = activityManager.runningAppProcesses ?: return false
+            running.any {
+                it.processName == context.packageName &&
+                    it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+}

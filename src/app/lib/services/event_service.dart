@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/event.dart';
@@ -15,12 +16,19 @@ class EventService extends ChangeNotifier {
   }
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static const MethodChannel _dormantAlarmChannel = MethodChannel(
+    'com.harmonybyintent.harmony_user_app/dormant_alarm',
+  );
   StreamSubscription? _eventsSubscription;
   StreamSubscription? _globalEventsSubscription;
   StreamSubscription? _myEventsSubscription;
   Timer? _timer;
   Timer? _dismissTimer; // Hard stop timer
   Timer? _notificationSyncTimer;
+  String? _pendingAlarmEventId;
+  DateTime? _pendingAlarmEventExpiresAt;
+  bool _pendingAlarmForceVideo = false;
+  bool _currentEventFromAlarmLaunch = false;
 
   List<Event> _events = [];
   List<Event> _nationalEvents = [];
@@ -275,14 +283,104 @@ class EventService extends ChangeNotifier {
     _mergeEvents();
   }
 
+  void requestImmediateAlarmPlayback(
+    String eventId, {
+    Duration holdFor = const Duration(minutes: 5),
+    bool forceVideo = false,
+  }) {
+    if (eventId.trim().isEmpty) return;
+
+    _pendingAlarmEventId = eventId.trim();
+    _pendingAlarmEventExpiresAt = DateTime.now().add(holdFor);
+    _pendingAlarmForceVideo = forceVideo;
+    print('HARMONY_ALARM: queued immediate playback for $_pendingAlarmEventId');
+    _attemptPendingAlarmPlayback(forceWindow: true);
+  }
+
+  bool _attemptPendingAlarmPlayback({bool forceWindow = false}) {
+    final pendingId = _pendingAlarmEventId;
+    final expiresAt = _pendingAlarmEventExpiresAt;
+    final forceVideo = _pendingAlarmForceVideo;
+    if (pendingId == null || pendingId.isEmpty || expiresAt == null) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    if (now.isAfter(expiresAt)) {
+      _pendingAlarmEventId = null;
+      _pendingAlarmEventExpiresAt = null;
+      _pendingAlarmForceVideo = false;
+      print('HARMONY_ALARM: pending playback expired for $pendingId');
+      return false;
+    }
+
+    Event? target;
+    for (final event in _events) {
+      if (event.id == pendingId) {
+        target = event;
+        break;
+      }
+    }
+
+    if (target == null) {
+      return false;
+    }
+
+    if (_isEventActive && _currentEventId == target.id) {
+      _pendingAlarmEventId = null;
+      _pendingAlarmEventExpiresAt = null;
+      _pendingAlarmForceVideo = false;
+      print('HARMONY_ALARM: target ${target.id} already active; skipping retrigger');
+      return true;
+    }
+
+    final startLocal = target.startTime.toLocal();
+    final endLocal = target.endTime.toLocal();
+    final inWindow = now.isAfter(startLocal.subtract(const Duration(minutes: 2))) &&
+        now.isBefore(endLocal.add(const Duration(minutes: 5)));
+
+    if (!forceWindow && !inWindow) {
+      return false;
+    }
+
+    _dismissedEventStartTimes.remove(target.id);
+    _recentlyDismissedIds.remove(target.id);
+
+    print('HARMONY_ALARM: forcing playback for ${target.id} from launch intent');
+    final forcedStart = DateTime.now();
+    final forcedMedia = forceVideo
+        ? _selectPlaybackMediaForForcedVideo(target)
+        : _selectPlaybackMedia(target);
+    _triggerEvent(
+      id: target.id,
+      title: target.title,
+      description: target.description,
+      isWorldwide: target.type == EventType.global,
+      mediaUrl: forcedMedia,
+      intent: target.mostPopularIntent,
+      fromAlarmLaunch: true,
+      // Use the actual trigger moment so users get full playback duration
+      // even if the app wakes a few seconds after the nominal schedule time.
+      startTime: forcedStart,
+      durationSeconds: target.durationSeconds,
+    );
+
+    _pendingAlarmEventId = null;
+    _pendingAlarmEventExpiresAt = null;
+    _pendingAlarmForceVideo = false;
+    return true;
+  }
+
   void _mergeEvents() {
     final oldEvents = [..._events];
     _events = _dedupeNationalEvents([..._nationalEvents, ..._globalEvents]);
     _events.sort((a, b) => a.startTime.compareTo(b.startTime));
-    _scheduleDormantPlaybackSync();
 
     // Only notify if the list actually changed to avoid unnecessary rebuilds
     if (!_areEventListsEqual(oldEvents, _events)) {
+      // Rebuild dormant reminders only when event content actually changes.
+      // This avoids cancel/recreate churn right around trigger times.
+      _scheduleDormantPlaybackSync();
       notifyListeners();
     }
   }
@@ -343,9 +441,28 @@ class EventService extends ChangeNotifier {
   void _scheduleDormantPlaybackSync() {
     _notificationSyncTimer?.cancel();
     _notificationSyncTimer = Timer(const Duration(milliseconds: 300), () {
+      final dormantEvents = [
+        ..._processDocs(
+          _nationalDocs,
+          overrideType: EventType.national,
+          forDormantScheduling: true,
+        ),
+        ..._processDocs(
+          _globalDocs,
+          overrideType: EventType.global,
+          forDormantScheduling: true,
+        ),
+      ];
+
+      dormantEvents.sort((a, b) => a.startTime.compareTo(b.startTime));
+
       NotificationService().syncDormantPlaybackReminders(
-        events: _events,
+        events: dormantEvents,
         userService: UserService(),
+      );
+
+      print(
+        'HARMONY_DORMANT: sync requested with ${dormantEvents.length} candidate events',
       );
     });
   }
@@ -364,6 +481,7 @@ class EventService extends ChangeNotifier {
   List<Event> _processDocs(
     List<QueryDocumentSnapshot> docs, {
     EventType? overrideType,
+    bool forDormantScheduling = false,
   }) {
     final now = DateTime.now();
     List<Event> processedEvents = [];
@@ -509,16 +627,18 @@ class EventService extends ChangeNotifier {
           continue; // Too old
         }
 
-        // 2. Check Show Before Event
-        int defaultShowBefore = 60;
-        final showBefore = Duration(
-          minutes: displayEvent.showBeforeMinutes ?? defaultShowBefore,
-        );
-        final localStartTime = displayEvent.startTime.toLocal();
-        final showTime = localStartTime.subtract(showBefore);
+        if (!forDormantScheduling) {
+          // 2. Check Show Before Event (UI visibility window only)
+          int defaultShowBefore = 60;
+          final showBefore = Duration(
+            minutes: displayEvent.showBeforeMinutes ?? defaultShowBefore,
+          );
+          final localStartTime = displayEvent.startTime.toLocal();
+          final showTime = localStartTime.subtract(showBefore);
 
-        if (now.isBefore(showTime)) {
-          continue; // Too early to show
+          if (now.isBefore(showTime)) {
+            continue; // Too early to show
+          }
         }
 
         processedEvents.add(displayEvent);
@@ -608,6 +728,10 @@ class EventService extends ChangeNotifier {
     final now = DateTime.now();
 
     _refreshEvents();
+
+    if (_attemptPendingAlarmPlayback()) {
+      return;
+    }
 
     if (_isEventActive) {
       if (_currentEventEndTime != null &&
@@ -760,6 +884,7 @@ class EventService extends ChangeNotifier {
         isWorldwide: bestEventToTrigger.type == EventType.global,
         mediaUrl: _selectPlaybackMedia(bestEventToTrigger),
         intent: bestEventToTrigger.mostPopularIntent,
+        fromAlarmLaunch: false,
         startTime: bestEventToTrigger.startTime.toLocal(),
         // We do NOT pass endTime to trigger anymore to avoid confusion. Logic is purely duration based.
         // endTime: bestEventToTrigger.endTime.toLocal(),
@@ -775,6 +900,7 @@ class EventService extends ChangeNotifier {
     required bool isWorldwide,
     String? mediaUrl,
     String? intent,
+    bool fromAlarmLaunch = false,
     DateTime? startTime,
     // DateTime? endTime, // REMOVED to prevent accidental usage
     int? durationSeconds,
@@ -803,6 +929,7 @@ class EventService extends ChangeNotifier {
 
     _isWorldwide = isWorldwide;
     _currentEventMediaUrl = mediaUrl;
+    _currentEventFromAlarmLaunch = fromAlarmLaunch;
 
     _dismissTimer?.cancel();
 
@@ -836,7 +963,15 @@ class EventService extends ChangeNotifier {
   }
 
   void dismissEvent() {
-    print("DEBUG: dismissEvent called for ID: $_currentEventId");
+    print("DEBUG: dismissEvent called for ID: $_currentEventId [restore-v2]");
+    final currentEventId = _currentEventId;
+    final isDormantSlotEvent =
+        currentEventId != null && currentEventId.startsWith('slot_');
+    final shouldRestoreLockscreen =
+        _currentEventFromAlarmLaunch || isDormantSlotEvent;
+    print(
+      'HARMONY_ALARM: dismiss restore decision id=$currentEventId fromAlarm=$_currentEventFromAlarmLaunch slotEvent=$isDormantSlotEvent => restore=$shouldRestoreLockscreen',
+    );
     _dismissTimer?.cancel();
     _dismissTimer = null;
 
@@ -870,7 +1005,26 @@ class EventService extends ChangeNotifier {
     _currentEventId = null;
     _currentEventEndTime = null;
     _currentEventStartTime = null;
+    _currentEventFromAlarmLaunch = false;
+
+    if (shouldRestoreLockscreen) {
+      print('HARMONY_ALARM: requesting post-event lockscreen restore (v2)');
+      NotificationService().restoreLockscreenPresentation();
+      _requestNativeLockscreenRestoreFallback();
+    }
+
     notifyListeners();
+  }
+
+  Future<void> _requestNativeLockscreenRestoreFallback() async {
+    try {
+      final ok = await _dormantAlarmChannel.invokeMethod<dynamic>(
+        'restore_lockscreen_presentation',
+      );
+      print('HARMONY_ALARM: direct native restore fallback result=$ok');
+    } catch (e) {
+      print('HARMONY_ALARM: direct native restore fallback failed: $e');
+    }
   }
 
   void triggerEventFromModel(
@@ -907,6 +1061,18 @@ class EventService extends ChangeNotifier {
       return event.visualUrl;
     }
     return event.mediaUrl ?? event.soundUrl;
+  }
+
+  String? _selectPlaybackMediaForForcedVideo(Event event) {
+    if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
+      return event.visualUrl;
+    }
+
+    if (!_isAudioUrl(event.mediaUrl)) {
+      return event.mediaUrl;
+    }
+
+    return event.soundUrl ?? event.mediaUrl;
   }
 
   bool _isAudioUrl(String? url) {

@@ -42,6 +42,15 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="high_importance_channel" />
+
+        <!-- Dormant Alarm Receiver for exact-while-idle scheduling -->
+        <receiver
+            android:name=".DormantAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.harmonybyintent.harmony_user_app.DORMANT_ALARM" />
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

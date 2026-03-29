@@ -128,6 +128,33 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   _navigateToWelcome() async {
+    String? launchEventId;
+    bool autoPlayVideo = false;
+    bool launchedFromAlarm = false;
+    try {
+      final payload = await NotificationService().consumeLaunchPayload();
+      final eventIdRaw = payload['event_id'];
+      if (eventIdRaw is String && eventIdRaw.isNotEmpty) {
+        launchEventId = eventIdRaw;
+      }
+      autoPlayVideo = payload['auto_play_video'] == true;
+
+      if (launchEventId == null || launchEventId.isEmpty) {
+        launchEventId = await NotificationService().consumeLaunchEventId();
+      }
+
+      if (launchEventId != null && launchEventId.isNotEmpty) {
+        launchedFromAlarm = true;
+        context.read<EventService>().requestImmediateAlarmPlayback(
+          launchEventId,
+          forceVideo: autoPlayVideo,
+        );
+        print('HARMONY_ALARM: launch event received in splash: $launchEventId');
+      }
+    } catch (e) {
+      print('HARMONY_ALARM: failed to read launch event: $e');
+    }
+
     // Check for maintenance mode
     try {
       final doc = await FirebaseFirestore.instance
@@ -156,7 +183,17 @@ class _SplashScreenState extends State<SplashScreen> {
       print("Error checking maintenance mode: $e");
     }
 
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(
+      launchEventId == null
+          ? const Duration(seconds: 2)
+          : const Duration(milliseconds: 300),
+    );
+
+    if (launchedFromAlarm) {
+      print('HARMONY_ALARM: skipping Welcome navigation for alarm launch');
+      return;
+    }
+
     if (mounted) {
       Navigator.pushReplacement(
         context,
