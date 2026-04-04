@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/event.dart';
 import 'notification_service.dart';
 import 'user_service.dart';
@@ -29,6 +30,8 @@ class EventService extends ChangeNotifier {
   DateTime? _pendingAlarmEventExpiresAt;
   bool _pendingAlarmForceVideo = false;
   bool _currentEventFromAlarmLaunch = false;
+  bool _nativeLaunchPayloadCheckInFlight = false;
+  String? _lastKnownAlarmLaunchEventId;
 
   List<Event> _events = [];
   List<Event> _nationalEvents = [];
@@ -183,6 +186,17 @@ class EventService extends ChangeNotifier {
   String? _currentListenedUserId;
 
   void _init() {
+    // Set up MethodChannel listener for immediate payload consumption
+    _dormantAlarmChannel.setMethodCallHandler((call) async {
+      if (call.method == 'on_notification_tap_received') {
+        print('HARMONY_ALARM: MethodChannel onNotificationTapReceived called');
+        // Immediately consume the payload without waiting for the periodic loop
+        await _checkNativeLaunchPayloadIfAny();
+        return {'success': true};
+      }
+      return null;
+    });
+
     // Audit Auth State for My Events
     final userService = UserService();
 
@@ -283,6 +297,65 @@ class EventService extends ChangeNotifier {
     _mergeEvents();
   }
 
+  // Synchronously peek at SharedPreferences for a stored launch payload from MainActivity.
+  // If found, set _pendingAlarmEventId so the next checkForEvents can trigger it with fromAlarmLaunch=true.
+  // This completes BEFORE any event triggering, preventing the race condition where the event starts before we mark it as from-alarm.
+  void _peekAndSetPendingAlarmFromSharedPreferences() {
+    try {
+      final prefs = SharedPreferences.getInstance().then((p) => p);
+      // Note: SharedPreferences.getInstance is Future-based, we can't make it sync in Dart
+      // So we use a different approach: trigger consumption via asyc task but set a flag
+      // to indicate we should mark the NEXT matching event as from-alarm
+      _tryConsumeStoredLaunchPayload();
+    } catch (e) {
+      // Silent fail - this is a best-effort peek
+    }
+  }
+
+  // Try to consume the stored launch payload from the MethodChannel.
+  // Unlike _checkNativeLaunchPayloadIfAny, this doesn't try to trigger the event,
+  // it just populates _pendingAlarmEventId so that _attemptPendingAlarmPlayback can find it.
+  void _tryConsumeStoredLaunchPayload() async {
+    try {
+      if (_nativeLaunchPayloadCheckInFlight) return;
+      _nativeLaunchPayloadCheckInFlight = true;
+
+      final payload = await NotificationService().consumeLaunchPayload();
+      String? eventId;
+      bool autoPlayVideo = false;
+
+      final eventIdRaw = payload['event_id'];
+      if (eventIdRaw is String && eventIdRaw.trim().isNotEmpty) {
+        eventId = eventIdRaw.trim();
+      }
+      autoPlayVideo = payload['auto_play_video'] == true;
+
+      if (eventId == null) {
+        eventId = await NotificationService().consumeLaunchEventId();
+      }
+
+      if (eventId != null && eventId.isNotEmpty) {
+        // Don't re-queue if this event was already played and dismissed this session.
+        // This prevents the spam loop when Intent extras persist and native keeps
+        // returning the same ID on every 1-second cycle.
+        if (_dismissedEventStartTimes.containsKey(eventId) ||
+            (_recentlyDismissedIds.containsKey(eventId))) {
+          return;
+        }
+        // Found a pending alarm launch - queue it as pending so the next cycle triggers it with fromAlarmLaunch=true
+        print('HARMONY_ALARM: found stored launch payload eventId=$eventId, queuing as pending alarm');
+        _lastKnownAlarmLaunchEventId = eventId;
+        _pendingAlarmEventId = eventId;
+        _pendingAlarmEventExpiresAt = DateTime.now().add(const Duration(minutes: 5));
+        _pendingAlarmForceVideo = autoPlayVideo;
+      }
+    } catch (e) {
+      print('HARMONY_ALARM: _tryConsumeStoredLaunchPayload failed: $e');
+    } finally {
+      _nativeLaunchPayloadCheckInFlight = false;
+    }
+  }
+
   void requestImmediateAlarmPlayback(
     String eventId, {
     Duration holdFor = const Duration(minutes: 5),
@@ -327,10 +400,13 @@ class EventService extends ChangeNotifier {
     }
 
     if (_isEventActive && _currentEventId == target.id) {
+      _currentEventFromAlarmLaunch = true;
       _pendingAlarmEventId = null;
       _pendingAlarmEventExpiresAt = null;
       _pendingAlarmForceVideo = false;
-      print('HARMONY_ALARM: target ${target.id} already active; skipping retrigger');
+      print(
+        'HARMONY_ALARM: target ${target.id} already active; upgraded to alarm launch and skipping retrigger',
+      );
       return true;
     }
 
@@ -909,6 +985,9 @@ class EventService extends ChangeNotifier {
       "HARMONY_STRICT_V3: Triggering Event '$title' with Duration: $durationSeconds",
     );
 
+    final effectiveFromAlarmLaunch =
+        fromAlarmLaunch || (id != null && id == _lastKnownAlarmLaunchEventId);
+
     _isEventActive = true;
     _currentEventId = id;
     _currentEventStartTime = startTime;
@@ -929,7 +1008,33 @@ class EventService extends ChangeNotifier {
 
     _isWorldwide = isWorldwide;
     _currentEventMediaUrl = mediaUrl;
-    _currentEventFromAlarmLaunch = fromAlarmLaunch;
+    _currentEventFromAlarmLaunch = effectiveFromAlarmLaunch;
+
+    if (effectiveFromAlarmLaunch && id != null) {
+      print('HARMONY_ALARM: trigger marked as alarm launch for id=$id');
+    }
+
+    // Async verify: ask native for the last alarm-launched event ID.
+    // get_last_alarm_launched_event_id is set by captureLaunchEventId and never cleared,
+    // making it reliable even when _nativeLaunchPayloadCheckInFlight is stuck.
+    // This resolves <100ms after trigger, well before any dismiss timer fires.
+    if (!effectiveFromAlarmLaunch && id != null) {
+      final checkId = id;
+      _dormantAlarmChannel
+          .invokeMethod<String>('get_last_alarm_launched_event_id')
+          .then((nativeId) {
+        if (nativeId != null &&
+            nativeId.isNotEmpty &&
+            nativeId == checkId &&
+            _currentEventId == checkId) {
+          _currentEventFromAlarmLaunch = true;
+          _lastKnownAlarmLaunchEventId = nativeId;
+          print(
+            'HARMONY_ALARM: async alarm launch verified for $checkId (native=$nativeId)',
+          );
+        }
+      }).catchError((_) {});
+    }
 
     _dismissTimer?.cancel();
 
@@ -963,14 +1068,23 @@ class EventService extends ChangeNotifier {
   }
 
   void dismissEvent() {
-    print("DEBUG: dismissEvent called for ID: $_currentEventId [restore-v2]");
+    print("DEBUG: dismissEvent called for ID: $_currentEventId [restore-v3-sync]");
     final currentEventId = _currentEventId;
-    final isDormantSlotEvent =
-        currentEventId != null && currentEventId.startsWith('slot_');
-    final shouldRestoreLockscreen =
-        _currentEventFromAlarmLaunch || isDormantSlotEvent;
+    bool shouldRestoreLockscreen = _currentEventFromAlarmLaunch;
+
+    // Sync fallback: compare against the last known alarm launch id captured earlier.
+    if (!shouldRestoreLockscreen && currentEventId != null) {
+      final lastAlarmEventId = _lastKnownAlarmLaunchEventId;
+      if (lastAlarmEventId != null && lastAlarmEventId.isNotEmpty) {
+        shouldRestoreLockscreen = lastAlarmEventId == currentEventId;
+        print(
+          'HARMONY_ALARM: dismiss cached launch id check lastAlarmId=$lastAlarmEventId current=$currentEventId => restore=$shouldRestoreLockscreen',
+        );
+      }
+    }
+
     print(
-      'HARMONY_ALARM: dismiss restore decision id=$currentEventId fromAlarm=$_currentEventFromAlarmLaunch slotEvent=$isDormantSlotEvent => restore=$shouldRestoreLockscreen',
+      'HARMONY_ALARM: dismiss restore decision id=$currentEventId fromAlarm=$_currentEventFromAlarmLaunch => restore=$shouldRestoreLockscreen',
     );
     _dismissTimer?.cancel();
     _dismissTimer = null;
@@ -1010,20 +1124,48 @@ class EventService extends ChangeNotifier {
     if (shouldRestoreLockscreen) {
       print('HARMONY_ALARM: requesting post-event lockscreen restore (v2)');
       NotificationService().restoreLockscreenPresentation();
-      _requestNativeLockscreenRestoreFallback();
     }
 
     notifyListeners();
   }
 
-  Future<void> _requestNativeLockscreenRestoreFallback() async {
+  Future<void> _checkNativeLaunchPayloadIfAny() async {
+    if (_nativeLaunchPayloadCheckInFlight) return;
+    _nativeLaunchPayloadCheckInFlight = true;
+
     try {
-      final ok = await _dormantAlarmChannel.invokeMethod<dynamic>(
-        'restore_lockscreen_presentation',
-      );
-      print('HARMONY_ALARM: direct native restore fallback result=$ok');
+      final payload = await NotificationService().consumeLaunchPayload();
+      String? eventId;
+      bool autoPlayVideo = false;
+
+      final eventIdRaw = payload['event_id'];
+      if (eventIdRaw is String && eventIdRaw.trim().isNotEmpty) {
+        eventId = eventIdRaw.trim();
+      }
+      autoPlayVideo = payload['auto_play_video'] == true;
+
+      if (eventId == null) {
+        eventId = await NotificationService().consumeLaunchEventId();
+      }
+
+      if (eventId == null || eventId.isEmpty) {
+        return;
+      }
+
+      _lastKnownAlarmLaunchEventId = eventId;
+
+      // If event already started by scheduler path, upgrade it so dismiss uses alarm restore.
+      if (_isEventActive && _currentEventId == eventId) {
+        _currentEventFromAlarmLaunch = true;
+        print('HARMONY_ALARM: upgraded active event to alarm launch for $eventId');
+        return;
+      }
+
+      requestImmediateAlarmPlayback(eventId, forceVideo: autoPlayVideo);
     } catch (e) {
-      print('HARMONY_ALARM: direct native restore fallback failed: $e');
+      print('HARMONY_ALARM: live launch payload consume failed: $e');
+    } finally {
+      _nativeLaunchPayloadCheckInFlight = false;
     }
   }
 

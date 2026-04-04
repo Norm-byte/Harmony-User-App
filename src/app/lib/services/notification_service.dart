@@ -327,8 +327,19 @@ class NotificationService {
     }
 
     try {
-      // Best-effort native cancel sweep for upcoming events is handled during sync
-      // where we have access to event-derived alarm IDs.
+      final purged = await _dormantAlarmChannel.invokeMethod<int>(
+        'purge_stale_registered_alarms',
+      );
+      if ((purged ?? 0) > 0) {
+        debugPrint('Dormant reminder native stale purge: removed=$purged');
+      }
+
+      final cancelled = await _dormantAlarmChannel.invokeMethod<int>(
+        'cancel_all_registered_alarms',
+      );
+      debugPrint(
+        'Dormant reminder native cancel sweep complete: removed=${cancelled ?? 0}',
+      );
     } catch (e) {
       debugPrint('Error in native cancel pre-check: $e');
     }
@@ -339,11 +350,6 @@ class NotificationService {
     required UserService userService,
   }) async {
     await cancelDormantPlaybackReminders();
-
-    if (!userService.dormantPlaybackEnabled) {
-      debugPrint('Dormant playback reminders skipped: override disabled.');
-      return;
-    }
 
     if (!Platform.isAndroid) {
       debugPrint('Dormant playback reminders skipped: Android-only feature.');

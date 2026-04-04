@@ -2,6 +2,7 @@ package com.harmonybyintent.harmony_user_app
 
 import android.app.AlarmManager
 import android.app.ActivityManager
+import android.app.KeyguardManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -20,6 +21,96 @@ class DormantAlarmReceiver : BroadcastReceiver() {
         private const val ACTION_DORMANT_ALARM = "com.harmonybyintent.harmony_user_app.DORMANT_ALARM"
         private const val PREFS = "harmony_dormant_debug"
         private const val DEDUPE_WINDOW_MS = 90_000L
+        private const val ALARM_REGISTRY_KEY = "registered_alarm_entries"
+        private const val STALE_ALARM_WINDOW_MS = 2 * 60 * 60 * 1000L
+
+        private fun loadRegistry(context: Context): MutableMap<Int, Long> {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val entries = prefs.getStringSet(ALARM_REGISTRY_KEY, emptySet()) ?: emptySet()
+            val map = mutableMapOf<Int, Long>()
+            for (entry in entries) {
+                val parts = entry.split(':')
+                if (parts.size != 2) continue
+                val id = parts[0].toIntOrNull() ?: continue
+                val trigger = parts[1].toLongOrNull() ?: continue
+                map[id] = trigger
+            }
+            return map
+        }
+
+        private fun saveRegistry(context: Context, registry: Map<Int, Long>) {
+            val encoded = registry.entries.map { "${it.key}:${it.value}" }.toSet()
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putStringSet(ALARM_REGISTRY_KEY, encoded)
+                .apply()
+        }
+
+        private fun registerAlarm(context: Context, alarmId: Int, triggerTimeMillis: Long) {
+            val registry = loadRegistry(context)
+            registry[alarmId] = triggerTimeMillis
+            saveRegistry(context, registry)
+        }
+
+        private fun unregisterAlarm(context: Context, alarmId: Int) {
+            val registry = loadRegistry(context)
+            if (registry.remove(alarmId) != null) {
+                saveRegistry(context, registry)
+            }
+        }
+
+        fun purgeStaleRegisteredAlarms(context: Context): Int {
+            val now = System.currentTimeMillis()
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val registry = loadRegistry(context)
+            if (registry.isEmpty()) return 0
+
+            var cancelled = 0
+            val updated = registry.toMutableMap()
+            for ((alarmId, triggerAt) in registry) {
+                if (triggerAt < now - STALE_ALARM_WINDOW_MS) {
+                    val intent = Intent(context, DormantAlarmReceiver::class.java).apply {
+                        action = ACTION_DORMANT_ALARM
+                    }
+                    val pendingIntent = PendingIntent.getBroadcast(
+                        context,
+                        alarmId,
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    alarmManager.cancel(pendingIntent)
+                    updated.remove(alarmId)
+                    cancelled++
+                }
+            }
+
+            if (cancelled > 0) {
+                saveRegistry(context, updated)
+            }
+            return cancelled
+        }
+
+        fun cancelAllRegisteredAlarms(context: Context): Int {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val registry = loadRegistry(context)
+            if (registry.isEmpty()) return 0
+
+            for (alarmId in registry.keys) {
+                val intent = Intent(context, DormantAlarmReceiver::class.java).apply {
+                    action = ACTION_DORMANT_ALARM
+                }
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    alarmId,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                alarmManager.cancel(pendingIntent)
+            }
+
+            saveRegistry(context, emptyMap())
+            return registry.size
+        }
 
         fun scheduleExactAlarm(
             context: Context,
@@ -35,6 +126,7 @@ class DormantAlarmReceiver : BroadcastReceiver() {
 
             val intent = Intent(context, DormantAlarmReceiver::class.java).apply {
                 action = ACTION_DORMANT_ALARM
+                putExtra("alarm_id", alarmId)
                 putExtra("event_id", eventId)
                 putExtra("slot_key", slotKey)
                 putExtra("event_title", eventTitle)
@@ -64,6 +156,7 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                         AlarmManager.AlarmClockInfo(triggerTimeMillis, showIntent),
                         pendingIntent
                     )
+                    registerAlarm(context, alarmId, triggerTimeMillis)
                     android.util.Log.d("DormantAlarmReceiver", "Scheduled alarm clock for $eventId at $triggerTimeMillis")
                     return true
                 } else {
@@ -73,6 +166,7 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                         triggerTimeMillis,
                         pendingIntent
                     )
+                    registerAlarm(context, alarmId, triggerTimeMillis)
                     android.util.Log.d("DormantAlarmReceiver", "Scheduled exact alarm for $eventId at $triggerTimeMillis")
                     return true
                 }
@@ -98,6 +192,7 @@ class DormantAlarmReceiver : BroadcastReceiver() {
             )
             try {
                 alarmManager.cancel(pendingIntent)
+                unregisterAlarm(context, alarmId)
                 android.util.Log.d("DormantAlarmReceiver", "Cancelled alarm $alarmId")
             } catch (e: Exception) {
                 android.util.Log.e("DormantAlarmReceiver", "Error cancelling alarm: ${e.message}")
@@ -123,6 +218,10 @@ class DormantAlarmReceiver : BroadcastReceiver() {
         }
 
         val eventId = intent.getStringExtra("event_id") ?: "Unknown"
+        val alarmId = intent.getIntExtra("alarm_id", Int.MIN_VALUE)
+        if (alarmId != Int.MIN_VALUE) {
+            unregisterAlarm(context, alarmId)
+        }
         val slotKey = intent.getStringExtra("slot_key") ?: eventId
         val eventTitle = intent.getStringExtra("event_title") ?: "Harmony by Intent"
         val eventBody = intent.getStringExtra("event_body") ?: "Event starting now"
@@ -159,14 +258,22 @@ class DormantAlarmReceiver : BroadcastReceiver() {
             .putString("last_handled_slot", slotKey)
             .apply()
 
-        if (isAppInForeground(context)) {
-            android.util.Log.d("DormantAlarmReceiver", "Skipping dormant notification for foreground app: $eventId")
-        } else {
-            postNotification(context, eventId, eventTitle, eventBody, isFullScreen)
-        }
+        val appInForeground = isAppInForeground(context)
+        val deviceLocked = isDeviceLocked(context)
 
-        // Best-effort wake path: open the app so Flutter can evaluate/play the active event immediately.
-        launchAppForEvent(context, eventId, isFullScreen)
+        if (appInForeground) {
+            // App is open: launch for auto-play, but skip notification (user doesn't need tap prompt).
+            launchAppForEvent(context, eventId, isFullScreen)
+            android.util.Log.d("DormantAlarmReceiver", "App in foreground: skipping notification, launching auto-play for $eventId")
+        } else if (deviceLocked) {
+            // Device is locked: post notification so full-screen intent can legitimately wake/launch playback.
+            postNotification(context, eventId, eventTitle, eventBody, isFullScreen)
+            android.util.Log.d("DormantAlarmReceiver", "Device locked: posting notification for lockscreen auto-play for $eventId")
+        } else {
+            // Device unlocked in another app: post notification so user can choose to tap in.
+            postNotification(context, eventId, eventTitle, eventBody, isFullScreen)
+            android.util.Log.d("DormantAlarmReceiver", "App backgrounded and unlocked: posting notification for $eventId")
+        }
 
         try {
             wakeLock?.release()
@@ -190,7 +297,6 @@ class DormantAlarmReceiver : BroadcastReceiver() {
             val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
                 ?: Intent(context, MainActivity::class.java)
             launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TASK or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP
             launchIntent.putExtra("event_id", eventId)
             launchIntent.putExtra("auto_play_video", isFullScreen)
@@ -271,7 +377,6 @@ class DormantAlarmReceiver : BroadcastReceiver() {
             val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
                 ?: Intent(context, MainActivity::class.java)
             launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TASK or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP or
                 Intent.FLAG_ACTIVITY_CLEAR_TOP
             launchIntent.putExtra("event_id", eventId)
@@ -290,6 +395,19 @@ class DormantAlarmReceiver : BroadcastReceiver() {
             running.any {
                 it.processName == context.packageName &&
                     it.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isDeviceLocked(context: Context): Boolean {
+        return try {
+            val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                keyguardManager.isDeviceLocked
+            } else {
+                keyguardManager.isKeyguardLocked
             }
         } catch (_: Exception) {
             false

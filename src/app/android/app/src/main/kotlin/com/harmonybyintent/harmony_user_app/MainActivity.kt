@@ -9,10 +9,20 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity: FlutterFragmentActivity() {
     private val CHANNEL = "com.harmonybyintent.harmony_user_app/dormant_alarm"
     private val PREFS = "harmony_dormant_debug"
+    private val PENDING_LAUNCH_EVENT_ID_KEY = "pending_launch_event_id"
+    private val PENDING_LAUNCH_AUTO_PLAY_VIDEO_KEY = "pending_launch_auto_play_video"
     @Volatile
     private var pendingLaunchEventId: String? = null
     @Volatile
     private var pendingLaunchAutoPlayVideo: Boolean = false
+    @Volatile
+    private var methodChannel: MethodChannel? = null
+    @Volatile
+    private var notificationTapReceived: Boolean = false
+    @Volatile
+    private var lastAlarmLaunchedEventId: String? = null
+    @Volatile
+    private var lastAlarmNotificationId: Int? = null
 
     override fun onStart() {
         super.onStart()
@@ -30,8 +40,61 @@ class MainActivity: FlutterFragmentActivity() {
         if (!eventId.isNullOrBlank()) {
             pendingLaunchEventId = eventId
             pendingLaunchAutoPlayVideo = intent.getBooleanExtra("auto_play_video", false)
+            // Store the event ID as the authoritative last-alarm-launched ID for native queries
+            lastAlarmLaunchedEventId = eventId
+            lastAlarmNotificationId = eventId.hashCode()
+            getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(PENDING_LAUNCH_EVENT_ID_KEY, eventId)
+                .putBoolean(PENDING_LAUNCH_AUTO_PLAY_VIDEO_KEY, pendingLaunchAutoPlayVideo)
+                .apply()
+            android.util.Log.d(
+                "MainActivity",
+                "captureLaunchEventId: stored eventId=$eventId autoPlay=$pendingLaunchAutoPlayVideo (authoritative alarm source)"
+            )
             applyAlarmLockscreenPresentation(enabled = true)
+            notificationTapReceived = true
+            invokeNotificationTapConsumption()
         }
+    }
+
+    private fun invokeNotificationTapConsumption() {
+        val channel = methodChannel
+        if (channel != null) {
+            // Channel is ready, invoke immediately
+            try {
+                channel.invokeMethod("on_notification_tap_received", null)
+            } catch (e: Exception) {
+                android.util.Log.d("MainActivity", "onNotificationTapReceived error: ${e.message}")
+            }
+        } else {
+            // Channel not ready yet, set flag to retry after Flutter is configured
+            notificationTapReceived = true
+        }
+    }
+
+    private fun retryPendingNotificationTap() {
+        if (notificationTapReceived && methodChannel != null) {
+            invokeNotificationTapConsumption()
+        }
+    }
+
+    private fun peekStoredLaunchEventId(): String? {
+        return getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(PENDING_LAUNCH_EVENT_ID_KEY, null)
+    }
+
+    private fun peekStoredLaunchAutoPlayVideo(): Boolean {
+        return getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(PENDING_LAUNCH_AUTO_PLAY_VIDEO_KEY, false)
+    }
+
+    private fun clearStoredLaunchPayload() {
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .remove(PENDING_LAUNCH_EVENT_ID_KEY)
+            .remove(PENDING_LAUNCH_AUTO_PLAY_VIDEO_KEY)
+            .apply()
     }
 
     private fun applyAlarmLockscreenPresentation(enabled: Boolean) {
@@ -55,6 +118,15 @@ class MainActivity: FlutterFragmentActivity() {
     private fun restoreAlarmLockscreenPresentation() {
         android.util.Log.d("MainActivity", "restoreAlarmLockscreenPresentation: begin")
 
+        // Cancel the alarm notification so it doesn't linger in the shade
+        val notifId = lastAlarmNotificationId
+        if (notifId != null) {
+            try {
+                androidx.core.app.NotificationManagerCompat.from(this).cancel(notifId)
+            } catch (_: Exception) {}
+            lastAlarmNotificationId = null
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(false)
             setTurnScreenOn(false)
@@ -67,32 +139,11 @@ class MainActivity: FlutterFragmentActivity() {
                 android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
 
-        // Alarm launches are one-shot: aggressively close/background this task
-        // so the device keyguard becomes the visible surface again.
+        // Alarm launches are one-shot: send this task to background so the
+        // previous foreground app (for example Calculator) becomes visible again.
         try {
             moveTaskToBack(true)
         } catch (_: Exception) {
-        }
-
-        try {
-            val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
-                addCategory(android.content.Intent.CATEGORY_HOME)
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            startActivity(homeIntent)
-        } catch (_: Exception) {
-        }
-
-        try {
-            finishAffinity()
-        } catch (_: Exception) {
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            finishAndRemoveTask()
-        } else {
-            @Suppress("DEPRECATION")
-            finish()
         }
 
         android.util.Log.d("MainActivity", "restoreAlarmLockscreenPresentation: complete")
@@ -101,7 +152,9 @@ class MainActivity: FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
+        val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        methodChannel = channel
+        channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "schedule_exact_alarm" -> {
                     val alarmId = call.argument<Int>("alarm_id") ?: return@setMethodCallHandler result.error("INVALID_ARGUMENT", "Missing alarm_id", null)
@@ -136,6 +189,22 @@ class MainActivity: FlutterFragmentActivity() {
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("CANCEL_ERROR", e.message, null)
+                    }
+                }
+                "cancel_all_registered_alarms" -> {
+                    try {
+                        val cancelled = DormantAlarmReceiver.cancelAllRegisteredAlarms(this)
+                        result.success(cancelled)
+                    } catch (e: Exception) {
+                        result.error("CANCEL_ALL_ERROR", e.message, null)
+                    }
+                }
+                "purge_stale_registered_alarms" -> {
+                    try {
+                        val purged = DormantAlarmReceiver.purgeStaleRegisteredAlarms(this)
+                        result.success(purged)
+                    } catch (e: Exception) {
+                        result.error("PURGE_STALE_ERROR", e.message, null)
                     }
                 }
                 "schedule_debug_alarm" -> {
@@ -185,9 +254,16 @@ class MainActivity: FlutterFragmentActivity() {
                 }
                 "consume_launch_event_id" -> {
                     try {
-                        val value = pendingLaunchEventId ?: intent?.getStringExtra("event_id")
+                        val value = pendingLaunchEventId
+                            ?: intent?.getStringExtra("event_id")
+                            ?: peekStoredLaunchEventId()
                         pendingLaunchEventId = null
                         pendingLaunchAutoPlayVideo = false
+                        clearStoredLaunchPayload()
+                        // Clear Intent extras so repeated calls don't re-read stale data
+                        intent?.removeExtra("event_id")
+                        intent?.removeExtra("auto_play_video")
+                        android.util.Log.d("MainActivity", "consume_launch_event_id: value=$value")
                         result.success(value)
                     } catch (e: Exception) {
                         result.error("LAUNCH_EVENT_READ_ERROR", e.message, null)
@@ -195,11 +271,22 @@ class MainActivity: FlutterFragmentActivity() {
                 }
                 "consume_launch_payload" -> {
                     try {
-                        val eventId = pendingLaunchEventId ?: intent?.getStringExtra("event_id")
+                        val eventId = pendingLaunchEventId
+                            ?: intent?.getStringExtra("event_id")
+                            ?: peekStoredLaunchEventId()
                         val autoPlayVideo = pendingLaunchAutoPlayVideo ||
-                            (intent?.getBooleanExtra("auto_play_video", false) ?: false)
+                            (intent?.getBooleanExtra("auto_play_video", false) ?: false) ||
+                            peekStoredLaunchAutoPlayVideo()
                         pendingLaunchEventId = null
                         pendingLaunchAutoPlayVideo = false
+                        clearStoredLaunchPayload()
+                        // Clear Intent extras so repeated calls don't re-read stale data
+                        intent?.removeExtra("event_id")
+                        intent?.removeExtra("auto_play_video")
+                        android.util.Log.d(
+                            "MainActivity",
+                            "consume_launch_payload: eventId=${eventId ?: ""} autoPlay=$autoPlayVideo"
+                        )
                         val payload = mapOf(
                             "event_id" to (eventId ?: ""),
                             "auto_play_video" to autoPlayVideo,
@@ -217,9 +304,21 @@ class MainActivity: FlutterFragmentActivity() {
                         result.error("RESTORE_LOCKSCREEN_ERROR", e.message, null)
                     }
                 }
+                "get_last_alarm_launched_event_id" -> {
+                    try {
+                        val eventId = lastAlarmLaunchedEventId ?: ""
+                        android.util.Log.d("MainActivity", "get_last_alarm_launched_event_id: returning $eventId")
+                        result.success(eventId)
+                    } catch (e: Exception) {
+                        result.error("GET_LAST_ALARM_ERROR", e.message, null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
+        
+        // If a notification tap was received before Flutter was ready, retry now
+        retryPendingNotificationTap()
     }
 }
 

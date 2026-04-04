@@ -7,6 +7,10 @@ import 'dart:math';
 enum PlaybackMode { video, audio }
 
 class UserService extends ChangeNotifier {
+  static const String _dormantPlaybackEnabledKey = 'dormant_playback_enabled';
+  static const String _dormantPlaybackPreferenceSetKey =
+      'dormant_playback_preference_set';
+
   // Singleton instance
   static final UserService _instance = UserService._internal();
   factory UserService() => _instance;
@@ -29,7 +33,7 @@ class UserService extends ChangeNotifier {
   double _eventVolume = 1.0;
   bool _globalPriority = true; // Added for Global Priority
   bool _autoJoinWorldwide = true; // New Auto-Join setting (Default ON)
-  bool _dormantPlaybackEnabled = false;
+  bool _dormantPlaybackEnabled = true;
   bool _settingsLoaded = false;
   // 0 = video (active), 1 = audio (active), 2 = off
   List<List<int>> _hourlyChimes = List.generate(
@@ -70,8 +74,15 @@ class UserService extends ChangeNotifier {
     _autoJoinWorldwide =
         prefs.getBool('auto_join_worldwide') ??
         true; // Load Auto-Join (Default ON)
-    _dormantPlaybackEnabled =
-        prefs.getBool('dormant_playback_enabled') ?? false;
+    final dormantPlaybackPreferenceSet =
+        prefs.getBool(_dormantPlaybackPreferenceSetKey) ?? false;
+    if (dormantPlaybackPreferenceSet) {
+      _dormantPlaybackEnabled =
+          prefs.getBool(_dormantPlaybackEnabledKey) ?? true;
+    } else {
+      _dormantPlaybackEnabled = true;
+      await prefs.setBool(_dormantPlaybackEnabledKey, true);
+    }
     _blockedUsers = prefs.getStringList('blocked_users') ?? [];
 
     final savedChimes = prefs.getString('hourly_chimes_matrix');
@@ -180,7 +191,8 @@ class UserService extends ChangeNotifier {
     _dormantPlaybackEnabled = enabled;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('dormant_playback_enabled', enabled);
+    await prefs.setBool(_dormantPlaybackEnabledKey, enabled);
+    await prefs.setBool(_dormantPlaybackPreferenceSetKey, true);
     _syncUserToFirestore();
   }
 
