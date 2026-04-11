@@ -311,6 +311,19 @@ class NotificationService {
     }
   }
 
+  Future<void> cancelNotificationForEvent(String? eventId) async {
+    if (!Platform.isAndroid) return;
+
+    try {
+      await _dormantAlarmChannel.invokeMethod<dynamic>(
+        'cancel_notification_for_event',
+        <String, dynamic>{'event_id': eventId ?? ''},
+      );
+    } catch (e) {
+      debugPrint('Failed to cancel native event notification: $e');
+    }
+  }
+
   Future<void> cancelDormantPlaybackReminders() async {
     if (!Platform.isAndroid) return;
 

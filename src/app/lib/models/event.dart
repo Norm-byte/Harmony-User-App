@@ -18,6 +18,7 @@ class Event {
   final int? visibilityAfterMinutes;
   final int? showBeforeMinutes;
   final String? recurrenceType; // 'None', 'Daily', 'Weekly', 'Monthly'
+  final String? originTimeZone;
   final String? originTime; // 'HH:mm' for National events
   final String? soundUrl;
   final String? visualUrl;
@@ -44,6 +45,7 @@ class Event {
     this.visibilityAfterMinutes,
     this.showBeforeMinutes,
     this.recurrenceType,
+    this.originTimeZone,
     this.originTime,
     this.soundUrl,
     this.visualUrl,
@@ -135,6 +137,7 @@ class Event {
       showBeforeMinutes:
           json['showBeforeMinutes'] ?? json['noticeBoardShowBeforeMinutes'],
       recurrenceType: json['recurrenceType'],
+      originTimeZone: json['originTimeZone'],
       originTime: json['originTime'],
       soundUrl: json['soundUrl'] ?? json['audioUrl'],
       visualUrl: json['visualUrl'],
@@ -164,6 +167,7 @@ class Event {
       visibilityAfterMinutes: visibilityAfterMinutes,
       showBeforeMinutes: showBeforeMinutes,
       recurrenceType: recurrenceType,
+      originTimeZone: originTimeZone,
       soundUrl: soundUrl,
       visualUrl: visualUrl,
       mediaUrl: mediaUrl,
@@ -185,15 +189,21 @@ class Event {
       'imageUrl': imageUrl,
       'isOnline': isOnline,
       'type': type.name, // 'global' or 'national'
+      'isPublished': isPublished,
       'mostPopularIntent': mostPopularIntent,
       'learnMoreContent': learnMoreContent,
       'learnMoreYoutubeUrl': learnMoreYoutubeUrl,
       'participantCount': participantCount,
+      'originTimeZone': originTimeZone,
+      'noticeBoardShowBeforeMinutes': showBeforeMinutes,
+      'visibilityAfterMinutes': visibilityAfterMinutes,
+      'recurrenceType': recurrenceType,
       'noticeBoardBgImage': noticeBoardBgImage,
       'noticeBoardBgColor': noticeBoardBgColor,
       'soundUrl': soundUrl,
       'visualUrl': visualUrl,
       'mediaUrl': mediaUrl,
+      'originTime': originTime,
     };
   }
 

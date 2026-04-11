@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math';
@@ -100,31 +101,36 @@ class UserService extends ChangeNotifier {
       }
     }
 
-    // Generate a persistent ID for this installation if not found
-    if (!prefs.containsKey('user_id')) {
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final random = Random().nextInt(10000);
-      final newId = 'user_${timestamp}_$random';
-      await prefs.setString('user_id', newId);
-    }
+    // Prefer Firebase Auth UID as the user identity.
+    // Fall back to a locally-generated ID only if not signed in.
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser != null) {
+      _userId = firebaseUser.uid;
+      _userName = prefs.getString('user_name') ?? firebaseUser.displayName ?? 'Member';
+    } else {
+      // Generate a persistent anonymous ID for this installation if not found
+      if (!prefs.containsKey('user_id')) {
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final random = Random().nextInt(10000);
+        final newId = 'user_${timestamp}_$random';
+        await prefs.setString('user_id', newId);
+      }
+      _userId = prefs.getString('user_id')!;
+      _userName = prefs.getString('user_name') ?? 'Guest';
 
-    _userId = prefs.getString(
-      'user_id',
-    )!; // Safe bang operator as we just ensured it exists
-    _userName = prefs.getString('user_name') ?? 'Guest';
-
-    // FORCE RESET if ID is "Super Admin" (Debug Cleanup)
-    if (_userId == 'Super Admin' || _userId.contains(' ')) {
-      debugPrint(
-        "HARMONY_DEBUG: Detected invalid ID '$_userId'. Resetting identity...",
-      );
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final random = Random().nextInt(10000);
-      _userId = 'user_${timestamp}_$random';
-      await prefs.setString('user_id', _userId);
-      await prefs.setString('user_name', 'Guest');
-      _userName = 'Guest';
-      debugPrint("HARMONY_DEBUG: New Identity: $_userId");
+      // FORCE RESET if ID is "Super Admin" (Debug Cleanup)
+      if (_userId == 'Super Admin' || _userId.contains(' ')) {
+        debugPrint(
+          "HARMONY_DEBUG: Detected invalid ID '$_userId'. Resetting identity...",
+        );
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final random = Random().nextInt(10000);
+        _userId = 'user_${timestamp}_$random';
+        await prefs.setString('user_id', _userId);
+        await prefs.setString('user_name', 'Guest');
+        _userName = 'Guest';
+        debugPrint("HARMONY_DEBUG: New Identity: $_userId");
+      }
     }
 
     // Detect Time Zone
@@ -163,6 +169,15 @@ class UserService extends ChangeNotifier {
     await prefs.setString('user_id', id);
     await prefs.setString('user_name', name);
     _syncUserToFirestore();
+  }
+
+  Future<void> clearUser() async {
+    _userId = '';
+    _userName = 'Guest';
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('user_id');
+    await prefs.remove('user_name');
   }
 
   Future<void> setEventVolume(double volume) async {

@@ -12,6 +12,15 @@ import 'package:share_plus/share_plus.dart';
 class EventsScreen extends StatelessWidget {
   const EventsScreen({super.key});
 
+  static const String _playStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.harmonybyintent.harmony_user_app';
+  static const String _websiteUrl = 'https://www.harmonybyintent.com';
+
+  String _buildInviteMessage(Event event) {
+    final localTime = DateFormat('HH:mm').format(event.startTime.toLocal());
+    return 'Join me for "${event.title}" on Harmony by Intent at $localTime.\n\nInstall or open the app:\n$_playStoreUrl\n\nMore info:\n$_websiteUrl';
+  }
+
   @override
   Widget build(BuildContext context) {
     // Use the EventService to get real events
@@ -194,7 +203,7 @@ class EventsScreen extends StatelessWidget {
                               const Icon(Icons.public, color: Colors.white60, size: 12),
                               const SizedBox(width: 4),
                               Text(
-                                "Origin: ${event.originTime} (${event.originTime != null ? 'Source' : 'UTC'})",  // Simplified since we don't store TimeZone name in User Model yet
+                                'Source time: ${event.originTime} ${event.originTimeZone ?? 'UTC'}',
                                 style: const TextStyle(color: Colors.white60, fontSize: 11, fontStyle: FontStyle.italic),
                               ),
                             ],
@@ -441,7 +450,7 @@ class EventsScreen extends StatelessWidget {
                         width: double.infinity,
                         child: TextButton.icon(
                           onPressed: () {
-                             Share.share('Join me for a global peace meditation on Harmony by Intent!'); 
+                             Share.share(_buildInviteMessage(event)); 
                           },
                           icon: const Icon(
                             Icons.share,
@@ -568,7 +577,7 @@ class EventsScreen extends StatelessWidget {
                           Expanded(
                             child: TextButton.icon(
                               onPressed: () {
-                                Share.share('Join me for a National Event on Harmony by Intent!');
+                                Share.share(_buildInviteMessage(event));
                               },
                               icon: const Icon(
                                 Icons.share,

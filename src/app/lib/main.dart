@@ -1,9 +1,11 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 import 'screens/welcome_screen.dart';
+import 'screens/home_screen.dart';
 import 'screens/event_overlay_screen.dart';
 import 'services/event_service.dart';
 import 'services/favorites_service.dart';
@@ -195,10 +197,19 @@ class _SplashScreenState extends State<SplashScreen> {
     }
 
     if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-      );
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser != null) {
+        // Already authenticated — go straight to Home
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomeScreen(isSuperAdmin: false)),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+        );
+      }
     }
   }
 

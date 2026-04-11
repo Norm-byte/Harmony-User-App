@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../models/event.dart';
@@ -12,6 +13,7 @@ import '../widgets/favorite_item_card.dart';
 import 'category_favorites_screen.dart';
 import 'chat_screen.dart';
 import 'community_groups_screen.dart';
+import 'welcome_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -676,38 +678,56 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                          },
                        ),
                        const Divider(color: Colors.white12),
+                       const Divider(color: Colors.white12),
                        ListTile(
-                         leading: const Icon(Icons.email, color: Colors.white),
-                         title: const Text('Email', style: TextStyle(color: Colors.white)),
-                         subtitle: const Text('Managed by App Store', style: TextStyle(color: Colors.white54)), // Since simulated
-                         trailing: const Icon(Icons.edit_off, color: Colors.white54, size: 16),
-                         onTap: () {
-                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account managed by device ID for privacy')));
-                         },
+                         leading: const Icon(Icons.badge_outlined, color: Colors.white),
+                         title: const Text('Profile Information', style: TextStyle(color: Colors.white)),
+                         subtitle: Text('${userService.userName} • ${userService.timeZone}', style: const TextStyle(color: Colors.white54)),
+                         trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
+                         onTap: () {},
                        ),
                        const Divider(color: Colors.white12),
                        ListTile(
-                         leading: const Icon(Icons.lock, color: Colors.white),
+                         leading: const Icon(Icons.lock_outline, color: Colors.white70),
                          title: const Text('Change Password', style: TextStyle(color: Colors.white)),
+                         subtitle: const Text('Update your account password', style: TextStyle(color: Colors.white38, fontSize: 12)),
                          trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
                          onTap: () => _showChangePasswordDialog(context),
                        ),
                        const Divider(color: Colors.white12),
                        ListTile(
-                         leading: const Icon(Icons.notifications, color: Colors.white),
-                         title: const Text('Notifications', style: TextStyle(color: Colors.white)),
-                         trailing: Switch(
-                           value: userService.globalPriority, // Mapping to Global Priority for now
-                           onChanged: (val) => userService.setGlobalPriority(val),
-                           activeColor: Colors.amber,
-                         ),
-                       ),
-                       const Divider(color: Colors.white12),
-                       ListTile(
                          leading: const Icon(Icons.logout, color: Colors.redAccent),
                          title: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
-                         onTap: () {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are signed in anonymously on this device.')));
+                         onTap: () async {
+                           final confirmed = await showDialog<bool>(
+                             context: context,
+                             builder: (ctx) => AlertDialog(
+                               backgroundColor: const Color(0xFF2A2A2A),
+                               title: const Text('Sign Out', style: TextStyle(color: Colors.white)),
+                               content: const Text('Are you sure you want to sign out?', style: TextStyle(color: Colors.white70)),
+                               actions: [
+                                 TextButton(
+                                   onPressed: () => Navigator.pop(ctx, false),
+                                   child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+                                 ),
+                                 TextButton(
+                                   onPressed: () => Navigator.pop(ctx, true),
+                                   child: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
+                                 ),
+                               ],
+                             ),
+                           );
+                           if (confirmed == true && context.mounted) {
+                             await FirebaseAuth.instance.signOut();
+                             await Provider.of<UserService>(context, listen: false).clearUser();
+                             if (context.mounted) {
+                               Navigator.pushAndRemoveUntil(
+                                 context,
+                                 MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+                                 (_) => false,
+                               );
+                             }
+                           }
                          },
                        ),
                     ],
@@ -784,25 +804,43 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 
               Navigator.pop(context); // Close input dialog
 
-              // Show loading
               showDialog(
                 context: context,
                 barrierDismissible: false,
                 builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.amber)),
               );
 
-              // Simulate network delay
-              await Future.delayed(const Duration(seconds: 2));
+              try {
+                await FirebaseAuth.instance.currentUser!
+                    .updatePassword(newPasswordController.text);
 
-              if (context.mounted) {
-                Navigator.pop(context); // Close loading
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Password updated successfully')),
-                );
-
-                // Touch the backend
-                final userService = Provider.of<UserService>(context, listen: false);
-                await userService.setUser(userService.userId, userService.userName);
+                if (context.mounted) {
+                  Navigator.pop(context); // Close loading
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Password updated successfully'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } on FirebaseAuthException catch (e) {
+                if (context.mounted) {
+                  Navigator.pop(context); // Close loading
+                  if (e.code == 'requires-recent-login') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'For security, please sign out and sign back in before changing your password.',
+                        ),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error: ${e.message}')),
+                    );
+                  }
+                }
               }
             },
           ),

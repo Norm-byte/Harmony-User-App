@@ -4,9 +4,7 @@ import '../services/user_service.dart';
 import '../services/subscription_service.dart';
 import '../services/notification_service.dart';
 import '../services/event_service.dart';
-import 'personal_information_screen.dart';
 import 'support_chat_screen.dart';
-import 'subscription_screen.dart'; // Ensure this matches what we have
 import '../widgets/gradient_scaffold.dart';
 
 class AppSettingsScreen extends StatefulWidget {
@@ -38,204 +36,13 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     // Use GradientScaffold since this is a new full screen
     return GradientScaffold(
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: const Text('Chime Settings'),
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Subscription Section
-          _buildSectionHeader('Subscription'),
-          Consumer<SubscriptionService>(
-            builder: (context, subscriptionService, _) {
-              final isSubscribed = subscriptionService.isSubscribed;
-              return Card(
-                elevation: 2,
-                color: Colors.white.withOpacity(0.1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: ListTile(
-                  leading: const Icon(Icons.stars, color: Colors.amber),
-                  title: Text(
-                    isSubscribed
-                        ? 'Manage Subscription'
-                        : 'Upgrade to Harmony Pro',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                  subtitle: Text(
-                    isSubscribed
-                        ? 'Manage your plan and billing'
-                        : 'Unlock detailed stats and more',
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  trailing: const Icon(
-                    Icons.arrow_forward_ios,
-                    size: 16,
-                    color: Colors.white54,
-                  ),
-                  onTap: () async {
-                    // 1. Show Loading Answer
-                    showDialog(
-                      context: context,
-                      barrierDismissible: false,
-                      builder: (_) => const Center(
-                        child: CircularProgressIndicator(color: Colors.amber),
-                      ),
-                    );
-
-                    try {
-                      // Check VIP
-                      if (subscriptionService.isVip) {
-                        if (context.mounted) Navigator.pop(context);
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            backgroundColor: const Color(0xFF2A2A2A),
-                            title: const Text(
-                              'VIP Member',
-                              style: TextStyle(color: Colors.amber),
-                            ),
-                            content: const Text(
-                              'You have full access via VIP Override.',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('OK'),
-                              ),
-                            ],
-                          ),
-                        );
-                        return;
-                      }
-
-                      // Refresh
-                      await subscriptionService.refreshSubscriptionStatus();
-
-                      if (subscriptionService.isSubscribed) {
-                        // Subscribed: Offer Choice (Fix for 'Expired' confusion)
-                        if (context.mounted)
-                          Navigator.pop(context); // Close Loader
-
-                        showModalBottomSheet(
-                          context: context,
-                          backgroundColor: const Color(0xFF2A2A2A),
-                          shape: const RoundedRectangleBorder(
-                            borderRadius: BorderRadius.vertical(
-                              top: Radius.circular(20),
-                            ),
-                          ),
-                          builder: (context) => SafeArea(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ListTile(
-                                  leading: const Icon(
-                                    Icons.settings,
-                                    color: Colors.white,
-                                  ),
-                                  title: const Text(
-                                    'Manage Subscription',
-                                    style: TextStyle(color: Colors.white),
-                                  ),
-                                  subtitle: const Text(
-                                    'View details, cancel, or restore',
-                                    style: TextStyle(color: Colors.white70),
-                                  ),
-                                  onTap: () {
-                                    Navigator.pop(context);
-                                    subscriptionService.showCustomerCenter();
-                                  },
-                                ),
-                                ListTile(
-                                  leading: const Icon(
-                                    Icons.star,
-                                    color: Colors.amber,
-                                  ),
-                                  title: const Text(
-                                    'View Plans & Renew',
-                                    style: TextStyle(color: Colors.white),
-                                  ),
-                                  subtitle: const Text(
-                                    'See available plans and pricing',
-                                    style: TextStyle(color: Colors.white70),
-                                  ),
-                                  onTap: () {
-                                    Navigator.pop(context);
-                                    subscriptionService.showPaywall();
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-                            ),
-                          ),
-                        );
-                      } else {
-                        // 2. Not Subscribed -> Show Paywall directly
-                        await subscriptionService.showPaywall();
-
-                        // 3. Remove Loader
-                        if (context.mounted) Navigator.pop(context);
-                      }
-                    } catch (e) {
-                      // 4. Handle Errors with a Popup
-                      if (context.mounted) {
-                        Navigator.pop(context); // Remove loader
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: const Text("Connection Issue"),
-                            content: Text(
-                              "Details: $e\n\nPlease check your internet connection.",
-                            ),
-                            backgroundColor: Colors.grey[900],
-                            titleTextStyle: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            contentTextStyle: const TextStyle(
-                              color: Colors.white70,
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text(
-                                  "OK",
-                                  style: TextStyle(color: Colors.amber),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }
-                    }
-                  },
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 24),
-
-          // Personal Information
-          _buildSectionHeader('Personal Information'),
-          _buildSettingsTile(
-            icon: Icons.person,
-            title: 'Personal Information',
-            subtitle: 'Manage account details',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const PersonalInformationScreen(),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 24),
-
           // Chime Settings
           _buildSectionHeader('Chime Configuration'),
           SwitchListTile(
@@ -406,18 +213,6 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             },
           ),
 
-          const SizedBox(height: 32),
-          OutlinedButton(
-            onPressed: () {
-              // Sign Out Logic
-            },
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.redAccent,
-              side: const BorderSide(color: Colors.redAccent),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
-            child: const Text('Sign Out'),
-          ),
           const SizedBox(height: 32),
         ],
       ),

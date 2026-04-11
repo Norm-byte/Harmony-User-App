@@ -149,6 +149,26 @@ class MainActivity: FlutterFragmentActivity() {
         android.util.Log.d("MainActivity", "restoreAlarmLockscreenPresentation: complete")
     }
 
+    private fun cancelAlarmNotificationForEvent(eventId: String?) {
+        val eventBasedId = eventId?.takeIf { it.isNotBlank() }?.hashCode()
+        val fallbackId = lastAlarmNotificationId
+
+        try {
+            val manager = androidx.core.app.NotificationManagerCompat.from(this)
+            if (eventBasedId != null) {
+                manager.cancel(eventBasedId)
+            }
+            if (fallbackId != null && fallbackId != eventBasedId) {
+                manager.cancel(fallbackId)
+            }
+        } catch (_: Exception) {
+        }
+
+        if (eventBasedId == null || eventBasedId == fallbackId) {
+            lastAlarmNotificationId = null
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -302,6 +322,15 @@ class MainActivity: FlutterFragmentActivity() {
                         result.success(true)
                     } catch (e: Exception) {
                         result.error("RESTORE_LOCKSCREEN_ERROR", e.message, null)
+                    }
+                }
+                "cancel_notification_for_event" -> {
+                    try {
+                        val eventId = call.argument<String>("event_id")
+                        cancelAlarmNotificationForEvent(eventId)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("CANCEL_NOTIFICATION_ERROR", e.message, null)
                     }
                 }
                 "get_last_alarm_launched_event_id" -> {

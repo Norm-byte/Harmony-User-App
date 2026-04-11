@@ -1,0 +1,8 @@
+The Android App Bundle for version 1.0.4+6 is located here:
+src\app\build\app\outputs\bundle\release\app-release.aab
+
+Full Path:
+C:\Harmony by Intent project\harmony by intent\harmony-by-intent\src\app\build\app\outputs\bundle\release\app-release.aab
+
+This version (1.0.4+6) contains recurrence normalization and visibility fixes for missing notice boards/events.
+Upload this file to the Google Play Console under the "Internal testing" -> "Create new release" section.

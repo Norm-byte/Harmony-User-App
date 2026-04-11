@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
@@ -79,8 +80,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   Future<void> _openPaywall() async {
     setState(() => _isLoading = true);
     try {
-      final success = await Provider.of<SubscriptionService>(context, listen: false)
-          .showPaywall();
+      final subscriptionService = Provider.of<SubscriptionService>(context, listen: false);
+      await subscriptionService.refreshSubscriptionStatus();
+
+      if (subscriptionService.isSubscribed) {
+        await subscriptionService.showCustomerCenter();
+        return;
+      }
+
+      final success = await subscriptionService.showPaywall();
       
       if (success) {
         if (mounted) {
@@ -90,6 +98,27 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           _navigateToHome();
         }
       }
+    } on PlatformException catch (e) {
+      if (!mounted) return;
+
+      final message = switch (e.code) {
+        'NO_OFFERINGS' => 'No subscription offerings are available right now.',
+        'NO_PACKAGES' => 'Subscription packages are not configured yet.',
+        _ => e.message?.isNotEmpty == true
+            ? e.message!
+            : 'Could not load subscription options. Please try again later.',
+      };
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not load subscription options. Please try again later.'),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

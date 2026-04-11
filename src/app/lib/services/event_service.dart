@@ -1072,6 +1072,9 @@ class EventService extends ChangeNotifier {
     final currentEventId = _currentEventId;
     bool shouldRestoreLockscreen = _currentEventFromAlarmLaunch;
 
+    // Always attempt to cancel any matching alarm notification on dismiss.
+    NotificationService().cancelNotificationForEvent(currentEventId);
+
     // Sync fallback: compare against the last known alarm launch id captured earlier.
     if (!shouldRestoreLockscreen && currentEventId != null) {
       final lastAlarmEventId = _lastKnownAlarmLaunchEventId;
@@ -1120,6 +1123,12 @@ class EventService extends ChangeNotifier {
     _currentEventEndTime = null;
     _currentEventStartTime = null;
     _currentEventFromAlarmLaunch = false;
+
+    // Alarm launch IDs are one-shot markers. Clear after dismiss when consumed,
+    // so foreground/non-alarm playback of later events doesn't inherit restore behavior.
+    if (currentEventId != null && _lastKnownAlarmLaunchEventId == currentEventId) {
+      _lastKnownAlarmLaunchEventId = null;
+    }
 
     if (shouldRestoreLockscreen) {
       print('HARMONY_ALARM: requesting post-event lockscreen restore (v2)');

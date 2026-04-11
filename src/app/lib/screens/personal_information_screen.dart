@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'legal_document_screen.dart';
 import '../services/user_service.dart';
-import '../services/subscription_service.dart';
 
 class PersonalInformationScreen extends StatefulWidget {
   const PersonalInformationScreen({super.key});
@@ -17,7 +16,6 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
   @override
   Widget build(BuildContext context) {
     final userService = context.watch<UserService>();
-    final subscriptionService = context.watch<SubscriptionService>();
     
     return GradientScaffold(
       appBar: AppBar(
@@ -28,128 +26,18 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           _buildSettingsTile(
-            icon: Icons.stars,
-            title: subscriptionService.isSubscribed ? 'Manage Subscription' : 'Subscribe to Premium',
-            subtitle: subscriptionService.isSubscribed ? 'View plan details' : 'Unlock full access',
-            onTap: () async {
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.amber)),
-              );
-              try {
-                // 1. VIP Check
-                if (subscriptionService.isVip) {
-                    if (context.mounted) Navigator.pop(context);
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        backgroundColor: const Color(0xFF2A2A2A),
-                        title: const Text('VIP Member', style: TextStyle(color: Colors.amber)),
-                        content: const Text(
-                          'You have full access via VIP Override.\n\nNo subscription management is needed.',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK', style: TextStyle(color: Colors.amber)))],
-                      )
-                    );
-                    return;
-                }
-
-                // 2. Refresh Status
-                await subscriptionService.refreshSubscriptionStatus();
-
-                // 3. Choice Menu
-                if (subscriptionService.isSubscribed) {
-                  if (context.mounted) Navigator.pop(context); // Close loader
-                  
-                  showModalBottomSheet(
-                    context: context, 
-                    backgroundColor: const Color(0xFF2A2A2A),
-                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-                    builder: (context) => SafeArea(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ListTile(
-                            leading: const Icon(Icons.settings, color: Colors.white),
-                            title: const Text('Manage Subscription', style: TextStyle(color: Colors.white)),
-                            subtitle: const Text('View details, cancel, or restore', style: TextStyle(color: Colors.white70)),
-                            onTap: () {
-                              Navigator.pop(context);
-                              subscriptionService.showCustomerCenter();
-                            },
-                          ),
-                          ListTile(
-                            leading: const Icon(Icons.star, color: Colors.amber),
-                            title: const Text('View Plans & Renew', style: TextStyle(color: Colors.white)),
-                            subtitle: const Text('See available plans and pricing', style: TextStyle(color: Colors.white70)),
-                            onTap: () {
-                              Navigator.pop(context);
-                              subscriptionService.showPaywall();
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                      ),
-                    )
-                  );
-                } else {
-                  await subscriptionService.showPaywall();
-                  if (context.mounted) Navigator.pop(context);
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error: $e')),
-                  );
-                }
-              }
-            },
-          ),
-          _buildSettingsTile(
-            icon: Icons.password,
-            title: 'Change Password',
-            subtitle: 'Update your security',
-            onTap: () {
-              _showChangePasswordDialog(context);
-            },
-          ),
-          /*
-          _buildSettingsTile(
-            icon: Icons.lock_outline,
-            title: 'Login Details',
-            subtitle: 'Manage email and password',
-            onTap: () {
-              // Navigate to Login Details
-            },
-          ),
-          */
-          _buildSettingsTile(
             icon: Icons.badge_outlined,
             title: 'Profile Information',
             subtitle: '${userService.userName} • ${userService.timeZone}',
             onTap: () {},
           ),
+          const SizedBox(height: 16),
           _buildSettingsTile(
-            icon: Icons.email_outlined,
-            title: 'Email Address',
-            subtitle: FirebaseAuth.instance.currentUser?.email ?? 'Not available',
-            onTap: () {
-              // Edit Email
-            },
+            icon: Icons.lock_outlined,
+            title: 'Change Password',
+            subtitle: 'Update your account password',
+            onTap: () => _showChangePasswordDialog(context),
           ),
-          // Bank Details and Auto-Subscribe removed for compliance
-
-          const Padding(
-            padding: EdgeInsets.only(left: 16, top: 0),
-            child: Text(
-              'Note: In-app purchases are handled by your app store account.',
-              style: TextStyle(color: Colors.white38, fontSize: 12, fontStyle: FontStyle.italic),
-            ),
-          ),
-
           const SizedBox(height: 24),
           const Padding(
             padding: EdgeInsets.only(left: 16, bottom: 8),
@@ -177,32 +65,6 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
               );
             },
           ),
-          _buildSettingsTile(
-            icon: Icons.gavel,
-            title: 'Legal',
-            subtitle: 'Legal notices',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const LegalDocumentScreen(title: 'Legal', docId: 'legal'),
-                ),
-              );
-            },
-          ),
-          _buildSettingsTile(
-            icon: Icons.info_outline,
-            title: 'About Harmony',
-            subtitle: 'Our Concept',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const LegalDocumentScreen(title: 'About', docId: 'about'),
-                ),
-              );
-            },
-          ),
           const SizedBox(height: 32),
           
           // Delete Account Button (Required for Compliance)
@@ -224,91 +86,168 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
   }
 
   void _showChangePasswordDialog(BuildContext context) {
+    final currentPasswordController = TextEditingController();
     final newPasswordController = TextEditingController();
     final confirmPasswordController = TextEditingController();
+    bool _isLoading = false;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A2A),
-        title: const Text('Change Password', style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Enter your new password below.',
-              style: TextStyle(color: Colors.white70),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          backgroundColor: const Color(0xFF2A2A2A),
+          title: const Text('Change Password', style: TextStyle(color: Colors.white)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Enter your current password and choose a new one.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  enabled: !_isLoading,
+                  controller: currentPasswordController,
+                  obscureText: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Current Password',
+                    labelStyle: TextStyle(color: Colors.white60),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
+                    disabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  enabled: !_isLoading,
+                  controller: newPasswordController,
+                  obscureText: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'New Password',
+                    labelStyle: TextStyle(color: Colors.white60),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
+                    disabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white10)),
+                    helperText: 'Min 8 characters, 1 uppercase, 1 number',
+                    helperStyle: TextStyle(color: Colors.white30, fontSize: 10),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  enabled: !_isLoading,
+                  controller: confirmPasswordController,
+                  obscureText: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm Password',
+                    labelStyle: TextStyle(color: Colors.white60),
+                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
+                    disabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white10)),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: newPasswordController,
-              obscureText: true,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: 'New Password',
-                labelStyle: TextStyle(color: Colors.white60),
-                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
-              ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: _isLoading ? null : () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: confirmPasswordController,
-              obscureText: true,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: 'Confirm Password',
-                labelStyle: TextStyle(color: Colors.white60),
-                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
-              ),
+            TextButton(
+              onPressed: _isLoading
+                  ? null
+                  : () async {
+                      final current = currentPasswordController.text;
+                      final newPass = newPasswordController.text;
+                      final confirm = confirmPasswordController.text;
+
+                      // Validation
+                      if (current.isEmpty || newPass.isEmpty || confirm.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('All fields required')),
+                        );
+                        return;
+                      }
+
+                      if (newPass != confirm) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('New passwords do not match')),
+                        );
+                        return;
+                      }
+
+                      if (newPass.length < 8) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Password must be at least 8 characters')),
+                        );
+                        return;
+                      }
+
+                      if (!RegExp(r'[A-Z]').hasMatch(newPass)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Password must contain at least 1 uppercase letter')),
+                        );
+                        return;
+                      }
+
+                      if (!RegExp(r'[0-9]').hasMatch(newPass)) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Password must contain at least 1 number')),
+                        );
+                        return;
+                      }
+
+                      setState(() => _isLoading = true);
+
+                      try {
+                        // Call backend function to change password
+                        await FirebaseAuth.instance.currentUser?.updatePassword(newPass);
+
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Password updated successfully'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      } on FirebaseAuthException catch (e) {
+                        if (context.mounted) {
+                          String message = 'Failed to update password';
+                          if (e.code == 'wrong-password') {
+                            message = 'Current password is incorrect';
+                          } else if (e.code == 'requires-recent-login') {
+                            message = 'Please sign out and sign in again for security';
+                          }
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(message)),
+                          );
+                        }
+                        setState(() => _isLoading = false);
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Error: $e')),
+                          );
+                        }
+                        setState(() => _isLoading = false);
+                      }
+                    },
+              child: _isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.amber),
+                      ),
+                    )
+                  : const Text('Update', style: TextStyle(color: Colors.amber)),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
-          ),
-          TextButton(
-            child: const Text('Update', style: TextStyle(color: Colors.amber)),
-            onPressed: () async {
-              if (newPasswordController.text != confirmPasswordController.text) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Passwords do not match')),
-                );
-                return;
-              }
-              if (newPasswordController.text.length < 6) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Password must be at least 6 characters')),
-                );
-                return;
-              }
-
-              Navigator.pop(context); // Close input dialog
-
-              // Show loading
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.amber)),
-              );
-
-              // Simulate network delay
-              await Future.delayed(const Duration(seconds: 2));
-
-              if (context.mounted) {
-                Navigator.pop(context); // Close loading
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Password updated successfully')),
-                );
-
-                // Touch the backend to update 'lastActive' or similar to make it feel real
-                final userService = Provider.of<UserService>(context, listen: false);
-                await userService.setUser(userService.userId, userService.userName);
-              }
-            },
-          ),
-        ],
       ),
     );
   }

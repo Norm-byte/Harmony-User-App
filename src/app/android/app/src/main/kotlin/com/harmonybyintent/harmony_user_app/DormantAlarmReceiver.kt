@@ -262,9 +262,9 @@ class DormantAlarmReceiver : BroadcastReceiver() {
         val deviceLocked = isDeviceLocked(context)
 
         if (appInForeground) {
-            // App is open: launch for auto-play, but skip notification (user doesn't need tap prompt).
-            launchAppForEvent(context, eventId, isFullScreen)
-            android.util.Log.d("DormantAlarmReceiver", "App in foreground: skipping notification, launching auto-play for $eventId")
+            // App is already active. Let Flutter's scheduler trigger playback naturally and
+            // avoid relaunching MainActivity with alarm extras, which can force a restore-to-home path.
+            android.util.Log.d("DormantAlarmReceiver", "App in foreground: skipping notification and relaunch for $eventId")
         } else if (deviceLocked) {
             // Device is locked: post notification so full-screen intent can legitimately wake/launch playback.
             postNotification(context, eventId, eventTitle, eventBody, isFullScreen)
