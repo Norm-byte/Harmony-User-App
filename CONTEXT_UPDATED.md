@@ -1,5 +1,45 @@
 # Project Context & History
 
+## Current Status (April 11, 2026 - Auth Overhaul + Play Upload Recovery)
+**Milestone:** User authentication modernized and release successfully published after Play version-code conflicts.
+**Status:** **User App v1.0.7+13 uploaded and published.**
+
+### What Was Implemented (User App)
+1. **Firebase Auth Introduced (Email + Password):**
+    - Added proper sign-up and login flow.
+    - Returning users are now recognized and routed directly from splash to home.
+    - Added forgot-password flow (Firebase managed).
+
+2. **VIP Flow Preserved, But Hidden in UX:**
+    - VIP code field removed from visible sign-up UI.
+    - VIP/beta users can enter their code in the password field.
+    - App checks VIP codes first; valid code bypasses subscription and grants access as before.
+
+3. **Account Controls in Settings:**
+    - Real sign-out implemented via Firebase Auth.
+    - Real password change implemented via Firebase Auth.
+
+4. **Versioning / Play Console Incident:**
+    - Version code `11` already existed.
+    - `12` was also consumed during draft upload attempts.
+    - Final successful release set to `version: 1.0.7+13`.
+
+### Media Capability Check (for upcoming content plan)
+- **MPEG-4 / MP4 support:** Confirmed in user app players.
+- **Topics tab video display:** Supported.
+- **Home viewer video display:** Supported.
+- **Image thumbnails for video content:** Supported when thumbnail URLs are provided (recommended for all testimonial clips).
+
+### Next Planned Work (When Returning)
+1. Add subscriber testimonial ingestion flow (email-received clips -> upload pipeline -> curated publish).
+2. Ensure each video record stores both `videoUrl` and `thumbnailUrl`.
+3. Validate end-to-end rendering in Home viewer and Topics tab on production data.
+
+### Notes for Any Future Agent
+- Do **not** reduce Android build number; always increment above latest Play-used code.
+- Current known published build baseline: **13**.
+- Auth is now Firebase-based (not anonymous local-only identity).
+
 ## Current Status (March 24, 2026 - User App Recurrence & Visibility Logic)
 **Milestone:** Fixing critical bugs in the User App regarding event display (Recurrence & Visibility).
 **Status:** **User App v1.0.4+5 Built & Ready for Upload.**
