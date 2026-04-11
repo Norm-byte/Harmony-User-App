@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../widgets/gradient_scaffold.dart';
 import '../services/user_service.dart';
 import '../services/subscription_service.dart';
@@ -35,17 +36,25 @@ class _LoginScreenState extends State<LoginScreen> {
       final displayName = user.displayName ?? user.email ?? 'Member';
       await UserService().setUser(user.uid, displayName);
 
-      // Check if this user has VIP status in Firestore
       if (mounted) {
-        // Restore VIP status if previously granted
         try {
-          final userDoc = await FirebaseAuth.instance.currentUser != null
-              ? null
-              : null; // VIP is session-based; restored via sign-up flow
-          // For simplicity, VIP is not persisted server-side in this version —
-          // VIP users who reinstall will re-enter their code on sign-up.
-          // On login, subscription status is refreshed via RevenueCat normally.
-          Provider.of<SubscriptionService>(context, listen: false).setVipStatus(false);
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get();
+
+          final subService = Provider.of<SubscriptionService>(
+            context,
+            listen: false,
+          );
+
+          if (userDoc.exists) {
+            final data = userDoc.data();
+            final isVip = data?['isVip'] == true;
+            await subService.setVipStatus(isVip);
+          }
+
+          await subService.refreshSubscriptionStatus();
         } catch (_) {}
 
         Navigator.pushAndRemoveUntil(

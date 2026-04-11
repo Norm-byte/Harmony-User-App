@@ -742,6 +742,32 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   }
 
   void _showChangePasswordDialog(BuildContext context) {
+    final subscriptionService = Provider.of<SubscriptionService>(
+      context,
+      listen: false,
+    );
+
+    if (subscriptionService.isVip) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: const Color(0xFF2A2A2A),
+          title: const Text('Password Change Not Allowed', style: TextStyle(color: Colors.white)),
+          content: const Text(
+            'This account is linked to a managed Beta/VIP access code. Password changes are disabled for Beta/VIP accounts.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK', style: TextStyle(color: Colors.amber)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     final newPasswordController = TextEditingController();
     final confirmPasswordController = TextEditingController();
 

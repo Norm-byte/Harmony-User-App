@@ -571,54 +571,52 @@ class EventService extends ChangeNotifier {
             ? rawEvent.copyWith(type: overrideType)
             : rawEvent;
 
-        if (event.type == EventType.national) {
-          print(
-            "DEBUG: National Event '${event.title}': DurationSecs(RAW)=${data['durationSeconds']}, Start=${event.startTime}, End=${event.endTime}, Duration=${event.endTime.difference(event.startTime).inSeconds}s",
-          );
-        }
-
         // Filter out invalid events
         if (event.title.trim().isEmpty || event.title.length < 2) {
           continue;
         }
 
         if (!event.isPublished) {
-          continue;
+          final rawIsDraft = data['isDraft'];
+          final rawPublished = data['published'];
+          final isDraft = rawIsDraft == true ||
+              rawIsDraft == 'true' ||
+              rawIsDraft == 1;
+          final publishedFallback = rawPublished == true ||
+              rawPublished == 'true' ||
+              rawPublished == 1;
+
+          if (isDraft && !publishedFallback) {
+            continue;
+          }
         }
 
         final recurrence = (event.recurrenceType ?? '').trim().toLowerCase();
-        final isDaily = recurrence == 'daily';
-        final isWeekly = recurrence == 'weekly';
-        final isMonthly = recurrence == 'monthly';
-        final hasNoRecurrence = recurrence.isEmpty || recurrence == 'none';
+        final hasNoRecurrence =
+          recurrence.isEmpty || recurrence == 'none' || recurrence == 'null';
+
+        // National scheduler docs often come in as date-stamped copies with no
+        // recurrence metadata. Infer a weekly cadence for known slot IDs so
+        // noticeboards stay populated after the original week passes.
+        final effectiveRecurrence =
+          (event.type == EventType.national &&
+            hasNoRecurrence &&
+            _looksLikeNationalSlotId(event.id))
+          ? 'weekly'
+          : recurrence;
+
+        final isDaily = effectiveRecurrence == 'daily';
+        final isWeekly = effectiveRecurrence == 'weekly';
+        final isMonthly = effectiveRecurrence == 'monthly';
 
         // Handle Recurrence
         Event displayEvent = event;
 
         if (event.type == EventType.national) {
-          // Fix: Use the event's actual date (for standard events) unless it is 'Daily' recurrence
-          DateTime baseDate = event.startTime;
           final localNow = DateTime.now();
-
-          if (isDaily ||
-              (hasNoRecurrence &&
-                  event.originTime != null &&
-                  event.originTime!.contains(':'))) {
-            baseDate = localNow;
-          } else if (isWeekly) {
-            // Fix: If weekly, we must ensure baseDate has the correct weekday
-            // But be careful not to override standard events
-            // Let's find the most recent occurrence of this weekday
-            // This prevents "5 notice boards" by normalizing to *one* date
-
-            // Find the difference in days to align back to this week
-            // int dayDiff = localNow.weekday - baseDate.weekday;
-            // baseDate = localNow.subtract(Duration(days: dayDiff));
-          }
 
           int hour = event.startTime.hour;
           int minute = event.startTime.minute;
-
           if (event.originTime != null && event.originTime!.contains(':')) {
             final parts = event.originTime!.split(':');
             if (parts.length == 2) {
@@ -627,54 +625,39 @@ class EventService extends ChangeNotifier {
             }
           }
 
-          DateTime localStart = DateTime(
-            baseDate.year,
-            baseDate.month,
-            baseDate.day,
-            hour,
-            minute,
-          );
-
           final duration = event.endTime.difference(event.startTime);
-          DateTime localEnd = localStart.add(duration);
-
-          // Fix: Check if event is in the past, accounting for 'showBeforeMinutes'
-          // If the event ended in the past, but we are within the 'Show Before' window of the NEXT occurrence, advance.
-          // But if we are within the 'Show Before' window of THIS occurrence (even if 'isBefore(localNow)' was false), show it.
-
-          // Wait, localEnd.isBefore(localNow) means the event has ENDED.
-          // If it ended, we should look for the NEXT one.
-          // BUT, what if we have visibilityAfterMinutes?
-          // If localEnd is before now, but now < localEnd + visibilityAfter, we should still show THIS one.
-
           final visibilityAfter = Duration(
             minutes: event.visibilityAfterMinutes ?? 0,
           );
-          if (localEnd.add(visibilityAfter).isBefore(localNow) &&
-              (isDaily ||
-                  isWeekly ||
-                  (hasNoRecurrence &&
-                      event.originTime != null &&
-                      event.originTime!.contains(':')))) {
-            if (isDaily ||
-                (hasNoRecurrence &&
-                    event.originTime != null &&
-                    event.originTime!.contains(':'))) {
+
+          DateTime localStart = DateTime(
+            localNow.year,
+            localNow.month,
+            localNow.day,
+            hour,
+            minute,
+          );
+          DateTime localEnd = localStart.add(duration);
+
+          if (isWeekly) {
+            // Anchor to the event's intended weekday, then roll forward by week.
+            final targetWeekday = event.startTime.weekday;
+            final daysUntil = (targetWeekday - localNow.weekday + 7) % 7;
+            localStart = localStart.add(Duration(days: daysUntil));
+            localEnd = localStart.add(duration);
+            while (localEnd.add(visibilityAfter).isBefore(localNow)) {
+              localStart = localStart.add(const Duration(days: 7));
+              localEnd = localStart.add(duration);
+            }
+          } else {
+            // Daily/default cadence: move to next day when current occurrence is expired.
+            while (localEnd.add(visibilityAfter).isBefore(localNow)) {
               localStart = localStart.add(const Duration(days: 1));
               localEnd = localStart.add(duration);
-            } else if (isWeekly) {
-              // Keep adding 7 days until we are in the future (or present)
-              while (localEnd.isBefore(localNow)) {
-                localStart = localStart.add(const Duration(days: 7));
-                localEnd = localStart.add(duration);
-              }
             }
           }
 
-          displayEvent = event.copyWith(
-            startTime: localStart,
-            endTime: localEnd,
-          );
+          displayEvent = event.copyWith(startTime: localStart, endTime: localEnd);
         } else {
           if (!hasNoRecurrence) {
             final duration = event.endTime.difference(event.startTime);
@@ -703,7 +686,7 @@ class EventService extends ChangeNotifier {
           continue; // Too old
         }
 
-        if (!forDormantScheduling) {
+        if (!forDormantScheduling && displayEvent.type != EventType.national) {
           // 2. Check Show Before Event (UI visibility window only)
           int defaultShowBefore = 60;
           final showBefore = Duration(
@@ -723,6 +706,12 @@ class EventService extends ChangeNotifier {
       }
     }
     return processedEvents;
+  }
+
+  bool _looksLikeNationalSlotId(String id) {
+    if (id.startsWith('slot_')) return true;
+    if (id.startsWith('restore2__')) return true;
+    return false;
   }
 
   DateTime _getNextOccurrence(

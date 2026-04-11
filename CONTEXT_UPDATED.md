@@ -1,8 +1,8 @@
 # Project Context & History
 
-## Current Status (April 11, 2026 - Auth Overhaul + Play Upload Recovery)
-**Milestone:** User authentication modernized and release successfully published after Play version-code conflicts.
-**Status:** **User App v1.0.7+13 uploaded and published.**
+## Current Status (April 11, 2026 - Auth, Events, Access Fixes Verified)
+**Milestone:** Auth overhaul retained, event visibility restored, access overlays removed, and new Android release prepared and uploaded.
+**Status:** **User App fixed state verified live on Samsung device; Android release bundle v1.0.8+14 was built and uploaded to Play Console.**
 
 ### What Was Implemented (User App)
 1. **Firebase Auth Introduced (Email + Password):**
@@ -24,20 +24,44 @@
     - `12` was also consumed during draft upload attempts.
     - Final successful release set to `version: 1.0.7+13`.
 
+5. **Post-Release Regression Fixes (Now Verified):**
+    - National noticeboard events no longer disappear due to stale slot-doc dates with missing recurrence metadata.
+    - Community and Topics no longer show in-app subscription lock overlays.
+    - VIP state is restored on login from Firestore.
+    - VIP/Beta accounts are prevented from changing password in-app.
+
+6. **Device Verification Outcome:**
+    - Clean reinstall on Samsung device confirmed the app is now behaving correctly.
+    - Temporary event triage logging was removed after verification.
+
 ### Media Capability Check (for upcoming content plan)
 - **MPEG-4 / MP4 support:** Confirmed in user app players.
 - **Topics tab video display:** Supported.
 - **Home viewer video display:** Supported.
 - **Image thumbnails for video content:** Supported when thumbnail URLs are provided (recommended for all testimonial clips).
 
+### Apple Testing Setup (For Return)
+1. **Mac Required:** iOS/TestFlight distribution requires a Mac with Xcode installed.
+2. **Apple Developer Program:** Active paid Apple Developer account is required.
+3. **App Store Connect App Record:** Create or confirm the iOS app entry, bundle identifier, app name, and internal testing users.
+4. **Xcode Signing:** Open the iOS project in Xcode and set the correct Team, Bundle ID, signing certificate, and provisioning profile.
+5. **Flutter iOS Build Dependencies:** CocoaPods installed on the Mac and able to run `pod install` for the `ios/` project.
+6. **Firebase iOS Setup:** Add the iOS app in Firebase and place the correct `GoogleService-Info.plist` in the Runner project if not already configured.
+7. **Capabilities / Permissions Check:** Verify notification permissions, background modes if needed, and any required Associated Domains or Sign In settings.
+8. **Physical iPhone or TestFlight Group:** For real testing, use either a connected iPhone for local install or TestFlight internal testers via App Store Connect.
+9. **Archive + Upload Flow:** On Mac, build/archive from Xcode or use Flutter iOS release build, then upload through Xcode Organizer / Transporter to TestFlight.
+10. **Post-Upload Test Steps:** Confirm login, notifications, event noticeboards, VIP behavior, media playback, and subscription/paywall behavior on iPhone.
+
 ### Next Planned Work (When Returning)
-1. Add subscriber testimonial ingestion flow (email-received clips -> upload pipeline -> curated publish).
-2. Ensure each video record stores both `videoUrl` and `thumbnailUrl`.
-3. Validate end-to-end rendering in Home viewer and Topics tab on production data.
+1. Review Apple testing prerequisites and prepare iOS signing/TestFlight setup.
+2. Add subscriber testimonial ingestion flow (email-received clips -> upload pipeline -> curated publish).
+3. Ensure each video record stores both `videoUrl` and `thumbnailUrl`.
+4. Validate end-to-end rendering in Home viewer and Topics tab on production data.
 
 ### Notes for Any Future Agent
 - Do **not** reduce Android build number; always increment above latest Play-used code.
 - Current known published build baseline: **13**.
+- Current latest uploaded Android release candidate: **1.0.8+14**.
 - Auth is now Firebase-based (not anonymous local-only identity).
 
 ## Current Status (March 24, 2026 - User App Recurrence & Visibility Logic)

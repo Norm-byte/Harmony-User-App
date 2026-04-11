@@ -130,12 +130,13 @@ class Event {
           json['intent'] ?? json['mostPopularIntent'], // Map intent
       learnMoreContent: json['learnMoreContent'],
       learnMoreYoutubeUrl: json['learnMoreYoutubeUrl'],
-      participantCount: json['participantCount'] ?? 0,
+        participantCount: _asInt(json['participantCount']) ?? 0,
       visibilityAfterMinutes:
-          json['visibilityAfterMinutes'] ??
-          json['noticeBoardVisibilityAfterMinutes'], // Support both keys
+          _asInt(json['visibilityAfterMinutes']) ??
+          _asInt(json['noticeBoardVisibilityAfterMinutes']), // Support both keys
       showBeforeMinutes:
-          json['showBeforeMinutes'] ?? json['noticeBoardShowBeforeMinutes'],
+          _asInt(json['showBeforeMinutes']) ??
+          _asInt(json['noticeBoardShowBeforeMinutes']),
       recurrenceType: json['recurrenceType'],
       originTimeZone: json['originTimeZone'],
       originTime: json['originTime'],
@@ -145,8 +146,30 @@ class Event {
       mediaUrl: json['mediaUrl'] ?? json['audioUrl'] ?? json['visualUrl'],
       noticeBoardBgImage: json['noticeBoardBgImage'],
       noticeBoardBgColor: json['noticeBoardBgColor'],
-      isPublished: json['isPublished'] ?? true,
+      // Be defensive: old/manual data may store booleans as strings or ints.
+      // Only explicit false-like values should hide events.
+      isPublished: _asBool(json['isPublished'], defaultValue: true),
     );
+  }
+
+  static bool _asBool(dynamic value, {required bool defaultValue}) {
+    if (value == null) return defaultValue;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) {
+      final lower = value.trim().toLowerCase();
+      if (lower == 'true' || lower == '1' || lower == 'yes') return true;
+      if (lower == 'false' || lower == '0' || lower == 'no') return false;
+    }
+    return defaultValue;
+  }
+
+  static int? _asInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim());
+    return null;
   }
 
   // Helper to create a copy with new times
@@ -168,6 +191,7 @@ class Event {
       showBeforeMinutes: showBeforeMinutes,
       recurrenceType: recurrenceType,
       originTimeZone: originTimeZone,
+      originTime: originTime,
       soundUrl: soundUrl,
       visualUrl: visualUrl,
       mediaUrl: mediaUrl,

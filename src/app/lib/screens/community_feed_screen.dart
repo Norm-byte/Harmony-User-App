@@ -4,7 +4,6 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/gradient_scaffold.dart';
-import '../widgets/locked_feature_widget.dart';
 import '../services/user_service.dart';
 import '../services/usage_service.dart';
 import '../services/profanity_service.dart';
@@ -14,10 +13,7 @@ class CommunityFeedScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LockedFeatureWidget(
-      featureName: "Community Chat",
-      child: const _CommunityFeedContent(),
-    );
+    return const _CommunityFeedContent();
   }
 }
 
