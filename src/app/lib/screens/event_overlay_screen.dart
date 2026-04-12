@@ -23,11 +23,8 @@ class EventOverlayScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: onDismiss,
-        behavior: HitTestBehavior.opaque,
-        child: Stack(
-          children: [
+      body: Stack(
+        children: [
             if (mediaUrl != null && mediaUrl!.isNotEmpty)
               Positioned.fill(
                 child: IgnorePointer(
@@ -67,54 +64,10 @@ class EventOverlayScreen extends StatelessWidget {
               child: SafeArea(
                 child: Stack(
                   children: [
-                    Positioned(
-                      top: 12,
-                      left: 0,
-                      right: 0,
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: (isWorldwide ? Colors.purple : Colors.indigo).withOpacity(0.8),
-                            borderRadius: BorderRadius.circular(30),
-                            boxShadow: [
-                              BoxShadow(
-                                color: (isWorldwide ? Colors.purple : Colors.indigo).withOpacity(0.5),
-                                blurRadius: 20,
-                                spreadRadius: 5,
-                              ),
-                            ],
-                          ),
-                          child: Text(
-                            isWorldwide ? 'WORLDWIDE EVENT' : 'NATIONAL CHIME',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 2.0,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: 8,
-                      right: 12,
-                      child: Material(
-                        color: Colors.black.withOpacity(0.35),
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          onPressed: onDismiss,
-                          icon: const Icon(Icons.close, color: Colors.white),
-                          tooltip: 'Exit Event',
-                        ),
-                      ),
-                    ),
                     Positioned.fill(
                       child: Center(
                         child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(24, 120, 24, 140),
+                          padding: const EdgeInsets.fromLTRB(24, 72, 24, 120),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             crossAxisAlignment: CrossAxisAlignment.center,
@@ -204,29 +157,28 @@ class EventOverlayScreen extends StatelessWidget {
                       ),
                     ),
                     Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 24,
-                      child: Center(
-                        child: ElevatedButton(
-                          onPressed: onDismiss,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white.withOpacity(0.2),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30),
-                              side: const BorderSide(color: Colors.white54, width: 1.5),
-                            ),
-                            elevation: 0,
+                      right: 16,
+                      bottom: 20,
+                      child: TextButton(
+                        onPressed: onDismiss,
+                        style: TextButton.styleFrom(
+                          backgroundColor: Colors.black.withOpacity(0.2),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
                           ),
-                          child: const Text(
-                            'LEAVE EVENT',
-                            style: TextStyle(
-                              letterSpacing: 1.2,
-                              fontWeight: FontWeight.bold,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: Colors.white.withOpacity(0.35),
+                              width: 1,
                             ),
                           ),
+                        ),
+                        child: const Text(
+                          'Exit Event',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                         ),
                       ),
                     ),
@@ -236,7 +188,6 @@ class EventOverlayScreen extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
+        );
   }
 }
