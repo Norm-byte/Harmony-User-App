@@ -32,8 +32,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   void _navigateToHome() {
+    final subscriptionService = Provider.of<SubscriptionService>(context, listen: false);
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      MaterialPageRoute(builder: (_) => HomeScreen(isSuperAdmin: subscriptionService.isVip)),
     );
   }
 

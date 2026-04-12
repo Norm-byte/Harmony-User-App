@@ -48,16 +48,24 @@ class _HomeScreenState extends State<HomeScreen> {
           if (widget.isSuperAdmin)
             Container(
               margin: const EdgeInsets.only(right: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
-                color: Colors.purple.shade700,
+                color: Colors.white.withOpacity(0.08),
+                border: Border.all(color: Colors.white24),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.shield, size: 16, color: Colors.white),
+                  Icon(Icons.shield, size: 13, color: Colors.white70),
                   SizedBox(width: 4),
-                  Text('Super Admin', style: TextStyle(fontSize: 12)),
+                  Text(
+                    'Super Admin',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -297,26 +305,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
 
                     if (widget.isSuperAdmin) ...[
-                      const SizedBox(height: 48),
-                      Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 32),
-                        color: Colors.white.withOpacity(0.1),
-                        child: const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Column(
-                            children: [
-                              Icon(
-                                Icons.admin_panel_settings,
-                                color: Colors.purpleAccent,
-                              ),
-                              SizedBox(height: 8),
-                              Text(
-                                'You have Super Admin access enabled on this device.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.white),
-                              ),
-                            ],
-                          ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'Super Admin access enabled',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.55),
+                          fontSize: 11,
+                          letterSpacing: 0.2,
                         ),
                       ),
                     ],

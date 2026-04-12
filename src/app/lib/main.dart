@@ -200,9 +200,10 @@ class _SplashScreenState extends State<SplashScreen> {
       final firebaseUser = FirebaseAuth.instance.currentUser;
       if (firebaseUser != null) {
         // Already authenticated — go straight to Home
+        final subscriptionService = context.read<SubscriptionService>();
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const HomeScreen(isSuperAdmin: false)),
+          MaterialPageRoute(builder: (context) => HomeScreen(isSuperAdmin: subscriptionService.isVip)),
         );
       } else {
         Navigator.pushReplacement(

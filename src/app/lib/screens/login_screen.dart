@@ -57,9 +57,10 @@ class _LoginScreenState extends State<LoginScreen> {
           await subService.refreshSubscriptionStatus();
         } catch (_) {}
 
+        final subscriptionService = Provider.of<SubscriptionService>(context, listen: false);
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (context) => const HomeScreen(isSuperAdmin: false)),
+          MaterialPageRoute(builder: (context) => HomeScreen(isSuperAdmin: subscriptionService.isVip)),
           (_) => false,
         );
       }
