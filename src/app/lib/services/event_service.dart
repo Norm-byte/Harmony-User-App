@@ -9,12 +9,19 @@ import 'notification_service.dart';
 import 'user_service.dart';
 
 class EventService extends ChangeNotifier {
-  // Narrow blocklist for legacy published slot docs that should never surface.
-  static const Set<String> _legacyGhostSlotIds = {
-    'slot_1445_20260329',
-    'slot_1515_20260329',
-    'slot_1545_20260329',
-  };
+  // National slot docs are date-specific. Show only current UTC week slots
+  // so the user app mirrors the admin current-week cards exactly.
+  static DateTime _startOfUtcWeek(DateTime utcDate) {
+    final utcMidnight = DateTime.utc(utcDate.year, utcDate.month, utcDate.day);
+    return utcMidnight.subtract(Duration(days: utcMidnight.weekday - 1));
+  }
+
+  static bool _isInCurrentUtcWeek(DateTime utcDate) {
+    final nowUtc = DateTime.now().toUtc();
+    final weekStart = _startOfUtcWeek(nowUtc);
+    final weekEnd = weekStart.add(const Duration(days: 7));
+    return !utcDate.isBefore(weekStart) && utcDate.isBefore(weekEnd);
+  }
 
   // Singleton pattern
   static final EventService _instance = EventService._internal();
@@ -586,11 +593,6 @@ class EventService extends ChangeNotifier {
           invalidTitleCount++;
           continue;
         }
-        // Ignore known legacy slot docs that behave as ghost events in user app.
-        if (_legacyGhostSlotIds.contains(doc.id)) {
-          invalidTitleCount++;
-          continue;
-        }
 
         if (!event.isPublished) {
           final rawIsDraft = data['isDraft'];
@@ -606,6 +608,12 @@ class EventService extends ChangeNotifier {
             draftSkipCount++;
             continue;
           }
+        }
+
+        final isNationalSlotDoc =
+            event.type == EventType.national && doc.id.startsWith('slot_');
+        if (isNationalSlotDoc && !_isInCurrentUtcWeek(event.startTime.toUtc())) {
+          continue;
         }
 
         final recurrence = (event.recurrenceType ?? '').trim().toLowerCase();
@@ -711,29 +719,8 @@ class EventService extends ChangeNotifier {
               localEnd = localStart.add(duration);
             }
           } else {
-            // slot_* docs are standing weekly slots published once by admin.
-            // Roll them forward to the matching weekday in the current/next week.
-            final docId = doc.id;
-            if (docId.startsWith('slot_')) { // HARMONY_SLOT_ROLLFORWARD_V1
-              localStart = DateTime(
-                localNow.year,
-                localNow.month,
-                localNow.day,
-                hour,
-                minute,
-              );
-              localEnd = localStart.add(duration);
-              final targetWeekday = event.startTime.weekday;
-              final daysUntil = (targetWeekday - localNow.weekday + 7) % 7;
-              localStart = localStart.add(Duration(days: daysUntil));
-              localEnd = localStart.add(duration);
-              while (localEnd.add(visibilityAfter).isBefore(localNow)) {
-                localStart = localStart.add(const Duration(days: 7));
-                localEnd = localStart.add(duration);
-              }
-            }
-            // Non-slot docs: Firebase/admin controls visibility strictly
-            // via the stored dated document. Do not synthesize a future occurrence.
+            // No recurrence configured: keep exact stored date/time.
+            // This prevents old slot docs from being synthesized into future weeks.
           }
 
           displayEvent = event.copyWith(startTime: localStart, endTime: localEnd);
