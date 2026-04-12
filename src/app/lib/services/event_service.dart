@@ -9,8 +9,11 @@ import 'notification_service.dart';
 import 'user_service.dart';
 
 class EventService extends ChangeNotifier {
-  // National slot docs are date-specific. Show only current UTC week slots
-  // so the user app mirrors the admin current-week cards exactly.
+  // National slot docs are date-specific and not stored as recurring.
+  // Only show slots published for in the current UTC week.
+  // Each week's events are independent by date, not by synthesis/rollforward.
+  static const Set<int> _allowedNationalSlotMinutes = {0, 30};
+
   static DateTime _startOfUtcWeek(DateTime utcDate) {
     final utcMidnight = DateTime.utc(utcDate.year, utcDate.month, utcDate.day);
     return utcMidnight.subtract(Duration(days: utcMidnight.weekday - 1));
@@ -579,6 +582,61 @@ class EventService extends ChangeNotifier {
     int expiredSkipCount = 0;
     int tooEarlySkipCount = 0;
 
+    // Build minute-lane profile from current-week published national slot docs.
+    // This helps suppress sparse legacy ghost lanes (commonly :15/:45) while
+    // preserving legitimately populated lanes.
+    final Map<int, int> currentWeekSlotMinuteCounts = <int, int>{};
+    for (final doc in docs) {
+      try {
+        final data = doc.data() as Map<String, dynamic>;
+        final isSlotDoc = doc.id.startsWith('slot_');
+        if (!isSlotDoc) continue;
+
+        data['id'] = doc.id;
+        final rawEvent = Event.fromJson(data);
+        final event = overrideType != null
+            ? rawEvent.copyWith(type: overrideType)
+            : rawEvent;
+        if (event.type != EventType.national) continue;
+
+        final rawIsDraft = data['isDraft'];
+        final rawPublished = data['published'];
+        final isDraft =
+            rawIsDraft == true || rawIsDraft == 'true' || rawIsDraft == 1;
+        final publishedFallback =
+            rawPublished == true || rawPublished == 'true' || rawPublished == 1;
+        final isPublishedEffective = event.isPublished || publishedFallback;
+        if (!isPublishedEffective || isDraft) continue;
+
+        final slotUtcDate = event.startTime.toUtc();
+        if (!_isInCurrentUtcWeek(slotUtcDate)) continue;
+
+        currentWeekSlotMinuteCounts.update(
+          slotUtcDate.minute,
+          (value) => value + 1,
+          ifAbsent: () => 1,
+        );
+      } catch (_) {
+        // Ignore malformed docs during lane profiling.
+      }
+    }
+
+    final Set<int> allowedCurrentWeekSlotMinutes = <int>{};
+    if (currentWeekSlotMinuteCounts.isNotEmpty) {
+      final maxCount = currentWeekSlotMinuteCounts.values.reduce(
+        (a, b) => a > b ? a : b,
+      );
+      final laneThreshold = maxCount >= 4 ? ((maxCount + 1) ~/ 2) : maxCount;
+      currentWeekSlotMinuteCounts.forEach((minute, count) {
+        if (count >= laneThreshold) {
+          allowedCurrentWeekSlotMinutes.add(minute);
+        }
+      });
+    }
+    int nationalSlotTotal = 0;
+    int nationalSlotCurrentWeek = 0;
+    int nationalNonSlotCurrentWeek = 0;
+
     for (var doc in docs) {
       try {
         final data = doc.data() as Map<String, dynamic>;
@@ -612,13 +670,45 @@ class EventService extends ChangeNotifier {
 
         final isNationalSlotDoc =
             event.type == EventType.national && doc.id.startsWith('slot_');
-        if (isNationalSlotDoc && !_isInCurrentUtcWeek(event.startTime.toUtc())) {
-          continue;
+
+        if (event.type == EventType.national) {
+          final eventUtc = event.startTime.toUtc();
+          if (isNationalSlotDoc) {
+            nationalSlotTotal++;
+            if (_isInCurrentUtcWeek(eventUtc)) {
+              nationalSlotCurrentWeek++;
+            }
+          } else {
+            if (_isInCurrentUtcWeek(eventUtc)) {
+              nationalNonSlotCurrentWeek++;
+            }
+          }
+        }
+
+        if (isNationalSlotDoc) {
+          final slotUtcDate = event.startTime.toUtc();
+
+          if (!_allowedNationalSlotMinutes.contains(slotUtcDate.minute)) {
+            expiredSkipCount++;
+            continue;
+          }
+
+          if (!_isInCurrentUtcWeek(slotUtcDate)) {
+            expiredSkipCount++;
+            continue;
+          }
+
+          // If a lane profile exists for current-week slots, drop sparse lanes.
+          if (allowedCurrentWeekSlotMinutes.isNotEmpty &&
+              !allowedCurrentWeekSlotMinutes.contains(slotUtcDate.minute)) {
+            expiredSkipCount++;
+            continue;
+          }
         }
 
         final recurrence = (event.recurrenceType ?? '').trim().toLowerCase();
         final hasNoRecurrence =
-          recurrence.isEmpty || recurrence == 'none' || recurrence == 'null';
+            recurrence.isEmpty || recurrence == 'none' || recurrence == 'null';
         final isRecurringFlag =
             data['isRecurring'] == true ||
             data['isRecurring'] == 'true' ||
@@ -719,8 +809,7 @@ class EventService extends ChangeNotifier {
               localEnd = localStart.add(duration);
             }
           } else {
-            // No recurrence configured: keep exact stored date/time.
-            // This prevents old slot docs from being synthesized into future weeks.
+            // No recurrence: respect the exact stored date/time.
           }
 
           displayEvent = event.copyWith(startTime: localStart, endTime: localEnd);
@@ -773,6 +862,13 @@ class EventService extends ChangeNotifier {
         print("DEBUG: Error processing event doc ${doc.id}: $e");
       }
     }
+
+    print(
+      'HARMONY_DIAG: docs=${docs.length} out=${processedEvents.length} '
+      'slotTotal=$nationalSlotTotal slotCurrentWeek=$nationalSlotCurrentWeek '
+      'nonSlotCurrentWeek=$nationalNonSlotCurrentWeek invalidTitle=$invalidTitleCount '
+      'draftSkip=$draftSkipCount expiredSkip=$expiredSkipCount tooEarlySkip=$tooEarlySkipCount',
+    );
 
     return processedEvents;
   }

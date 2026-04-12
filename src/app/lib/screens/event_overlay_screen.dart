@@ -64,108 +64,87 @@ class EventOverlayScreen extends StatelessWidget {
               ),
             
             Positioned.fill(
-              child: Center(
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: (isWorldwide ? Colors.purple : Colors.indigo).withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(30),
-                          boxShadow: [
-                            BoxShadow(
-                              color: (isWorldwide ? Colors.purple : Colors.indigo).withOpacity(0.5),
-                              blurRadius: 20,
-                              spreadRadius: 5,
-                            ),
-                          ],
-                        ),
-                        child: Text(
-                          isWorldwide ? 'WORLDWIDE EVENT' : 'NATIONAL CHIME',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2.0,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 40),
-                      Text(
-                        title,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 36,
-                          fontWeight: FontWeight.bold,
-                          shadows: [
-                            Shadow(
-                              blurRadius: 10.0,
-                              color: Colors.black,
-                              offset: Offset(2.0, 2.0),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 32),
-                        child: Text(
-                          description.isNotEmpty 
-                              ? description 
-                              : 'Join us for a moment of shared intention...',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            height: 1.5,
-                            shadows: [
-                              Shadow(
-                                blurRadius: 10.0,
-                                color: Colors.black,
-                                offset: Offset(1.0, 1.0),
+              child: SafeArea(
+                child: Stack(
+                  children: [
+                    Positioned(
+                      top: 12,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: (isWorldwide ? Colors.purple : Colors.indigo).withOpacity(0.8),
+                            borderRadius: BorderRadius.circular(30),
+                            boxShadow: [
+                              BoxShadow(
+                                color: (isWorldwide ? Colors.purple : Colors.indigo).withOpacity(0.5),
+                                blurRadius: 20,
+                                spreadRadius: 5,
                               ),
                             ],
                           ),
+                          child: Text(
+                            isWorldwide ? 'WORLDWIDE EVENT' : 'NATIONAL CHIME',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 2.0,
+                              fontSize: 14,
+                            ),
+                          ),
                         ),
                       ),
-                      
-                      // Display User Intent if set
-                      if (userIntent != null && userIntent!.isNotEmpty) ...[
-                        const SizedBox(height: 32),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                          decoration: BoxDecoration(
-                            border: Border(
-                              top: BorderSide(color: Colors.white.withOpacity(0.2)),
-                              bottom: BorderSide(color: Colors.white.withOpacity(0.2)),
-                            ) 
-                          ),
+                    ),
+                    Positioned(
+                      top: 8,
+                      right: 12,
+                      child: Material(
+                        color: Colors.black.withOpacity(0.35),
+                        shape: const CircleBorder(),
+                        child: IconButton(
+                          onPressed: onDismiss,
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          tooltip: 'Exit Event',
+                        ),
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: Center(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(24, 120, 24, 140),
                           child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
                               Text(
-                                'YOUR INTENT', 
-                                style: TextStyle(
-                                  color: Colors.amberAccent, 
-                                  fontSize: 12, 
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 2.0,
-                                  shadows: const [Shadow(blurRadius: 4, color: Colors.black)],
-                                )
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                userIntent!,
+                                title,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w300,
-                                  fontStyle: FontStyle.italic,
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.bold,
+                                  shadows: [
+                                    Shadow(
+                                      blurRadius: 10.0,
+                                      color: Colors.black,
+                                      offset: Offset(2.0, 2.0),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              Text(
+                                description.isNotEmpty
+                                    ? description
+                                    : 'Join us for a moment of shared intention...',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  height: 1.5,
                                   shadows: [
                                     Shadow(
                                       blurRadius: 10.0,
@@ -175,14 +154,60 @@ class EventOverlayScreen extends StatelessWidget {
                                   ],
                                 ),
                               ),
+                              if (userIntent != null && userIntent!.isNotEmpty) ...[
+                                const SizedBox(height: 32),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    border: Border(
+                                      top: BorderSide(color: Colors.white.withOpacity(0.2)),
+                                      bottom: BorderSide(color: Colors.white.withOpacity(0.2)),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Text(
+                                        'YOUR INTENT',
+                                        style: TextStyle(
+                                          color: Colors.amberAccent,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 2.0,
+                                          shadows: const [Shadow(blurRadius: 4, color: Colors.black)],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        userIntent!,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w300,
+                                          fontStyle: FontStyle.italic,
+                                          shadows: [
+                                            Shadow(
+                                              blurRadius: 10.0,
+                                              color: Colors.black,
+                                              offset: Offset(1.0, 1.0),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
-                      ],
-
-                      const Spacer(),
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 48),
+                      ),
+                    ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 24,
+                      child: Center(
                         child: ElevatedButton(
                           onPressed: onDismiss,
                           style: ElevatedButton.styleFrom(
@@ -204,8 +229,8 @@ class EventOverlayScreen extends StatelessWidget {
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
