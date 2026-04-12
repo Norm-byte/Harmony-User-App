@@ -9,6 +9,13 @@ import 'notification_service.dart';
 import 'user_service.dart';
 
 class EventService extends ChangeNotifier {
+  // Narrow blocklist for legacy published slot docs that should never surface.
+  static const Set<String> _legacyGhostSlotIds = {
+    'slot_1445_20260329',
+    'slot_1515_20260329',
+    'slot_1545_20260329',
+  };
+
   // Singleton pattern
   static final EventService _instance = EventService._internal();
   factory EventService() => _instance;
@@ -204,7 +211,7 @@ class EventService extends ChangeNotifier {
     if (userService.userId.isNotEmpty) {
       _listenToMyEvents(userService.userId);
     } else {
-      print("HARMONY_DEBUG: UserService ID is empty on init");
+      print("HARMONY_DEBUG: UserService ID is empty on init V3");
     }
 
     // Listen for changes
@@ -517,18 +524,17 @@ class EventService extends ChangeNotifier {
   void _scheduleDormantPlaybackSync() {
     _notificationSyncTimer?.cancel();
     _notificationSyncTimer = Timer(const Duration(milliseconds: 300), () {
-      final dormantEvents = [
-        ..._processDocs(
+      final dormantNational = _processDocs(
           _nationalDocs,
           overrideType: EventType.national,
           forDormantScheduling: true,
-        ),
-        ..._processDocs(
+        );
+      final dormantGlobal = _processDocs(
           _globalDocs,
           overrideType: EventType.global,
           forDormantScheduling: true,
-        ),
-      ];
+        );
+      final dormantEvents = [...dormantNational, ...dormantGlobal];
 
       dormantEvents.sort((a, b) => a.startTime.compareTo(b.startTime));
 
@@ -561,6 +567,10 @@ class EventService extends ChangeNotifier {
   }) {
     final now = DateTime.now();
     List<Event> processedEvents = [];
+    int invalidTitleCount = 0;
+    int draftSkipCount = 0;
+    int expiredSkipCount = 0;
+    int tooEarlySkipCount = 0;
 
     for (var doc in docs) {
       try {
@@ -570,9 +580,15 @@ class EventService extends ChangeNotifier {
         final event = overrideType != null
             ? rawEvent.copyWith(type: overrideType)
             : rawEvent;
-
         // Filter out invalid events
-        if (event.title.trim().isEmpty || event.title.length < 2) {
+        final normalizedTitle = event.title.trim().toLowerCase();
+        if (normalizedTitle.isEmpty || event.title.length < 2) {
+          invalidTitleCount++;
+          continue;
+        }
+        // Ignore known legacy slot docs that behave as ghost events in user app.
+        if (_legacyGhostSlotIds.contains(doc.id)) {
+          invalidTitleCount++;
           continue;
         }
 
@@ -587,6 +603,7 @@ class EventService extends ChangeNotifier {
               rawPublished == 1;
 
           if (isDraft && !publishedFallback) {
+            draftSkipCount++;
             continue;
           }
         }
@@ -594,16 +611,16 @@ class EventService extends ChangeNotifier {
         final recurrence = (event.recurrenceType ?? '').trim().toLowerCase();
         final hasNoRecurrence =
           recurrence.isEmpty || recurrence == 'none' || recurrence == 'null';
+        final isRecurringFlag =
+            data['isRecurring'] == true ||
+            data['isRecurring'] == 'true' ||
+            data['isRecurring'] == 1;
 
-        // National scheduler docs often come in as date-stamped copies with no
-        // recurrence metadata. Infer a weekly cadence for known slot IDs so
-        // noticeboards stay populated after the original week passes.
+        // Admin-authoritative recurrence fallback:
+        // in the national scheduler, isRecurring=true means the slot should
+        // repeat every day regardless of the source doc date.
         final effectiveRecurrence =
-          (event.type == EventType.national &&
-            hasNoRecurrence &&
-            _looksLikeNationalSlotId(event.id))
-          ? 'weekly'
-          : recurrence;
+          (hasNoRecurrence && isRecurringFlag) ? 'daily' : recurrence;
 
         final isDaily = effectiveRecurrence == 'daily';
         final isWeekly = effectiveRecurrence == 'weekly';
@@ -615,8 +632,9 @@ class EventService extends ChangeNotifier {
         if (event.type == EventType.national) {
           final localNow = DateTime.now();
 
-          int hour = event.startTime.hour;
-          int minute = event.startTime.minute;
+          final sourceUtcStart = event.startTime.toUtc();
+          int hour = sourceUtcStart.hour;
+          int minute = sourceUtcStart.minute;
           if (event.originTime != null && event.originTime!.contains(':')) {
             final parts = event.originTime!.split(':');
             if (parts.length == 2) {
@@ -630,16 +648,26 @@ class EventService extends ChangeNotifier {
             minutes: event.visibilityAfterMinutes ?? 0,
           );
 
+          // For non-recurring national events, respect the exact stored date/time.
+          // Only explicit recurrence should project into new dates.
           DateTime localStart = DateTime(
-            localNow.year,
-            localNow.month,
-            localNow.day,
+            sourceUtcStart.year,
+            sourceUtcStart.month,
+            sourceUtcStart.day,
             hour,
             minute,
           );
           DateTime localEnd = localStart.add(duration);
 
           if (isWeekly) {
+            localStart = DateTime(
+              localNow.year,
+              localNow.month,
+              localNow.day,
+              hour,
+              minute,
+            );
+            localEnd = localStart.add(duration);
             // Anchor to the event's intended weekday, then roll forward by week.
             final targetWeekday = event.startTime.weekday;
             final daysUntil = (targetWeekday - localNow.weekday + 7) % 7;
@@ -649,12 +677,63 @@ class EventService extends ChangeNotifier {
               localStart = localStart.add(const Duration(days: 7));
               localEnd = localStart.add(duration);
             }
-          } else {
-            // Daily/default cadence: move to next day when current occurrence is expired.
+          } else if (isDaily) {
+            localStart = DateTime(
+              localNow.year,
+              localNow.month,
+              localNow.day,
+              hour,
+              minute,
+            );
+            localEnd = localStart.add(duration);
+            // Only explicitly daily events roll forward day to day.
             while (localEnd.add(visibilityAfter).isBefore(localNow)) {
               localStart = localStart.add(const Duration(days: 1));
               localEnd = localStart.add(duration);
             }
+          } else if (isMonthly) {
+            localStart = DateTime(
+              localNow.year,
+              localNow.month,
+              event.startTime.day,
+              hour,
+              minute,
+            );
+            localEnd = localStart.add(duration);
+            while (localEnd.add(visibilityAfter).isBefore(localNow)) {
+              localStart = DateTime(
+                localStart.year,
+                localStart.month + 1,
+                localStart.day,
+                localStart.hour,
+                localStart.minute,
+              );
+              localEnd = localStart.add(duration);
+            }
+          } else {
+            // slot_* docs are standing weekly slots published once by admin.
+            // Roll them forward to the matching weekday in the current/next week.
+            final docId = doc.id;
+            if (docId.startsWith('slot_')) { // HARMONY_SLOT_ROLLFORWARD_V1
+              localStart = DateTime(
+                localNow.year,
+                localNow.month,
+                localNow.day,
+                hour,
+                minute,
+              );
+              localEnd = localStart.add(duration);
+              final targetWeekday = event.startTime.weekday;
+              final daysUntil = (targetWeekday - localNow.weekday + 7) % 7;
+              localStart = localStart.add(Duration(days: daysUntil));
+              localEnd = localStart.add(duration);
+              while (localEnd.add(visibilityAfter).isBefore(localNow)) {
+                localStart = localStart.add(const Duration(days: 7));
+                localEnd = localStart.add(duration);
+              }
+            }
+            // Non-slot docs: Firebase/admin controls visibility strictly
+            // via the stored dated document. Do not synthesize a future occurrence.
           }
 
           displayEvent = event.copyWith(startTime: localStart, endTime: localEnd);
@@ -683,10 +762,11 @@ class EventService extends ChangeNotifier {
         final localEndTime = displayEvent.endTime.toLocal();
 
         if (now.isAfter(localEndTime.add(visibilityAfter))) {
+          expiredSkipCount++;
           continue; // Too old
         }
 
-        if (!forDormantScheduling && displayEvent.type != EventType.national) {
+        if (!forDormantScheduling) {
           // 2. Check Show Before Event (UI visibility window only)
           int defaultShowBefore = 60;
           final showBefore = Duration(
@@ -696,6 +776,7 @@ class EventService extends ChangeNotifier {
           final showTime = localStartTime.subtract(showBefore);
 
           if (now.isBefore(showTime)) {
+            tooEarlySkipCount++;
             continue; // Too early to show
           }
         }
@@ -705,13 +786,8 @@ class EventService extends ChangeNotifier {
         print("DEBUG: Error processing event doc ${doc.id}: $e");
       }
     }
-    return processedEvents;
-  }
 
-  bool _looksLikeNationalSlotId(String id) {
-    if (id.startsWith('slot_')) return true;
-    if (id.startsWith('restore2__')) return true;
-    return false;
+    return processedEvents;
   }
 
   DateTime _getNextOccurrence(

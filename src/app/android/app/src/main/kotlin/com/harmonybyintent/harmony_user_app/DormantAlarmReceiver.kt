@@ -319,7 +319,14 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                 .setSound(soundUri)
                 .setVibrate(longArrayOf(0, 500, 250, 500))
                 .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                // CATEGORY_REMINDER instead of CATEGORY_ALARM: on Samsung One UI, CATEGORY_ALARM
+                // instructs the system to fully dismiss the secure keyguard when the full-screen
+                // intent fires. CATEGORY_REMINDER keeps the keyguard active (app merely shows over
+                // it via FLAG_SHOW_WHEN_LOCKED), so restoreAlarmLockscreenPresentation() can
+                // reliably move the task to back and have the keyguard reappear.
+                // The channel already has setBypassDnd(true) + IMPORTANCE_HIGH, so DND bypass
+                // and screen wake behaviour are unchanged.
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
             if (isFullScreen) {
