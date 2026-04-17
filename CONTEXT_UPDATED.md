@@ -154,3 +154,32 @@
 - **Store Status:** Internal Testing (Google Play) active. Waiting on propagation.
 - **RevenueCat:** Configuration 100% complete.
 - **User App:** Version 4+ active with improved video player.
+
+## Pause Log (April 12, 2026 - Break Handoff)
+**Status at pause:** Stable enough for break; core issue loop resolved.
+
+### What Is Confirmed Working
+1. User app event flow is functioning again with current-week publication logic.
+2. Event playback works and returns correctly after event completion.
+3. Overlay UX was corrected from intrusive to subtle:
+    - Only a subtle transparent `Exit Event` button is shown.
+    - Overpowering top overlay controls were removed.
+
+### Latest Locked Code State
+1. App commit (overlay refinement): `74a1f8a`
+2. Prior stabilization commit (event playback + exit control restoration): `a8eff94`
+
+### Release Artifact Built For Upload
+1. Version in `src/app/pubspec.yaml`: `1.0.8+16`
+2. AAB path:
+    `C:\Harmony by Intent project\harmony by intent\harmony-by-intent\src\app\build\app\outputs\bundle\release\app-release.aab`
+3. Build timestamp: `2026-04-12 18:40:54`
+
+### Device State At Pause
+1. Samsung device had latest local debug install verified during session.
+2. Safe to disconnect device for break.
+
+### Resume Checklist
+1. Upload the `1.0.8+16` AAB to Play Console (Internal Testing).
+2. After processing, optionally install from Play Store to verify store-delivered binary.
+3. If any visual regressions appear, first compare against commit `74a1f8a`.

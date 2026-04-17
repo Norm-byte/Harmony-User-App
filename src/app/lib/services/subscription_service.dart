@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -38,6 +39,33 @@ class SubscriptionService extends ChangeNotifier {
   final String _starterEntitlement = 'starter_access';
   final String _unlimitedEntitlement = 'unlimited_access';
 
+  Future<void> _syncVipFromFirestoreAuthUser() async {
+    try {
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser == null) return;
+
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(firebaseUser.uid)
+          .get();
+      if (!doc.exists) return;
+
+      final remoteVip = doc.data()?['isVip'] as bool?;
+      if (remoteVip != null && remoteVip != _isVipOverride) {
+        debugPrint(
+          "HARMONY_VIP_SYNC: Updating local VIP to $remoteVip from Firestore auth user",
+        );
+        await setVipStatus(remoteVip);
+      }
+    } catch (e) {
+      debugPrint("HARMONY_VIP_SYNC_ERROR: $e");
+    }
+  }
+
+  Future<void> refreshVipFromAuthUser() async {
+    await _syncVipFromFirestoreAuthUser();
+  }
+
   Future<void> init() async {
     await Purchases.setLogLevel(LogLevel.debug);
 
@@ -46,22 +74,8 @@ class SubscriptionService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       _isVipOverride = prefs.getBool('is_vip_override') ?? false;
       
-      // SYNC: Check Firestore for latest status (Remote Revoke/Grant)
-      try {
-         final userId = await Purchases.appUserID; 
-         if (userId.isNotEmpty) {
-             final doc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
-             if (doc.exists) {
-                final remoteVip = doc.data()?['isVip'] as bool?;
-                if (remoteVip != null && remoteVip != _isVipOverride) {
-                   debugPrint("HARMONY_VIP_SYNC: Updating local VIP to $remoteVip from Firestore");
-                   setVipStatus(remoteVip);
-                }
-             }
-         }
-      } catch (e) {
-         debugPrint("HARMONY_VIP_SYNC_ERROR: $e");
-      }
+      // SYNC: Check Firestore for latest status using authenticated Firebase user.
+      await _syncVipFromFirestoreAuthUser();
       
       debugPrint("HARMONY_VIP_INIT: Loaded VIP Status from Disk: $_isVipOverride");
     } catch (e) {

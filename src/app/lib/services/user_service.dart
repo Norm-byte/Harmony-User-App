@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -36,6 +37,7 @@ class UserService extends ChangeNotifier {
   bool _autoJoinWorldwide = true; // New Auto-Join setting (Default ON)
   bool _dormantPlaybackEnabled = true;
   bool _settingsLoaded = false;
+  Timer? _presenceHeartbeatTimer;
   // 0 = video (active), 1 = audio (active), 2 = off
   List<List<int>> _hourlyChimes = List.generate(
     24,
@@ -142,6 +144,14 @@ class UserService extends ChangeNotifier {
 
     // Sync to Firestore
     _syncUserToFirestore();
+    _startPresenceHeartbeat();
+  }
+
+  void _startPresenceHeartbeat() {
+    _presenceHeartbeatTimer?.cancel();
+    _presenceHeartbeatTimer = Timer.periodic(const Duration(hours: 1), (_) {
+      _syncUserToFirestore();
+    });
   }
 
   Future<void> _syncUserToFirestore() async {

@@ -8,11 +8,23 @@ import '../models/event.dart';
 import 'notification_service.dart';
 import 'user_service.dart';
 
+class _SlotDocMetadata {
+  final int hour;
+  final int minute;
+  final DateTime dateUtc;
+
+  const _SlotDocMetadata({
+    required this.hour,
+    required this.minute,
+    required this.dateUtc,
+  });
+}
+
 class EventService extends ChangeNotifier {
   // National slot docs are date-specific and not stored as recurring.
   // Only show slots published for in the current UTC week.
   // Each week's events are independent by date, not by synthesis/rollforward.
-  static const Set<int> _allowedNationalSlotMinutes = {0, 30};
+  static const Set<int> _allowedNationalSlotMinutes = {0, 15, 30, 45};
 
   static DateTime _startOfUtcWeek(DateTime utcDate) {
     final utcMidnight = DateTime.utc(utcDate.year, utcDate.month, utcDate.day);
@@ -49,6 +61,7 @@ class EventService extends ChangeNotifier {
   bool _currentEventFromAlarmLaunch = false;
   bool _nativeLaunchPayloadCheckInFlight = false;
   String? _lastKnownAlarmLaunchEventId;
+  String? _lastNoticeboardDebugSignature;
 
   List<Event> _events = [];
   List<Event> _nationalEvents = [];
@@ -198,6 +211,93 @@ class EventService extends ChangeNotifier {
 
   List<QueryDocumentSnapshot> _nationalDocs = [];
   List<QueryDocumentSnapshot> _globalDocs = [];
+  bool _hasLoadedNationalDocs = false;
+  bool _hasLoadedGlobalDocs = false;
+
+  bool get hasLoadedEventSources =>
+      _hasLoadedNationalDocs && _hasLoadedGlobalDocs;
+
+  List<Event> get visibleNoticeboardEvents {
+    final now = DateTime.now();
+    final candidates = _dedupeNationalEvents([
+      ..._processDocs(
+        _nationalDocs,
+        overrideType: EventType.national,
+        forDormantScheduling: true,
+      ),
+      ..._processDocs(
+        _globalDocs,
+        overrideType: EventType.global,
+        forDormantScheduling: true,
+      ),
+    ]);
+
+    final visible = candidates.where((event) {
+      final showBefore = Duration(
+        minutes: event.noticeBoardShowBeforeMinutes ?? 60,
+      );
+      final visibilityAfter = Duration(
+        minutes: event.noticeBoardVisibilityAfterMinutes ?? 0,
+      );
+      final showTime = event.startTime.toLocal().subtract(showBefore);
+      final hideTime = event.endTime.toLocal().add(visibilityAfter);
+      return !now.isBefore(showTime) && now.isBefore(hideTime);
+    }).toList();
+
+    visible.sort((a, b) {
+      final aShowTime = a.startTime.toLocal().subtract(
+        Duration(minutes: a.noticeBoardShowBeforeMinutes ?? 60),
+      );
+      final bShowTime = b.startTime.toLocal().subtract(
+        Duration(minutes: b.noticeBoardShowBeforeMinutes ?? 60),
+      );
+      return aShowTime.compareTo(bShowTime);
+    });
+
+    return visible;
+  }
+
+  Event? get activeNoticeboardEvent {
+    final now = DateTime.now();
+    final active = visibleNoticeboardEvents;
+
+    if (active.isEmpty) {
+      if (_lastNoticeboardDebugSignature != 'none') {
+        _lastNoticeboardDebugSignature = 'none';
+        print('HARMONY_NOTICEBOARD: none active at ${now.toIso8601String()}');
+      }
+      return null;
+    }
+
+    final selected = active.first;
+    final selectedShowBefore = Duration(
+      minutes: selected.noticeBoardShowBeforeMinutes ?? 60,
+    );
+    final selectedVisibilityAfter = Duration(
+      minutes: selected.noticeBoardVisibilityAfterMinutes ?? 0,
+    );
+    final selectedShowTime = selected.startTime
+        .toLocal()
+        .subtract(selectedShowBefore);
+    final selectedHideTime = selected.endTime
+        .toLocal()
+        .add(selectedVisibilityAfter);
+    final signature =
+        '${selected.id}|${selectedShowTime.toIso8601String()}|${selectedHideTime.toIso8601String()}';
+
+    if (_lastNoticeboardDebugSignature != signature) {
+      _lastNoticeboardDebugSignature = signature;
+      print(
+        'HARMONY_NOTICEBOARD: selected=${selected.id} '
+        'show=${selectedShowTime.toIso8601String()} '
+        'hide=${selectedHideTime.toIso8601String()} '
+        'nbShowBefore=${selected.noticeBoardShowBeforeMinutes ?? 60} '
+        'nbAfter=${selected.noticeBoardVisibilityAfterMinutes ?? 0}',
+      );
+    }
+
+    return selected;
+  }
 
   // Track current subscribed ID to prevent unnecessary reconnections
   String? _currentListenedUserId;
@@ -247,6 +347,7 @@ class EventService extends ChangeNotifier {
         .snapshots()
         .listen(
           (snapshot) {
+            _hasLoadedNationalDocs = true;
             _nationalDocs = snapshot.docs;
             _refreshEvents();
           },
@@ -261,6 +362,7 @@ class EventService extends ChangeNotifier {
         .snapshots()
         .listen(
           (snapshot) {
+            _hasLoadedGlobalDocs = true;
             _globalDocs = snapshot.docs;
             _refreshEvents();
           },
@@ -570,6 +672,30 @@ class EventService extends ChangeNotifier {
     return true;
   }
 
+  _SlotDocMetadata? _parseSlotDocMetadata(String docId) {
+    final match = RegExp(
+      r'^(?:slot|copy)_(\d{2})(\d{2})_(\d{8})(?:_.*)?$',
+    ).firstMatch(docId);
+    if (match == null) return null;
+
+    final hour = int.tryParse(match.group(1)!);
+    final minute = int.tryParse(match.group(2)!);
+    final dateRaw = match.group(3)!;
+
+    if (hour == null || minute == null || dateRaw.length != 8) return null;
+
+    final year = int.tryParse(dateRaw.substring(0, 4));
+    final month = int.tryParse(dateRaw.substring(4, 6));
+    final day = int.tryParse(dateRaw.substring(6, 8));
+    if (year == null || month == null || day == null) return null;
+
+    return _SlotDocMetadata(
+      hour: hour,
+      minute: minute,
+      dateUtc: DateTime.utc(year, month, day, hour, minute),
+    );
+  }
+
   List<Event> _processDocs(
     List<QueryDocumentSnapshot> docs, {
     EventType? overrideType,
@@ -582,57 +708,9 @@ class EventService extends ChangeNotifier {
     int expiredSkipCount = 0;
     int tooEarlySkipCount = 0;
 
-    // Build minute-lane profile from current-week published national slot docs.
-    // This helps suppress sparse legacy ghost lanes (commonly :15/:45) while
-    // preserving legitimately populated lanes.
-    final Map<int, int> currentWeekSlotMinuteCounts = <int, int>{};
-    for (final doc in docs) {
-      try {
-        final data = doc.data() as Map<String, dynamic>;
-        final isSlotDoc = doc.id.startsWith('slot_');
-        if (!isSlotDoc) continue;
-
-        data['id'] = doc.id;
-        final rawEvent = Event.fromJson(data);
-        final event = overrideType != null
-            ? rawEvent.copyWith(type: overrideType)
-            : rawEvent;
-        if (event.type != EventType.national) continue;
-
-        final rawIsDraft = data['isDraft'];
-        final rawPublished = data['published'];
-        final isDraft =
-            rawIsDraft == true || rawIsDraft == 'true' || rawIsDraft == 1;
-        final publishedFallback =
-            rawPublished == true || rawPublished == 'true' || rawPublished == 1;
-        final isPublishedEffective = event.isPublished || publishedFallback;
-        if (!isPublishedEffective || isDraft) continue;
-
-        final slotUtcDate = event.startTime.toUtc();
-        if (!_isInCurrentUtcWeek(slotUtcDate)) continue;
-
-        currentWeekSlotMinuteCounts.update(
-          slotUtcDate.minute,
-          (value) => value + 1,
-          ifAbsent: () => 1,
-        );
-      } catch (_) {
-        // Ignore malformed docs during lane profiling.
-      }
-    }
-
-    final Set<int> allowedCurrentWeekSlotMinutes = <int>{};
-    if (currentWeekSlotMinuteCounts.isNotEmpty) {
-      final maxCount = currentWeekSlotMinuteCounts.values.reduce(
-        (a, b) => a > b ? a : b,
-      );
-      final laneThreshold = maxCount >= 4 ? ((maxCount + 1) ~/ 2) : maxCount;
-      currentWeekSlotMinuteCounts.forEach((minute, count) {
-        if (count >= laneThreshold) {
-          allowedCurrentWeekSlotMinutes.add(minute);
-        }
-      });
-    }
+    // Keep filtering explicit and deterministic: allow all quarter-hour lanes.
+    // Historical lane frequency profiling was too aggressive and could suppress
+    // legitimate slots when old data was imbalanced.
     int nationalSlotTotal = 0;
     int nationalSlotCurrentWeek = 0;
     int nationalNonSlotCurrentWeek = 0;
@@ -641,6 +719,29 @@ class EventService extends ChangeNotifier {
       try {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
+        final preliminarySlotMeta = _parseSlotDocMetadata(doc.id);
+
+        // Pure-tone national slots may intentionally omit title in admin.
+        // Provide a deterministic fallback so the user app does not drop them.
+        final rawTitle = (data['title'] ?? '').toString().trim();
+        if (rawTitle.length < 2) {
+          final rawType = (data['type'] ?? '').toString().trim().toLowerCase();
+          final isNationalByData = rawType == 'national';
+          final isNationalByOverride = overrideType == EventType.national;
+          if (isNationalByData || isNationalByOverride) {
+            final intent = (data['intent'] ?? '').toString().trim();
+            if (intent.isNotEmpty) {
+              data['title'] = 'Pure Tone - $intent';
+            } else if (preliminarySlotMeta != null) {
+              final hh = preliminarySlotMeta.hour.toString().padLeft(2, '0');
+              final mm = preliminarySlotMeta.minute.toString().padLeft(2, '0');
+              data['title'] = 'Pure Tone $hh:$mm';
+            } else {
+              data['title'] = 'Pure Tone Session';
+            }
+          }
+        }
+
         final rawEvent = Event.fromJson(data);
         final event = overrideType != null
             ? rawEvent.copyWith(type: overrideType)
@@ -669,10 +770,33 @@ class EventService extends ChangeNotifier {
         }
 
         final isNationalSlotDoc =
-            event.type == EventType.national && doc.id.startsWith('slot_');
+          event.type == EventType.national &&
+          _parseSlotDocMetadata(doc.id) != null;
+        final slotMeta = isNationalSlotDoc
+          ? _parseSlotDocMetadata(doc.id)
+          : null;
+        final slotSourceUtcStart = slotMeta?.dateUtc ?? event.startTime.toUtc();
+
+        final recurrence = (event.recurrenceType ?? '').trim().toLowerCase();
+        final hasNoRecurrence =
+          recurrence.isEmpty || recurrence == 'none' || recurrence == 'null';
+        final isRecurringFlag =
+          data['isRecurring'] == true ||
+          data['isRecurring'] == 'true' ||
+          data['isRecurring'] == 1;
+
+        // Admin-authoritative recurrence fallback:
+        // in the national scheduler, isRecurring=true means the slot should
+        // repeat every day regardless of the source doc date.
+        final effectiveRecurrence =
+          (hasNoRecurrence && isRecurringFlag) ? 'daily' : recurrence;
+
+        final isDaily = effectiveRecurrence == 'daily';
+        final isWeekly = effectiveRecurrence == 'weekly';
+        final isMonthly = effectiveRecurrence == 'monthly';
 
         if (event.type == EventType.national) {
-          final eventUtc = event.startTime.toUtc();
+          final eventUtc = slotSourceUtcStart;
           if (isNationalSlotDoc) {
             nationalSlotTotal++;
             if (_isInCurrentUtcWeek(eventUtc)) {
@@ -686,43 +810,14 @@ class EventService extends ChangeNotifier {
         }
 
         if (isNationalSlotDoc) {
-          final slotUtcDate = event.startTime.toUtc();
+          final slotMinute = slotMeta?.minute ?? event.startTime.toUtc().minute;
 
-          if (!_allowedNationalSlotMinutes.contains(slotUtcDate.minute)) {
+          if (!_allowedNationalSlotMinutes.contains(slotMinute)) {
             expiredSkipCount++;
             continue;
           }
 
-          if (!_isInCurrentUtcWeek(slotUtcDate)) {
-            expiredSkipCount++;
-            continue;
-          }
-
-          // If a lane profile exists for current-week slots, drop sparse lanes.
-          if (allowedCurrentWeekSlotMinutes.isNotEmpty &&
-              !allowedCurrentWeekSlotMinutes.contains(slotUtcDate.minute)) {
-            expiredSkipCount++;
-            continue;
-          }
         }
-
-        final recurrence = (event.recurrenceType ?? '').trim().toLowerCase();
-        final hasNoRecurrence =
-            recurrence.isEmpty || recurrence == 'none' || recurrence == 'null';
-        final isRecurringFlag =
-            data['isRecurring'] == true ||
-            data['isRecurring'] == 'true' ||
-            data['isRecurring'] == 1;
-
-        // Admin-authoritative recurrence fallback:
-        // in the national scheduler, isRecurring=true means the slot should
-        // repeat every day regardless of the source doc date.
-        final effectiveRecurrence =
-          (hasNoRecurrence && isRecurringFlag) ? 'daily' : recurrence;
-
-        final isDaily = effectiveRecurrence == 'daily';
-        final isWeekly = effectiveRecurrence == 'weekly';
-        final isMonthly = effectiveRecurrence == 'monthly';
 
         // Handle Recurrence
         Event displayEvent = event;
@@ -730,7 +825,7 @@ class EventService extends ChangeNotifier {
         if (event.type == EventType.national) {
           final localNow = DateTime.now();
 
-          final sourceUtcStart = event.startTime.toUtc();
+          final sourceUtcStart = slotSourceUtcStart;
           int hour = sourceUtcStart.hour;
           int minute = sourceUtcStart.minute;
           if (event.originTime != null && event.originTime!.contains(':')) {
@@ -832,8 +927,10 @@ class EventService extends ChangeNotifier {
         }
 
         // 1. Check Visibility After Event
+        final effectiveVisibilityAfterMinutes =
+          displayEvent.visibilityAfterMinutes ?? 0;
         final visibilityAfter = Duration(
-          minutes: displayEvent.visibilityAfterMinutes ?? 0,
+          minutes: effectiveVisibilityAfterMinutes,
         );
         final localEndTime = displayEvent.endTime.toLocal();
 
@@ -851,7 +948,8 @@ class EventService extends ChangeNotifier {
           final localStartTime = displayEvent.startTime.toLocal();
           final showTime = localStartTime.subtract(showBefore);
 
-          if (now.isBefore(showTime)) {
+            final skipTooEarly = now.isBefore(showTime);
+          if (skipTooEarly) {
             tooEarlySkipCount++;
             continue; // Too early to show
           }

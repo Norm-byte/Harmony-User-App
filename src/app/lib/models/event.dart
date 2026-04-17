@@ -17,6 +17,8 @@ class Event {
   final int participantCount;
   final int? visibilityAfterMinutes;
   final int? showBeforeMinutes;
+  final int? noticeBoardVisibilityAfterMinutes;
+  final int? noticeBoardShowBeforeMinutes;
   final String? recurrenceType; // 'None', 'Daily', 'Weekly', 'Monthly'
   final String? originTimeZone;
   final String? originTime; // 'HH:mm' for National events
@@ -44,6 +46,8 @@ class Event {
     this.participantCount = 0,
     this.visibilityAfterMinutes,
     this.showBeforeMinutes,
+    this.noticeBoardVisibilityAfterMinutes,
+    this.noticeBoardShowBeforeMinutes,
     this.recurrenceType,
     this.originTimeZone,
     this.originTime,
@@ -131,12 +135,14 @@ class Event {
       learnMoreContent: json['learnMoreContent'],
       learnMoreYoutubeUrl: json['learnMoreYoutubeUrl'],
         participantCount: _asInt(json['participantCount']) ?? 0,
-      visibilityAfterMinutes:
-          _asInt(json['visibilityAfterMinutes']) ??
-          _asInt(json['noticeBoardVisibilityAfterMinutes']), // Support both keys
-      showBeforeMinutes:
-          _asInt(json['showBeforeMinutes']) ??
-          _asInt(json['noticeBoardShowBeforeMinutes']),
+        visibilityAfterMinutes: _asInt(json['visibilityAfterMinutes']),
+        showBeforeMinutes: _asInt(json['showBeforeMinutes']),
+        noticeBoardVisibilityAfterMinutes:
+          _asInt(json['noticeBoardVisibilityAfterMinutes']) ??
+          _asInt(json['visibilityAfterMinutes']),
+        noticeBoardShowBeforeMinutes:
+          _asInt(json['noticeBoardShowBeforeMinutes']) ??
+          _asInt(json['showBeforeMinutes']),
       recurrenceType: json['recurrenceType'],
       originTimeZone: json['originTimeZone'],
       originTime: json['originTime'],
@@ -189,6 +195,8 @@ class Event {
       participantCount: participantCount,
       visibilityAfterMinutes: visibilityAfterMinutes,
       showBeforeMinutes: showBeforeMinutes,
+      noticeBoardVisibilityAfterMinutes: noticeBoardVisibilityAfterMinutes,
+      noticeBoardShowBeforeMinutes: noticeBoardShowBeforeMinutes,
       recurrenceType: recurrenceType,
       originTimeZone: originTimeZone,
       originTime: originTime,
@@ -219,8 +227,10 @@ class Event {
       'learnMoreYoutubeUrl': learnMoreYoutubeUrl,
       'participantCount': participantCount,
       'originTimeZone': originTimeZone,
-      'noticeBoardShowBeforeMinutes': showBeforeMinutes,
       'visibilityAfterMinutes': visibilityAfterMinutes,
+      'showBeforeMinutes': showBeforeMinutes,
+      'noticeBoardVisibilityAfterMinutes': noticeBoardVisibilityAfterMinutes,
+      'noticeBoardShowBeforeMinutes': noticeBoardShowBeforeMinutes,
       'recurrenceType': recurrenceType,
       'noticeBoardBgImage': noticeBoardBgImage,
       'noticeBoardBgColor': noticeBoardBgColor,

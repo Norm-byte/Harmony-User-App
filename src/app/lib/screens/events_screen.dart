@@ -23,14 +23,13 @@ class EventsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Use the EventService to get real events
     final eventService = Provider.of<EventService>(context);
-    final events = eventService.events;
+    final events = eventService.visibleNoticeboardEvents;
 
     if (events.isEmpty) {
       return const Center(
         child: Text(
-          'No upcoming events found.',
+          'No active notice boards found.',
           style: TextStyle(color: Colors.white70),
         ),
       );
@@ -739,8 +738,9 @@ class EventsScreen extends StatelessWidget {
 
     if (now.isAfter(start) && now.isBefore(end)) {
       return '$timeStr Today (Active)';
-    } else if (now.isAfter(end)) {
-      return '$timeStr Today (Ended)';
+    }
+    if (now.isAfter(end)) {
+      return '$timeStr Today';
     }
     return '$timeStr Today';
   }

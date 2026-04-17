@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -124,69 +126,85 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, eventService, _) {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('app_config').doc('home_screen').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.white)));
+      builder: (context, configSnapshot) {
+        if (configSnapshot.hasError) {
+          return Center(child: Text('Error: ${configSnapshot.error}', style: const TextStyle(color: Colors.white)));
         }
 
-        if (!snapshot.hasData) {
+        if (!configSnapshot.hasData) {
           return const Center(child: CircularProgressIndicator(color: Colors.white));
         }
 
-        final data = snapshot.data!.data() as Map<String, dynamic>? ?? {};
+        final data = configSnapshot.data!.data() as Map<String, dynamic>? ?? {};
         final title = data['title'] as String? ?? 'Welcome to Harmony';
         final message = data['message'] as String? ?? 'Your journey begins here.';
         final backgroundImageUrl = data['backgroundImageUrl'] as String?;
-        bool showBulletin = data['showBulletin'] as bool? ?? false;
-        String bulletinText = data['bulletinText'] as String? ?? '';
+        bool showBulletin = false;
+        String bulletinText = '';
         final showLiveStats = data['showLiveStats'] as bool? ?? false;
         final showFeatured = data['showFeatured'] as bool? ?? false;
         final featuredType = data['featuredType'] as String? ?? 'youtube';
         final featuredUrl = data['featuredUrl'] as String? ?? '';
         final featuredTitle = data['featuredTitle'] as String? ?? '';
         final featuredBody = data['featuredBody'] as String? ?? '';
+        String? noticeBgImage;
 
-        // --- Event Notice Board Override ---
-        Event? noticeEvent;
-        if (eventService.events.isNotEmpty) {
-           try {
-             noticeEvent = eventService.events.firstWhere((e) => e.description.isNotEmpty || e.noticeBoardBgImage != null && e.noticeBoardBgImage!.isNotEmpty);
-           } catch (_) {}
+        String _buildNoticeText(Event e) {
+          final description = e.description.trim();
+          if (description.isNotEmpty) return description;
+
+          final eventTitle = e.title.trim();
+          final intent = (e.mostPopularIntent ?? '').trim();
+          final localStart = e.startTime.toLocal();
+          final hh = localStart.hour.toString().padLeft(2, '0');
+          final mm = localStart.minute.toString().padLeft(2, '0');
+
+          if (intent.isNotEmpty) {
+            return 'Pure Tone Focus: $intent at $hh:$mm';
+          }
+          if (eventTitle.isNotEmpty) {
+            return '$eventTitle at $hh:$mm';
+          }
+          return 'A Harmony tone session is available in My Harmony at $hh:$mm.';
         }
 
-        String? noticeBgImage;
+        final noticeEvent = eventService.activeNoticeboardEvent;
         if (noticeEvent != null) {
           showBulletin = true;
-          bulletinText = noticeEvent.description;
-          if (noticeEvent.noticeBoardBgImage != null && noticeEvent.noticeBoardBgImage!.isNotEmpty) {
-             noticeBgImage = noticeEvent.noticeBoardBgImage;
+          bulletinText = _buildNoticeText(noticeEvent);
+          if (noticeEvent.noticeBoardBgImage != null &&
+              noticeEvent.noticeBoardBgImage!.isNotEmpty) {
+            noticeBgImage = noticeEvent.noticeBoardBgImage;
           }
+        } else if (!eventService.hasLoadedEventSources) {
+          showBulletin = data['showBulletin'] as bool? ?? false;
+          bulletinText = data['bulletinText'] as String? ?? '';
         }
 
         return Stack(
-          children: [
-            // Background Image/Video Overlay (if present)
-            if (backgroundImageUrl != null)
-              Positioned.fill(
-                child: _BackgroundWidget(url: backgroundImageUrl),
-              ),
+              children: [
+                // Background Image/Video Overlay (if present)
+                if (backgroundImageUrl != null)
+                  Positioned.fill(
+                    child: _BackgroundWidget(url: backgroundImageUrl),
+                  ),
 
-            // Content
-            Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.spa, size: 80, color: Colors.white70),
-                    const SizedBox(height: 24),
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+                // Content
+                Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.spa, size: 80, color: Colors.white70),
+                        const SizedBox(height: 24),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
@@ -286,23 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
 
                     // Live Stats
-                    if (showLiveStats)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.green.withOpacity(0.5)),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.circle, color: Colors.green, size: 12),
-                            SizedBox(width: 8),
-                            Text('124 Users Online', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      ),
+                    const _ActiveUsersChip(),
 
                     if (widget.isSuperAdmin) ...[
                       const SizedBox(height: 18),
@@ -323,6 +325,81 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+    },
+  );
+  }
+}
+
+class _ActiveUsersChip extends StatefulWidget {
+  const _ActiveUsersChip();
+
+  @override
+  State<_ActiveUsersChip> createState() => _ActiveUsersChipState();
+}
+
+class _ActiveUsersChipState extends State<_ActiveUsersChip> {
+  static const Duration _refreshInterval = Duration(hours: 1);
+  late Future<int> _activeUsersFuture;
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeUsersFuture = _loadActiveUsers();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+      if (!mounted) return;
+      setState(() {
+        _activeUsersFuture = _loadActiveUsers();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<int> _loadActiveUsers() async {
+    final cutoff = Timestamp.fromDate(
+      DateTime.now().subtract(_refreshInterval),
+    );
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .where('lastActive', isGreaterThan: cutoff)
+        .count()
+        .get();
+    return snapshot.count ?? 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<int>(
+      future: _activeUsersFuture,
+      builder: (context, snapshot) {
+        final count = snapshot.data ?? 0;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.green.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.green.withOpacity(0.5)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.circle, color: Colors.green, size: 12),
+              const SizedBox(width: 8),
+              Text(
+                '$count Active In Last Hour',
+                style: const TextStyle(
+                  color: Colors.greenAccent,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        );
       },
     );
   }
