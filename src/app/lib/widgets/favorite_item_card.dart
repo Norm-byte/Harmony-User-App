@@ -13,12 +13,9 @@ class FavoriteItemCard extends StatelessWidget {
     // Debug print to verify data integrity
     // debugPrint('Building FavoriteItemCard: ${topic['title']} - URL: ${topic['youtubeUrl'] ?? topic['url']}');
 
-    return Container(
-      // width: 160, // Removed to allow parent control (e.g., GridView)
-      // margin: const EdgeInsets.only(right: 12), // Removed to allow parent control
-      child: Stack(
-        fit: StackFit.expand, // Ensure the stack fills the container
-        children: [
+    return Stack(
+      fit: StackFit.expand, // Ensure the stack fills the container
+      children: [
           // Main Clickable Area
           GestureDetector(
             behavior: HitTestBehavior.opaque, // Ensure taps are caught
@@ -80,7 +77,7 @@ class FavoriteItemCard extends StatelessWidget {
             },
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
+                color: Colors.white.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               clipBehavior: Clip.antiAlias,
@@ -105,7 +102,7 @@ class FavoriteItemCard extends StatelessWidget {
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.5),
+                              color: Colors.black.withValues(alpha: 0.5),
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(Icons.play_arrow, color: Colors.white, size: 24),
@@ -147,7 +144,7 @@ class FavoriteItemCard extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.7),
+                    color: Colors.black.withValues(alpha: 0.7),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.close, size: 16, color: Colors.white),
@@ -156,7 +153,6 @@ class FavoriteItemCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
     );
   }
 }

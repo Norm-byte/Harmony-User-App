@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../widgets/gradient_scaffold.dart';
-// import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/subscription_service.dart';
 import 'home_screen.dart';
 
 class RedeemCodeScreen extends StatefulWidget {
@@ -16,7 +19,7 @@ class _RedeemCodeScreenState extends State<RedeemCodeScreen> {
   String? _errorMessage;
 
   Future<void> _redeemCode() async {
-    final code = _codeController.text.trim();
+    final code = _codeController.text.trim().toUpperCase();
     if (code.isEmpty) return;
 
     setState(() {
@@ -25,11 +28,14 @@ class _RedeemCodeScreenState extends State<RedeemCodeScreen> {
     });
 
     try {
-      // MOCK IMPLEMENTATION (Offline Mode)
-      await Future.delayed(const Duration(seconds: 1));
-      
-      /*
-      // Query Firestore for the code
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        setState(() {
+          _errorMessage = 'Please log in before redeeming a VIP code.';
+        });
+        return;
+      }
+
       final querySnapshot = await FirebaseFirestore.instance
           .collection('vip_codes')
           .where('code', isEqualTo: code)
@@ -56,13 +62,22 @@ class _RedeemCodeScreenState extends State<RedeemCodeScreen> {
         await doc.reference.update({
           'status': 'redeemed',
           'redeemedAt': FieldValue.serverTimestamp(),
-          'redeemedBy': 'Device User', // Placeholder until Auth is implemented
+          'redeemedBy': currentUser.uid,
         });
       }
-      */
-      
-      // MOCK: Assume standard user for now
-      final isSuperAdmin = false;
+
+      final subService = Provider.of<SubscriptionService>(context, listen: false);
+      await subService.setVipStatus(true);
+
+      // Persist isVip in Firestore under the authenticated user's UID so the
+      // login path detects VIP status on future sign-ins.
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .set({
+            'isVip': true,
+            'isSuperAdmin': isSuperAdmin,
+          }, SetOptions(merge: true));
 
       if (mounted) {
         // Show success and navigate
@@ -142,7 +157,7 @@ class _RedeemCodeScreenState extends State<RedeemCodeScreen> {
                 ),
                 errorText: _errorMessage,
                 filled: true,
-                fillColor: Colors.white.withOpacity(0.1),
+                fillColor: Colors.white.withValues(alpha: 0.1),
                 prefixIcon: const Icon(Icons.vpn_key, color: Colors.white70),
               ),
               textCapitalization: TextCapitalization.characters,

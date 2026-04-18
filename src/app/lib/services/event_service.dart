@@ -1,9 +1,7 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/event.dart';
 import 'notification_service.dart';
 import 'user_service.dart';
@@ -121,14 +119,14 @@ class EventService extends ChangeNotifier {
     try {
       // Use UserService instead of FirebaseAuth
       final userId = UserService().userId;
-      print(
+      debugPrint(
         "HARMONY_DEBUG: joinEvent called for user '$userId', event '$eventTitle'",
       );
 
       // 1. Check for Duplicates
       bool isAlreadyJoined = _myEvents.any((doc) => doc['eventId'] == eventId);
       if (isAlreadyJoined) {
-        print("HARMONY_DEBUG: User already joined event $eventId");
+        debugPrint("HARMONY_DEBUG: User already joined event $eventId");
         // Update intent locally if re-joining logic was desired, but for now just return
         return "Already Joined";
       }
@@ -156,58 +154,18 @@ class EventService extends ChangeNotifier {
               'status': 'registered',
             });
 
-        print("HARMONY_DEBUG: Event joined successfully in Firestore");
+        debugPrint("HARMONY_DEBUG: Event joined successfully in Firestore");
         return "Success: $userId";
       } else {
-        print("HARMONY_DEBUG: Error: No User ID found in UserService");
+        debugPrint("HARMONY_DEBUG: Error: No User ID found in UserService");
         return "Error: No User ID";
       }
     } catch (e) {
-      print("Error joining event: $e");
+      debugPrint("Error joining event: $e");
       return "Error: $e";
     }
   }
 
-  // Helper to extract core intent concept from user sentence
-  String _extractCoreIntent(String text) {
-    const coreIntents = [
-      'Harmony',
-      'Peace',
-      'Love',
-      'Joy',
-      'Gratitude',
-      'Compassion',
-      'Faith',
-      'Trust',
-      'Mindfulness',
-      'Kindness',
-      'Hope',
-      'Freedom',
-      'Unity',
-      'Patience',
-      'Courage',
-      'Wisdom',
-      'Truth',
-      'Healing',
-      'Abundance',
-      'Clarity',
-      'Focus',
-      'Balance',
-      'Strength',
-      'Respect',
-      'Forgiveness',
-      'Acceptance',
-      'Presence',
-    ];
-
-    final lowerText = text.toLowerCase();
-    for (final core in coreIntents) {
-      if (lowerText.contains(core.toLowerCase())) {
-        return core;
-      }
-    }
-    return text; // Fallback to full text if no core concept found
-  }
 
   List<QueryDocumentSnapshot> _nationalDocs = [];
   List<QueryDocumentSnapshot> _globalDocs = [];
@@ -264,7 +222,7 @@ class EventService extends ChangeNotifier {
     if (active.isEmpty) {
       if (_lastNoticeboardDebugSignature != 'none') {
         _lastNoticeboardDebugSignature = 'none';
-        print('HARMONY_NOTICEBOARD: none active at ${now.toIso8601String()}');
+        debugPrint('HARMONY_NOTICEBOARD: none active at ${now.toIso8601String()}');
       }
       return null;
     }
@@ -287,7 +245,7 @@ class EventService extends ChangeNotifier {
 
     if (_lastNoticeboardDebugSignature != signature) {
       _lastNoticeboardDebugSignature = signature;
-      print(
+      debugPrint(
         'HARMONY_NOTICEBOARD: selected=${selected.id} '
         'show=${selectedShowTime.toIso8601String()} '
         'hide=${selectedHideTime.toIso8601String()} '
@@ -306,7 +264,7 @@ class EventService extends ChangeNotifier {
     // Set up MethodChannel listener for immediate payload consumption
     _dormantAlarmChannel.setMethodCallHandler((call) async {
       if (call.method == 'on_notification_tap_received') {
-        print('HARMONY_ALARM: MethodChannel onNotificationTapReceived called');
+        debugPrint('HARMONY_ALARM: MethodChannel onNotificationTapReceived called');
         // Immediately consume the payload without waiting for the periodic loop
         await _checkNativeLaunchPayloadIfAny();
         return {'success': true};
@@ -321,14 +279,16 @@ class EventService extends ChangeNotifier {
     if (userService.userId.isNotEmpty) {
       _listenToMyEvents(userService.userId);
     } else {
-      print("HARMONY_DEBUG: UserService ID is empty on init V3");
+      debugPrint("HARMONY_DEBUG: UserService ID is empty on init V3");
     }
+
+    _tryConsumeStoredLaunchPayload();
 
     // Listen for changes
     userService.addListener(() {
       if (userService.userId.isNotEmpty &&
           userService.userId != _currentListenedUserId) {
-        print("HARMONY_DEBUG: UserService ID changed to ${userService.userId}");
+        debugPrint("HARMONY_DEBUG: UserService ID changed to ${userService.userId}");
         _listenToMyEvents(userService.userId);
       }
 
@@ -352,7 +312,7 @@ class EventService extends ChangeNotifier {
             _refreshEvents();
           },
           onError: (e) {
-            print("Error listening to national events: $e");
+            debugPrint("Error listening to national events: $e");
           },
         );
 
@@ -367,7 +327,7 @@ class EventService extends ChangeNotifier {
             _refreshEvents();
           },
           onError: (e) {
-            print("Error listening to global events: $e");
+            debugPrint("Error listening to global events: $e");
           },
         );
   }
@@ -375,7 +335,7 @@ class EventService extends ChangeNotifier {
   void _listenToMyEvents(String userId) {
     if (userId.isEmpty) return;
 
-    print(
+    debugPrint(
       "HARMONY_DEBUGGING: Starting stream for users/$userId/registered_events",
     );
     _currentListenedUserId = userId; // Update tracker
@@ -390,7 +350,7 @@ class EventService extends ChangeNotifier {
         .snapshots()
         .listen(
           (snapshot) {
-            print(
+            debugPrint(
               "HARMONY_DEBUGGING: Received ${snapshot.docs.length} my_events docs for user $userId",
             );
             _myEvents = snapshot.docs.map((doc) => doc.data()).toList();
@@ -405,7 +365,7 @@ class EventService extends ChangeNotifier {
             notifyListeners();
           },
           onError: (e) {
-            print("HARMONY_DEBUGGING: Error listening to my events: $e");
+            debugPrint("HARMONY_DEBUGGING: Error listening to my events: $e");
           },
         );
   }
@@ -416,20 +376,6 @@ class EventService extends ChangeNotifier {
     _mergeEvents();
   }
 
-  // Synchronously peek at SharedPreferences for a stored launch payload from MainActivity.
-  // If found, set _pendingAlarmEventId so the next checkForEvents can trigger it with fromAlarmLaunch=true.
-  // This completes BEFORE any event triggering, preventing the race condition where the event starts before we mark it as from-alarm.
-  void _peekAndSetPendingAlarmFromSharedPreferences() {
-    try {
-      final prefs = SharedPreferences.getInstance().then((p) => p);
-      // Note: SharedPreferences.getInstance is Future-based, we can't make it sync in Dart
-      // So we use a different approach: trigger consumption via asyc task but set a flag
-      // to indicate we should mark the NEXT matching event as from-alarm
-      _tryConsumeStoredLaunchPayload();
-    } catch (e) {
-      // Silent fail - this is a best-effort peek
-    }
-  }
 
   // Try to consume the stored launch payload from the MethodChannel.
   // Unlike _checkNativeLaunchPayloadIfAny, this doesn't try to trigger the event,
@@ -449,9 +395,7 @@ class EventService extends ChangeNotifier {
       }
       autoPlayVideo = payload['auto_play_video'] == true;
 
-      if (eventId == null) {
-        eventId = await NotificationService().consumeLaunchEventId();
-      }
+      eventId ??= await NotificationService().consumeLaunchEventId();
 
       if (eventId != null && eventId.isNotEmpty) {
         // Don't re-queue if this event was already played and dismissed this session.
@@ -462,14 +406,14 @@ class EventService extends ChangeNotifier {
           return;
         }
         // Found a pending alarm launch - queue it as pending so the next cycle triggers it with fromAlarmLaunch=true
-        print('HARMONY_ALARM: found stored launch payload eventId=$eventId, queuing as pending alarm');
+        debugPrint('HARMONY_ALARM: found stored launch payload eventId=$eventId, queuing as pending alarm');
         _lastKnownAlarmLaunchEventId = eventId;
         _pendingAlarmEventId = eventId;
         _pendingAlarmEventExpiresAt = DateTime.now().add(const Duration(minutes: 5));
         _pendingAlarmForceVideo = autoPlayVideo;
       }
     } catch (e) {
-      print('HARMONY_ALARM: _tryConsumeStoredLaunchPayload failed: $e');
+      debugPrint('HARMONY_ALARM: _tryConsumeStoredLaunchPayload failed: $e');
     } finally {
       _nativeLaunchPayloadCheckInFlight = false;
     }
@@ -485,7 +429,7 @@ class EventService extends ChangeNotifier {
     _pendingAlarmEventId = eventId.trim();
     _pendingAlarmEventExpiresAt = DateTime.now().add(holdFor);
     _pendingAlarmForceVideo = forceVideo;
-    print('HARMONY_ALARM: queued immediate playback for $_pendingAlarmEventId');
+    debugPrint('HARMONY_ALARM: queued immediate playback for $_pendingAlarmEventId');
     _attemptPendingAlarmPlayback(forceWindow: true);
   }
 
@@ -502,7 +446,7 @@ class EventService extends ChangeNotifier {
       _pendingAlarmEventId = null;
       _pendingAlarmEventExpiresAt = null;
       _pendingAlarmForceVideo = false;
-      print('HARMONY_ALARM: pending playback expired for $pendingId');
+      debugPrint('HARMONY_ALARM: pending playback expired for $pendingId');
       return false;
     }
 
@@ -523,7 +467,7 @@ class EventService extends ChangeNotifier {
       _pendingAlarmEventId = null;
       _pendingAlarmEventExpiresAt = null;
       _pendingAlarmForceVideo = false;
-      print(
+      debugPrint(
         'HARMONY_ALARM: target ${target.id} already active; upgraded to alarm launch and skipping retrigger',
       );
       return true;
@@ -541,7 +485,7 @@ class EventService extends ChangeNotifier {
     _dismissedEventStartTimes.remove(target.id);
     _recentlyDismissedIds.remove(target.id);
 
-    print('HARMONY_ALARM: forcing playback for ${target.id} from launch intent');
+    debugPrint('HARMONY_ALARM: forcing playback for ${target.id} from launch intent');
     final forcedStart = DateTime.now();
     final forcedMedia = forceVideo
         ? _selectPlaybackMediaForForcedVideo(target)
@@ -655,7 +599,7 @@ class EventService extends ChangeNotifier {
         userService: UserService(),
       );
 
-      print(
+      debugPrint(
         'HARMONY_DORMANT: sync requested with ${dormantEvents.length} candidate events',
       );
     });
@@ -666,8 +610,9 @@ class EventService extends ChangeNotifier {
     for (int i = 0; i < a.length; i++) {
       if (a[i].id != b[i].id ||
           a[i].startTime != b[i].startTime ||
-          a[i].endTime != b[i].endTime)
+          a[i].endTime != b[i].endTime) {
         return false;
+      }
     }
     return true;
   }
@@ -941,7 +886,7 @@ class EventService extends ChangeNotifier {
 
         processedEvents.add(displayEvent);
       } catch (e) {
-        print("DEBUG: Error processing event doc ${doc.id}: $e");
+        debugPrint("DEBUG: Error processing event doc ${doc.id}: $e");
       }
     }
 
@@ -994,17 +939,17 @@ class EventService extends ChangeNotifier {
 
   // DEBUGGING METHODS
   void debugForceRefresh() {
-    print("HARMONY_DEBUG: Force Refresh Triggered");
+    debugPrint("HARMONY_DEBUG: Force Refresh Triggered");
     final userService = UserService();
     if (userService.userId.isNotEmpty) {
       _listenToMyEvents(userService.userId);
     } else {
-      print("HARMONY_DEBUG: Cannot refresh, userId empty");
+      debugPrint("HARMONY_DEBUG: Cannot refresh, userId empty");
     }
   }
 
   Future<void> debugAddDummyEvent() async {
-    print("HARMONY_DEBUG: Debug Add Dummy Event Triggered");
+    debugPrint("HARMONY_DEBUG: Debug Add Dummy Event Triggered");
     await joinEvent(
       'debug_event_${DateTime.now().millisecondsSinceEpoch}',
       'Debug Event',
@@ -1074,7 +1019,7 @@ class EventService extends ChangeNotifier {
 
           if (!alreadyJoined && !pending) {
             _autoJoinInProgress.add(event.id);
-            print(
+            debugPrint(
               "HARMONY_AUTO_JOIN: Initiating auto-join for ${event.title} (${event.id})",
             );
 
@@ -1135,17 +1080,17 @@ class EventService extends ChangeNotifier {
           bestEventToTrigger = event;
         } else {
           // 1. Prefer Closer Start Time (Newest)
-          if (startLocal.isAfter(bestEventToTrigger!.startTime.toLocal())) {
+          if (startLocal.isAfter(bestEventToTrigger.startTime.toLocal())) {
             bestEventToTrigger = event;
           }
           // 2. Same Start Time? Check Global Priority
           else if (startLocal.isAtSameMomentAs(
-            bestEventToTrigger!.startTime.toLocal(),
+            bestEventToTrigger.startTime.toLocal(),
           )) {
             final userService = UserService();
             bool preferGlobal = userService.globalPriority;
             bool currentIsGlobal = event.type == EventType.global;
-            bool bestIsGlobal = bestEventToTrigger!.type == EventType.global;
+            bool bestIsGlobal = bestEventToTrigger.type == EventType.global;
 
             if (preferGlobal) {
               // If we prefer global, and current IS global but best IS NOT, switch to current
@@ -1166,13 +1111,13 @@ class EventService extends ChangeNotifier {
     if (bestEventToTrigger != null) {
       // ABSOLUTE STRICT CHECK: If this exact ID is active, DO NOTHING.
       if (_isEventActive && _currentEventId == bestEventToTrigger.id) {
-        print(
+        debugPrint(
           "HARMONY_STRICT_V3: Event ${bestEventToTrigger.id} is already playing. IGNORING.",
         );
         return;
       }
 
-      print(
+      debugPrint(
         "HARMONY_STRICT_V3: Selecting New Event: ${bestEventToTrigger.title} (${bestEventToTrigger.id})",
       );
 
@@ -1204,7 +1149,7 @@ class EventService extends ChangeNotifier {
     // DateTime? endTime, // REMOVED to prevent accidental usage
     int? durationSeconds,
   }) {
-    print(
+    debugPrint(
       "HARMONY_STRICT_V3: Triggering Event '$title' with Duration: $durationSeconds",
     );
 
@@ -1234,7 +1179,7 @@ class EventService extends ChangeNotifier {
     _currentEventFromAlarmLaunch = effectiveFromAlarmLaunch;
 
     if (effectiveFromAlarmLaunch && id != null) {
-      print('HARMONY_ALARM: trigger marked as alarm launch for id=$id');
+      debugPrint('HARMONY_ALARM: trigger marked as alarm launch for id=$id');
     }
 
     // Async verify: ask native for the last alarm-launched event ID.
@@ -1252,7 +1197,7 @@ class EventService extends ChangeNotifier {
             _currentEventId == checkId) {
           _currentEventFromAlarmLaunch = true;
           _lastKnownAlarmLaunchEventId = nativeId;
-          print(
+          debugPrint(
             'HARMONY_ALARM: async alarm launch verified for $checkId (native=$nativeId)',
           );
         }
@@ -1280,10 +1225,10 @@ class EventService extends ChangeNotifier {
       );
     }
 
-    print("HARMONY_STRICT_V3: Setting Hard Timer for $finalSeconds seconds");
+    debugPrint("HARMONY_STRICT_V3: Setting Hard Timer for $finalSeconds seconds");
 
     _dismissTimer = Timer(Duration(seconds: finalSeconds), () {
-      print("HARMONY_STRICT_V3: Timer Expired ($finalSeconds s). Dismissing.");
+      debugPrint("HARMONY_STRICT_V3: Timer Expired ($finalSeconds s). Dismissing.");
       dismissEvent();
     });
 
@@ -1291,7 +1236,7 @@ class EventService extends ChangeNotifier {
   }
 
   void dismissEvent() {
-    print("DEBUG: dismissEvent called for ID: $_currentEventId [restore-v3-sync]");
+    debugPrint("DEBUG: dismissEvent called for ID: $_currentEventId [restore-v3-sync]");
     final currentEventId = _currentEventId;
     bool shouldRestoreLockscreen = _currentEventFromAlarmLaunch;
 
@@ -1303,13 +1248,13 @@ class EventService extends ChangeNotifier {
       final lastAlarmEventId = _lastKnownAlarmLaunchEventId;
       if (lastAlarmEventId != null && lastAlarmEventId.isNotEmpty) {
         shouldRestoreLockscreen = lastAlarmEventId == currentEventId;
-        print(
+        debugPrint(
           'HARMONY_ALARM: dismiss cached launch id check lastAlarmId=$lastAlarmEventId current=$currentEventId => restore=$shouldRestoreLockscreen',
         );
       }
     }
 
-    print(
+    debugPrint(
       'HARMONY_ALARM: dismiss restore decision id=$currentEventId fromAlarm=$_currentEventFromAlarmLaunch => restore=$shouldRestoreLockscreen',
     );
     _dismissTimer?.cancel();
@@ -1321,7 +1266,7 @@ class EventService extends ChangeNotifier {
           .toIso8601String();
       // Add to cooldown map
       _recentlyDismissedIds[_currentEventId!] = DateTime.now();
-      print(
+      debugPrint(
         "DEBUG: Marked $_currentEventId as dismissed for time: ${_currentEventStartTime!.toIso8601String()}",
       );
     } else if (_currentEventId != null) {
@@ -1332,11 +1277,11 @@ class EventService extends ChangeNotifier {
             .toIso8601String();
         // Add to cooldown map
         _recentlyDismissedIds[_currentEventId!] = DateTime.now();
-        print(
+        debugPrint(
           "DEBUG: (Fallback) Marked $_currentEventId as dismissed from lookup",
         );
       } catch (e) {
-        print("DEBUG: Could not mark event dismissed (not found in list): $e");
+        debugPrint("DEBUG: Could not mark event dismissed (not found in list): $e");
       }
     }
 
@@ -1354,7 +1299,7 @@ class EventService extends ChangeNotifier {
     }
 
     if (shouldRestoreLockscreen) {
-      print('HARMONY_ALARM: requesting post-event lockscreen restore (v2)');
+      debugPrint('HARMONY_ALARM: requesting post-event lockscreen restore (v2)');
       NotificationService().restoreLockscreenPresentation();
     }
 
@@ -1376,9 +1321,7 @@ class EventService extends ChangeNotifier {
       }
       autoPlayVideo = payload['auto_play_video'] == true;
 
-      if (eventId == null) {
-        eventId = await NotificationService().consumeLaunchEventId();
-      }
+      eventId ??= await NotificationService().consumeLaunchEventId();
 
       if (eventId == null || eventId.isEmpty) {
         return;
@@ -1389,13 +1332,13 @@ class EventService extends ChangeNotifier {
       // If event already started by scheduler path, upgrade it so dismiss uses alarm restore.
       if (_isEventActive && _currentEventId == eventId) {
         _currentEventFromAlarmLaunch = true;
-        print('HARMONY_ALARM: upgraded active event to alarm launch for $eventId');
+        debugPrint('HARMONY_ALARM: upgraded active event to alarm launch for $eventId');
         return;
       }
 
       requestImmediateAlarmPlayback(eventId, forceVideo: autoPlayVideo);
     } catch (e) {
-      print('HARMONY_ALARM: live launch payload consume failed: $e');
+      debugPrint('HARMONY_ALARM: live launch payload consume failed: $e');
     } finally {
       _nativeLaunchPayloadCheckInFlight = false;
     }

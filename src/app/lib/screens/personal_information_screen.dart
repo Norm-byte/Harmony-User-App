@@ -29,7 +29,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
             icon: Icons.badge_outlined,
             title: 'Profile Information',
             subtitle: '${userService.userName} • ${userService.timeZone}',
-            onTap: () {},
+            onTap: () => _showProfileDetailsDialog(context),
           ),
           const SizedBox(height: 16),
           _buildSettingsTile(
@@ -65,6 +65,21 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
               );
             },
           ),
+          const SizedBox(height: 12),
+          _buildSettingsTile(
+            icon: Icons.privacy_tip_outlined,
+            title: 'Privacy Policy',
+            subtitle: 'Read how your data is handled',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  // Admin legal tab stores this document under doc id 'legal'.
+                  builder: (context) => const LegalDocumentScreen(title: 'Privacy Policy', docId: 'legal'),
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 32),
           
           // Delete Account Button (Required for Compliance)
@@ -85,11 +100,57 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
     );
   }
 
+  void _showProfileDetailsDialog(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final userService = context.read<UserService>();
+    final email = user?.email ?? 'No email available';
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        title: const Text('Profile Information', style: TextStyle(color: Colors.white)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildInfoRow('Name', userService.userName),
+            const SizedBox(height: 8),
+            _buildInfoRow('Email', email),
+            const SizedBox(height: 8),
+            _buildInfoRow('Time Zone', userService.timeZone),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(color: Colors.amber)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(color: Colors.white70, fontSize: 14),
+        children: [
+          TextSpan(
+            text: '$label: ',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          ),
+          TextSpan(text: value),
+        ],
+      ),
+    );
+  }
+
   void _showChangePasswordDialog(BuildContext context) {
     final currentPasswordController = TextEditingController();
     final newPasswordController = TextEditingController();
     final confirmPasswordController = TextEditingController();
-    bool _isLoading = false;
+    bool isLoading = false;
 
     showDialog(
       context: context,
@@ -107,7 +168,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                 ),
                 const SizedBox(height: 16),
                 TextField(
-                  enabled: !_isLoading,
+                  enabled: !isLoading,
                   controller: currentPasswordController,
                   obscureText: true,
                   style: const TextStyle(color: Colors.white),
@@ -120,7 +181,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  enabled: !_isLoading,
+                  enabled: !isLoading,
                   controller: newPasswordController,
                   obscureText: true,
                   style: const TextStyle(color: Colors.white),
@@ -135,7 +196,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  enabled: !_isLoading,
+                  enabled: !isLoading,
                   controller: confirmPasswordController,
                   obscureText: true,
                   style: const TextStyle(color: Colors.white),
@@ -151,11 +212,11 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: _isLoading ? null : () => Navigator.pop(context),
+              onPressed: isLoading ? null : () => Navigator.pop(context),
               child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
             ),
             TextButton(
-              onPressed: _isLoading
+              onPressed: isLoading
                   ? null
                   : () async {
                       final current = currentPasswordController.text;
@@ -198,7 +259,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                         return;
                       }
 
-                      setState(() => _isLoading = true);
+                      setState(() => isLoading = true);
 
                       try {
                         // Call backend function to change password
@@ -225,17 +286,17 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
                             SnackBar(content: Text(message)),
                           );
                         }
-                        setState(() => _isLoading = false);
+                        setState(() => isLoading = false);
                       } catch (e) {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text('Error: $e')),
                           );
                         }
-                        setState(() => _isLoading = false);
+                        setState(() => isLoading = false);
                       }
                     },
-              child: _isLoading
+              child: isLoading
                   ? const SizedBox(
                       width: 20,
                       height: 20,

@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' as Foundation;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/group_service.dart';
@@ -110,7 +109,7 @@ class CommunityGroupsScreen extends StatelessWidget {
                   final description = data['description'] ?? '';
                   final memberCount = data['memberCount'] ?? 0;
                   final iconName = data['iconName'] as String?;
-                  final colorValue = data['colorValue'] as int? ?? Colors.blue.value;
+                  final colorValue = data['colorValue'] as int? ?? Colors.blue.toARGB32();
                   final isPaused = data['isPaused'] == true;
                   
                   // Construct group map for Service compatibility
@@ -128,7 +127,7 @@ class CommunityGroupsScreen extends StatelessWidget {
                   return Card(
                     elevation: 4,
                     margin: const EdgeInsets.only(bottom: 16),
-                    color: Colors.white.withOpacity(0.1),
+                    color: Colors.white.withValues(alpha: 0.1),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                     child: InkWell(
                       onTap: () async {
@@ -176,7 +175,7 @@ class CommunityGroupsScreen extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Color(colorValue).withOpacity(0.2),
+                                color: Color(colorValue).withValues(alpha: 0.2),
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -203,7 +202,7 @@ class CommunityGroupsScreen extends StatelessWidget {
                                       margin: const EdgeInsets.only(top: 2, bottom: 2),
                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: Colors.amber.withOpacity(0.2),
+                                        color: Colors.amber.withValues(alpha: 0.2),
                                         borderRadius: BorderRadius.circular(4),
                                         border: Border.all(color: Colors.amber),
                                       ),
@@ -235,7 +234,7 @@ class CommunityGroupsScreen extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                               decoration: BoxDecoration(
-                                color: isJoined ? Colors.green.withOpacity(0.3) : null,
+                                color: isJoined ? Colors.green.withValues(alpha: 0.3) : null,
                                 border: Border.all(color: isJoined ? Colors.green : Colors.white30),
                                 borderRadius: BorderRadius.circular(20),
                               ),

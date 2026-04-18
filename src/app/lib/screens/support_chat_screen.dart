@@ -133,7 +133,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                       child: Text(
                         'Support Chat\n\nHow can we help you today? Send us a message.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 16),
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 16),
                       ),
                     ),
                   );
@@ -157,7 +157,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                         padding: const EdgeInsets.all(12),
                         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
                         decoration: BoxDecoration(
-                          color: isUser ? Colors.indigo.shade600 : Colors.white.withOpacity(0.2),
+                          color: isUser ? Colors.indigo.shade600 : Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.only(
                             topLeft: const Radius.circular(12),
                             topRight: const Radius.circular(12),
@@ -176,7 +176,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                             if (timestamp != null)
                               Text(
                                 DateFormat('h:mm a').format(timestamp),
-                                style: TextStyle(fontSize: 10, color: Colors.white.withOpacity(0.6)),
+                                style: TextStyle(fontSize: 10, color: Colors.white.withValues(alpha: 0.6)),
                               ),
                           ],
                         ),
@@ -191,7 +191,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
           // Input Area
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withValues(alpha: 0.2),
             child: Row(
               children: [
                 Expanded(
@@ -200,13 +200,13 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       hintText: 'Type a message...',
-                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
-                      fillColor: Colors.white.withOpacity(0.1),
+                      fillColor: Colors.white.withValues(alpha: 0.1),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     ),
                   ),

@@ -210,12 +210,12 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.indigo.shade900.withOpacity(0.8),
+                  color: Colors.indigo.shade900.withValues(alpha: 0.8),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.withOpacity(0.5)),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
+                      color: Colors.black.withValues(alpha: 0.2),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     ),
@@ -241,7 +241,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                           ),
                         ),
                         const Spacer(),
-                        Icon(Icons.push_pin, size: 16, color: Colors.white.withOpacity(0.5)),
+                        Icon(Icons.push_pin, size: 16, color: Colors.white.withValues(alpha: 0.5)),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -271,7 +271,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                   return Center(
                     child: Text(
                       'No posts yet. Be the first!',
-                      style: TextStyle(color: Colors.white.withOpacity(0.7)),
+                      style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
                     ),
                   );
                 }
@@ -293,7 +293,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                     final uid = UserService().userId;
 
                     return Card(
-                      color: Colors.white.withOpacity(0.1),
+                      color: Colors.white.withValues(alpha: 0.1),
                       margin: const EdgeInsets.only(bottom: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       child: Padding(
@@ -365,7 +365,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
           // Post Input Area (Moved to Bottom)
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.white.withOpacity(0.1),
+            color: Colors.white.withValues(alpha: 0.1),
             child: Row(
               children: [
                 Expanded(
@@ -374,13 +374,13 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       hintText: 'Message...', 
-                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+                      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(24),
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
-                      fillColor: Colors.white.withOpacity(0.1),
+                      fillColor: Colors.white.withValues(alpha: 0.1),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     ),
                   ),
@@ -391,10 +391,10 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                     margin: const EdgeInsets.only(right: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: _messagesRemaining <= 3 ? Colors.red.withOpacity(0.2) : Colors.white.withOpacity(0.1),
+                      color: _messagesRemaining <= 3 ? Colors.red.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: _messagesRemaining <= 3 ? Colors.red.withOpacity(0.5) : Colors.white24,
+                        color: _messagesRemaining <= 3 ? Colors.red.withValues(alpha: 0.5) : Colors.white24,
                       ),
                     ),
                     child: Row(

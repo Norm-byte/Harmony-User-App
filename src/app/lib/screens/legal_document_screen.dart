@@ -21,8 +21,6 @@ class _LegalDocumentScreenState extends State<LegalDocumentScreen> {
   String? _pdfUrl;
   bool _isLoading = true;
   String? _error;
-  bool _hasCheckbox = false;
-  bool _isAgreed = false;
 
   @override
   void initState() {
@@ -40,7 +38,6 @@ class _LegalDocumentScreenState extends State<LegalDocumentScreen> {
       if (doc.exists && mounted) {
         setState(() {
           _pdfUrl = doc.data()?['pdfUrl'];
-          _hasCheckbox = doc.data()?['hasCheckbox'] ?? false;
           _isLoading = false;
         });
       } else {

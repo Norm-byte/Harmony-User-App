@@ -132,7 +132,7 @@ class ContentViewer extends StatelessWidget {
               tooltip: 'Open PDF in New Tab',
               onPressed: () => launchUrl(Uri.parse(url)),
               style: IconButton.styleFrom(
-                  backgroundColor: Colors.white.withOpacity(0.7)),
+                  backgroundColor: Colors.white.withValues(alpha: 0.7)),
             ),
           ),
         ],

@@ -24,8 +24,9 @@ class SubscriptionService extends ChangeNotifier {
 
   // Prevent disposal of the singleton instance
   @override
+  // ignore: must_call_super
   void dispose() {
-    // Do nothing. This is a singleton.
+    // Intentionally empty — this is a singleton that must not be disposed.
   }
 
   CustomerInfo? _customerInfo;
@@ -109,6 +110,9 @@ class SubscriptionService extends ChangeNotifier {
 
   Future<void> setVipStatus(bool status) async {
     debugPrint("HARMONY_VIP_SET: Setting VIP status to $status");
+    if (!status) {
+      debugPrint('HARMONY_VIP_SET_FALSE_STACK: ${StackTrace.current}');
+    }
     _isVipOverride = status;
     notifyListeners();
     
@@ -205,7 +209,7 @@ class SubscriptionService extends ChangeNotifier {
 
   Future<bool> purchasePackage(Package package) async {
     try {
-      var result = await Purchases.purchasePackage(package);
+      final result = await Purchases.purchase(PurchaseParams.package(package));
       _updateSubscriptionStatus(result.customerInfo);
       return _isSubscribed;
     } on PlatformException catch (e) {

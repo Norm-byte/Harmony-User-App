@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:share_plus/share_plus.dart';
 import '../services/favorites_service.dart';
-import 'video_player_screen.dart';
 import 'generic_video_player_screen.dart';
 import '../widgets/media/content_viewer.dart';
 
@@ -134,7 +132,7 @@ class TopicsLandingScreen extends StatelessWidget {
                           },
                           child: Container(
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.15),
+                              color: Colors.white.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(color: Colors.white10),
                             ),
@@ -159,7 +157,7 @@ class TopicsLandingScreen extends StatelessWidget {
                                    const SizedBox(height: 4),
                                    Text(
                                      '${subcategories.length} Subtopics',
-                                     style: TextStyle(fontSize: 10, color: Colors.white.withOpacity(0.6)),
+                                     style: TextStyle(fontSize: 10, color: Colors.white.withValues(alpha: 0.6)),
                                    )
                                 ]
                               ],
@@ -272,7 +270,7 @@ class TopicsLandingScreen extends StatelessWidget {
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
-        barrierColor: Colors.black.withOpacity(0.9),
+        barrierColor: Colors.black.withValues(alpha: 0.9),
         barrierDismissible: true,
         pageBuilder: (context, animation, secondaryAnimation) {
           return FadeTransition(
@@ -302,7 +300,7 @@ class TopicsLandingScreen extends StatelessWidget {
                       left: 16,
                       child: Container(
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.5),
+                          color: Colors.black.withValues(alpha: 0.5),
                           shape: BoxShape.circle,
                         ),
                         child: IconButton(
@@ -346,7 +344,7 @@ class TopicsLandingScreen extends StatelessWidget {
           },
           child: Card(
             margin: EdgeInsets.zero,
-            color: Colors.white.withOpacity(0.1),
+            color: Colors.white.withValues(alpha: 0.1),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -384,7 +382,7 @@ class TopicsLandingScreen extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.4),
+                          color: Colors.black.withValues(alpha: 0.4),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(Icons.play_arrow, size: 24, color: Colors.white),
@@ -425,7 +423,7 @@ class TopicsLandingScreen extends StatelessWidget {
                             children: [
                               GestureDetector(
                                 onTap: () {
-                                  Share.share('Check out this content on Harmony: ${topic['title']} - ${topic['youtubeUrl']}');
+                                  SharePlus.instance.share(ShareParams(text: "Check out this content on Harmony: ${topic['title']} - ${topic['youtubeUrl']}"));
                                 },
                                 child: const Padding(
                                   padding: EdgeInsets.symmetric(horizontal: 8.0),
@@ -568,7 +566,7 @@ class SectionDetailScreen extends StatelessWidget {
                         },
                         child: Container(
                           decoration: BoxDecoration(
-                            color: Colors.indigo.shade900.withOpacity(0.5), // Distinct subcat color
+                            color: Colors.indigo.shade900.withValues(alpha: 0.5), // Distinct subcat color
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(color: Colors.white24),
                           ),
@@ -740,7 +738,7 @@ class _FeaturedTopicViewerState extends State<FeaturedTopicViewer> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.amber.shade200.withOpacity(0.8),
+                color: Colors.amber.shade200.withValues(alpha: 0.8),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: const Text(
@@ -755,7 +753,7 @@ class _FeaturedTopicViewerState extends State<FeaturedTopicViewer> {
             const SizedBox(height: 12),
             Card(
               margin: EdgeInsets.zero,
-              color: Colors.white.withOpacity(0.1),
+              color: Colors.white.withValues(alpha: 0.1),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -796,7 +794,7 @@ class _FeaturedTopicViewerState extends State<FeaturedTopicViewer> {
                                   Container(
                                     padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.4),
+                                      color: Colors.black.withValues(alpha: 0.4),
                                       shape: BoxShape.circle,
                                     ),
                                     child: const Icon(Icons.play_arrow, size: 40, color: Colors.white),
@@ -858,7 +856,7 @@ class _FeaturedTopicViewerState extends State<FeaturedTopicViewer> {
                             IconButton(
                               icon: const Icon(Icons.share, color: Colors.white70, size: 24),
                               onPressed: () {
-                                Share.share('Check out this content on Harmony: ${widget.topic['title']} - ${widget.topic['youtubeUrl']}');
+                                SharePlus.instance.share(ShareParams(text: "Check out this content on Harmony: ${widget.topic['title']} - ${widget.topic['youtubeUrl']}"));
                               },
                             ),
                           ],

@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../services/subscription_service.dart';
 
 class LockedFeatureWidget extends StatelessWidget {
   final Widget child;

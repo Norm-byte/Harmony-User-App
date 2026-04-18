@@ -133,15 +133,12 @@ class UsageService extends ChangeNotifier {
     }
 
     // Only notify if something changed
-    bool changed = false;
     if (_maxDailySends != newMaxDailySends) {
       _maxDailySends = newMaxDailySends;
-      changed = true;
     }
     
     if (limits.containsKey('maxActiveForums') && _maxActiveForums != limits['maxActiveForums']) {
       _maxActiveForums = limits['maxActiveForums'];
-      changed = true;
     }
     
     // ... ignoring others for brevity unless easy

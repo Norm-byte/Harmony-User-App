@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 enum EventType { global, national }
 
@@ -75,7 +76,7 @@ class Event {
         }
       }
     } catch (e) {
-      print("Error parsing startTime for event ${json['id']}: $e");
+      debugPrint("Error parsing startTime for event ${json['id']}: $e");
     }
 
     DateTime end = start.add(const Duration(hours: 1));
@@ -111,7 +112,7 @@ class Event {
         end = start.add(const Duration(seconds: 3600));
       }
     } catch (e) {
-      print("Error parsing endTime for event ${json['id']}: $e");
+      debugPrint("Error parsing endTime for event ${json['id']}: $e");
     }
 
     return Event(

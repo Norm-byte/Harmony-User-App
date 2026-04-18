@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:provider/provider.dart';
 import '../services/event_service.dart';
+import '../services/subscription_service.dart';
 import '../models/event.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'events_screen.dart';
@@ -14,6 +15,7 @@ import 'community_feed_screen.dart';
 import 'interesting_topics_screen.dart';
 import 'settings_screen.dart';
 import 'app_settings_screen.dart';
+import 'subscription_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool isSuperAdmin;
@@ -26,9 +28,44 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+  SubscriptionService? _subscriptionService;
+  bool _isRedirecting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _subscriptionService = context.read<SubscriptionService>();
+      _subscriptionService!.addListener(_enforceAccessHardlock);
+      _enforceAccessHardlock();
+    });
+  }
+
+  void _enforceAccessHardlock() {
+    final sub = _subscriptionService;
+    if (!mounted || sub == null || _isRedirecting) return;
+
+    if (!sub.isSubscribed) {
+      _isRedirecting = true;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+        (_) => false,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _subscriptionService?.removeListener(_enforceAccessHardlock);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final subService = context.watch<SubscriptionService>();
+    final showSuperAdminBadge = widget.isSuperAdmin || subService.isVip;
+
     return GradientScaffold(
       appBar: AppBar(
         title: const Text('Harmony by Intent'),
@@ -47,12 +84,12 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
 
-          if (widget.isSuperAdmin)
+          if (showSuperAdminBadge)
             Container(
               margin: const EdgeInsets.only(right: 16),
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.08),
+                color: Colors.white.withValues(alpha: 0.08),
                 border: Border.all(color: Colors.white24),
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -93,7 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: (index) => setState(() => _selectedIndex = index),
         selectedItemColor: Colors.amber, // Changed to Amber for better contrast on dark
         unselectedItemColor: Colors.white70,
-        backgroundColor: Colors.black.withOpacity(0.3), // Semi-transparent nav bar
+        backgroundColor: Colors.black.withValues(alpha: 0.3), // Semi-transparent nav bar
         type: BottomNavigationBarType.fixed, // Added to support 4 items properly
         items: const [
           BottomNavigationBarItem(
@@ -141,7 +178,6 @@ class _HomeScreenState extends State<HomeScreen> {
         final backgroundImageUrl = data['backgroundImageUrl'] as String?;
         bool showBulletin = false;
         String bulletinText = '';
-        final showLiveStats = data['showLiveStats'] as bool? ?? false;
         final showFeatured = data['showFeatured'] as bool? ?? false;
         final featuredType = data['featuredType'] as String? ?? 'youtube';
         final featuredUrl = data['featuredUrl'] as String? ?? '';
@@ -149,7 +185,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final featuredBody = data['featuredBody'] as String? ?? '';
         String? noticeBgImage;
 
-        String _buildNoticeText(Event e) {
+        String buildNoticeText(Event e) {
           final description = e.description.trim();
           if (description.isNotEmpty) return description;
 
@@ -171,7 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
         final noticeEvent = eventService.activeNoticeboardEvent;
         if (noticeEvent != null) {
           showBulletin = true;
-          bulletinText = _buildNoticeText(noticeEvent);
+          bulletinText = buildNoticeText(noticeEvent);
           if (noticeEvent.noticeBoardBgImage != null &&
               noticeEvent.noticeBoardBgImage!.isNotEmpty) {
             noticeBgImage = noticeEvent.noticeBoardBgImage;
@@ -223,11 +259,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: const EdgeInsets.all(16),
                         margin: const EdgeInsets.only(bottom: 24),
                         decoration: BoxDecoration(
-                          color: noticeBgImage != null ? Colors.black.withOpacity(0.5) : Colors.white.withOpacity(0.15),
+                          color: noticeBgImage != null ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.15),
                           image: noticeBgImage != null ? DecorationImage(
                              image: NetworkImage(noticeBgImage),
                              fit: BoxFit.cover,
-                             colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.4), BlendMode.darken),
+                             colorFilter: ColorFilter.mode(Colors.black.withValues(alpha: 0.4), BlendMode.darken),
                           ) : null,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: Colors.white30),
@@ -263,7 +299,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: const EdgeInsets.all(12),
                         margin: const EdgeInsets.only(bottom: 24),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.1),
+                          color: Colors.white.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: Colors.white24),
                         ),
@@ -311,7 +347,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Text(
                         'Super Admin access enabled',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.55),
+                          color: Colors.white.withValues(alpha: 0.55),
                           fontSize: 11,
                           letterSpacing: 0.2,
                         ),
@@ -381,9 +417,9 @@ class _ActiveUsersChipState extends State<_ActiveUsersChip> {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.green.withOpacity(0.2),
+            color: Colors.green.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.green.withOpacity(0.5)),
+            border: Border.all(color: Colors.green.withValues(alpha: 0.5)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -651,7 +687,7 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.4),
+                            color: Colors.black.withValues(alpha: 0.4),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(Icons.play_arrow, size: 40, color: Colors.white),
@@ -684,7 +720,7 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
             padding: const EdgeInsets.all(24),
             margin: const EdgeInsets.only(bottom: 24),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.1),
+              color: Colors.white.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white30),
             ),
@@ -785,7 +821,7 @@ class _BackgroundWidgetState extends State<_BackgroundWidget> {
               child: VideoPlayer(_controller!),
             ),
           ),
-          Container(color: Colors.black.withOpacity(0.4)), // Dark overlay
+          Container(color: Colors.black.withValues(alpha: 0.4)), // Dark overlay
         ],
       );
     }
@@ -793,7 +829,7 @@ class _BackgroundWidgetState extends State<_BackgroundWidget> {
     return Image.network(
       widget.url,
       fit: BoxFit.cover,
-      color: Colors.black.withOpacity(0.4),
+      color: Colors.black.withValues(alpha: 0.4),
       colorBlendMode: BlendMode.darken,
       errorBuilder: (c, e, s) => Container(color: Colors.black),
     );

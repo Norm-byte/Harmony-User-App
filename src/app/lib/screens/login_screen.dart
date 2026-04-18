@@ -6,6 +6,7 @@ import '../services/user_service.dart';
 import '../services/subscription_service.dart';
 import 'package:provider/provider.dart';
 import 'home_screen.dart';
+import 'subscription_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -24,6 +25,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
+    debugPrint('HARMONY_LOGIN_START: email=${_emailController.text.trim()} passwordLen=${_passwordController.text.length}');
     setState(() => _isLoading = true);
 
     try {
@@ -33,37 +35,115 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       final user = credential.user!;
+      debugPrint('HARMONY_LOGIN_AUTH_OK: uid=${user.uid} email=${user.email}');
       final displayName = user.displayName ?? user.email ?? 'Member';
       await UserService().setUser(user.uid, displayName);
 
-      if (mounted) {
-        try {
-          final userDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .get();
+      if (!mounted) return;
 
-          final subService = Provider.of<SubscriptionService>(
-            context,
-            listen: false,
-          );
+      final subService = Provider.of<SubscriptionService>(
+        context,
+        listen: false,
+      );
 
-          if (userDoc.exists) {
-            final data = userDoc.data();
-            final isVip = data?['isVip'] == true;
-            await subService.setVipStatus(isVip);
-          }
+      // Stage 1: Sync VIP from Firestore user doc.
+      // Firebase Auth is now signed in so refreshVipFromAuthUser() is reliable.
+      await subService.refreshVipFromAuthUser();
+      debugPrint('HARMONY_LOGIN_AFTER_SYNC: isVip=${subService.isVip}');
 
-          await subService.refreshSubscriptionStatus();
-        } catch (_) {}
-
-        final subscriptionService = Provider.of<SubscriptionService>(context, listen: false);
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => HomeScreen(isSuperAdmin: subscriptionService.isVip)),
-          (_) => false,
-        );
+      // Read isSuperAdmin from the user document (written during sign-up/redeem).
+      bool isSuperAdmin = false;
+      try {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        isSuperAdmin = userDoc.data()?['isSuperAdmin'] == true;
+        debugPrint('HARMONY_LOGIN_USERDOC: isVip=${userDoc.data()?['isVip']} isSuperAdmin=$isSuperAdmin');
+      } catch (e) {
+        debugPrint('HARMONY_LOGIN_USERDOC_ERROR: $e');
       }
+
+      // Stage 2: If still not VIP, check whether the entered password IS a valid
+      // VIP code. Use a single-field query + Dart-side status filter to avoid
+      // requiring a composite Firestore index.
+      if (!subService.isVip) {
+        try {
+          final enteredCode = _passwordController.text.trim().toUpperCase();
+          if (enteredCode.isNotEmpty) {
+            final vipQuery = await FirebaseFirestore.instance
+                .collection('vip_codes')
+                .where('code', isEqualTo: enteredCode)
+                .limit(5)
+                .get();
+            final activeDoc = vipQuery.docs
+                .where((d) => d.data()['status'] == 'active')
+                .firstOrNull;
+            if (activeDoc != null) {
+              isSuperAdmin = activeDoc.data()['type'] == 'super_admin';
+              await subService.setVipStatus(true);
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user.uid)
+                  .set({'isVip': true, 'isSuperAdmin': isSuperAdmin}, SetOptions(merge: true));
+              debugPrint('HARMONY_LOGIN_VIP: code match, isSuperAdmin=$isSuperAdmin');
+            } else {
+              debugPrint('HARMONY_LOGIN_VIP: no active code match for "$enteredCode" (docs=${vipQuery.docs.length})');
+            }
+          }
+        } catch (e) {
+          debugPrint('HARMONY_LOGIN_VIPCODE_ERROR: $e');
+        }
+      }
+
+      // Stage 3: VIP codes assigned to this email address (single-field query).
+      if (!subService.isVip && user.email != null && user.email!.isNotEmpty) {
+        try {
+          final emailsToTry = <String>{
+            user.email!,
+            user.email!.toLowerCase(),
+            user.email!.toUpperCase(),
+          };
+          for (final email in emailsToTry) {
+            final assignedVip = await FirebaseFirestore.instance
+                .collection('vip_codes')
+                .where('assignee', isEqualTo: email)
+                .limit(10)
+                .get();
+            final activeDocs = assignedVip.docs
+                .where((d) => d.data()['status'] == 'active')
+                .toList();
+            if (activeDocs.isNotEmpty) {
+              isSuperAdmin = activeDocs.any((d) => d.data()['type'] == 'super_admin');
+              await subService.setVipStatus(true);
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user.uid)
+                  .set({'isVip': true, 'isSuperAdmin': isSuperAdmin}, SetOptions(merge: true));
+              debugPrint('HARMONY_LOGIN_VIP: email assignee match ($email), isSuperAdmin=$isSuperAdmin');
+              break;
+            }
+          }
+        } catch (e) {
+          debugPrint('HARMONY_LOGIN_EMAIL_ASSIGNEE_ERROR: $e');
+        }
+      }
+
+      await subService.refreshSubscriptionStatus();
+
+      if (!mounted) return;
+
+      debugPrint('HARMONY_LOGIN_FINAL: isVip=${subService.isVip} isSubscribed=${subService.isSubscribed} isSuperAdmin=$isSuperAdmin');
+
+      final Widget destination = subService.isSubscribed
+          ? HomeScreen(isSuperAdmin: isSuperAdmin)
+          : const SubscriptionScreen();
+
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => destination),
+        (_) => false,
+      );
     } on FirebaseAuthException catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);

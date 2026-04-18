@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'user_service.dart';
 
@@ -84,8 +83,8 @@ class GroupService extends ChangeNotifier {
     }
 
     // Handle Color serialization
-    if (newGroup['color'] is Color) {
-       newGroup['colorValue'] = (newGroup['color'] as Color).value;
+     if (newGroup['color'] is Color) {
+       newGroup['colorValue'] = (newGroup['color'] as Color).toARGB32();
        newGroup.remove('color');
     }
     

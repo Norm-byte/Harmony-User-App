@@ -338,7 +338,7 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer> {
                 child: Center(
                   child: Icon(
                     _controller!.value.isPlaying ? Icons.pause : Icons.play_arrow,
-                    color: Colors.white.withOpacity(0.7),
+                    color: Colors.white.withValues(alpha: 0.7),
                     size: 48,
                   ),
                 ),

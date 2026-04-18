@@ -54,7 +54,7 @@ class EventOverlayScreen extends StatelessWidget {
                     child: Icon(
                       isWorldwide ? Icons.public : Icons.music_note,
                       size: 120,
-                      color: Colors.white.withOpacity(0.2),
+                      color: Colors.white.withValues(alpha: 0.2),
                     ),
                   ),
                 ),
@@ -113,8 +113,8 @@ class EventOverlayScreen extends StatelessWidget {
                                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                                   decoration: BoxDecoration(
                                     border: Border(
-                                      top: BorderSide(color: Colors.white.withOpacity(0.2)),
-                                      bottom: BorderSide(color: Colors.white.withOpacity(0.2)),
+                                      top: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+                                      bottom: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
                                     ),
                                   ),
                                   child: Column(
@@ -162,7 +162,7 @@ class EventOverlayScreen extends StatelessWidget {
                       child: TextButton(
                         onPressed: onDismiss,
                         style: TextButton.styleFrom(
-                          backgroundColor: Colors.black.withOpacity(0.2),
+                          backgroundColor: Colors.black.withValues(alpha: 0.2),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 14,
@@ -171,7 +171,7 @@ class EventOverlayScreen extends StatelessWidget {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
                             side: BorderSide(
-                              color: Colors.white.withOpacity(0.35),
+                              color: Colors.white.withValues(alpha: 0.35),
                               width: 1,
                             ),
                           ),

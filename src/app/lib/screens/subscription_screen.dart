@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'home_screen.dart';
 import '../services/subscription_service.dart';
@@ -15,9 +13,7 @@ class SubscriptionScreen extends StatefulWidget {
 }
 
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
-  final _vipCodeController = TextEditingController();
   bool _isLoading = false;
-  String? _errorMessage;
 
   @override
   void initState() {
@@ -36,46 +32,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => HomeScreen(isSuperAdmin: subscriptionService.isVip)),
     );
-  }
-
-  Future<void> _handleVipCode() async {
-    final code = _vipCodeController.text.trim();
-    if (code.isEmpty) return;
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      // Check VIP Code in Firestore
-      final query = await FirebaseFirestore.instance
-          .collection('vip_codes')
-          .where('code', isEqualTo: code)
-          .where('status', isEqualTo: 'active')
-          .limit(1)
-          .get();
-
-      if (query.docs.isNotEmpty) {
-        // Valid Code
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('VIP Code Accepted! Welcome.')),
-          );
-          _navigateToHome();
-        }
-      } else {
-        setState(() {
-          _errorMessage = 'Invalid or expired code.';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Error verifying code. Please try again.';
-      });
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
   }
 
   Future<void> _openPaywall() async {
@@ -191,9 +147,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.1),
+                  color: Colors.white.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withOpacity(0.2)),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
                 ),
                 child: Column(
                   children: [

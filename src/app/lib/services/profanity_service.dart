@@ -17,7 +17,7 @@ class ProfanityService extends ChangeNotifier {
     if (_isLoaded) return;
     
     try {
-      print("ProfanityService: Initializing...");
+      debugPrint("ProfanityService: Initializing...");
       // Listen to the document where Admin saves the list
       FirebaseFirestore.instance
           .collection('system_settings')
@@ -30,13 +30,13 @@ class ProfanityService extends ChangeNotifier {
              final List<dynamic> loadedWords = data['words'];
              _forbiddenWords.clear();
              _forbiddenWords.addAll(loadedWords.map((e) => e.toString().toLowerCase()));
-             print("ProfanityService: Loaded ${_forbiddenWords.length} words from Firestore.");
+             debugPrint("ProfanityService: Loaded ${_forbiddenWords.length} words from Firestore.");
           }
         }
       });
       _isLoaded = true;
     } catch (e) {
-      print("ProfanityService: Error initializing: $e");
+      debugPrint("ProfanityService: Error initializing: $e");
     }
   }
 

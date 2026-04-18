@@ -254,7 +254,7 @@ class NotificationService {
         'get_last_alarm_debug',
       );
       if (response is Map) {
-        return Map<String, dynamic>.from(response as Map);
+        return Map<String, dynamic>.from(response);
       }
       return <String, dynamic>{};
     } catch (e) {
@@ -288,7 +288,7 @@ class NotificationService {
         'consume_launch_payload',
       );
       if (response is Map) {
-        return Map<String, dynamic>.from(response as Map);
+        return Map<String, dynamic>.from(response);
       }
       return const <String, dynamic>{};
     } catch (e) {
@@ -507,30 +507,4 @@ class NotificationService {
     );
   }
 
-  String? _preferredMediaUrl(Event event, PlaybackMode playbackMode) {
-    if (playbackMode == PlaybackMode.audio) {
-      if (event.soundUrl != null && event.soundUrl!.isNotEmpty) {
-        return event.soundUrl;
-      }
-      if (_isAudioUrl(event.mediaUrl)) {
-        return event.mediaUrl;
-      }
-      return null;
-    }
-
-    if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
-      return event.visualUrl;
-    }
-    return event.mediaUrl ?? event.soundUrl;
-  }
-
-  bool _isAudioUrl(String? url) {
-    if (url == null || url.isEmpty) return false;
-
-    final lower = url.toLowerCase();
-    return lower.contains('.mp3') ||
-        lower.contains('.wav') ||
-        lower.contains('.aac') ||
-        lower.contains('.m4a');
-  }
 }

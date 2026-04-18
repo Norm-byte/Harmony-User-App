@@ -36,7 +36,7 @@ class AboutScreen extends StatelessWidget {
             Text(
               'Harmony by Intent is a community-driven platform designed to synchronize global intention for peace and healing.',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
+                color: Colors.white.withValues(alpha: 0.8),
                 fontSize: 16,
                 height: 1.5,
               ),
@@ -54,7 +54,7 @@ class AboutScreen extends StatelessWidget {
             Text(
               'Content to be loaded...',
               style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
+                color: Colors.white.withValues(alpha: 0.8),
                 fontSize: 16,
                 height: 1.5,
               ),

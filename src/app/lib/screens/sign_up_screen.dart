@@ -44,22 +44,71 @@ class _SignUpScreenState extends State<SignUpScreen> {
           final type = vipData['type'] ?? 'beta_tester';
           final isSuperAdmin = type == 'super_admin';
           final fullName = _nameController.text.trim();
+          final email = _emailController.text.trim();
 
-          await UserService().setUser(potentialCode, fullName.isNotEmpty ? fullName : 'VIP Member');
-
-          if (mounted) {
-            Provider.of<SubscriptionService>(context, listen: false).setVipStatus(true);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(isSuperAdmin ? 'Welcome Super Admin!' : 'VIP Code Accepted — Full Access Unlocked!'),
-                backgroundColor: Colors.green,
-              ),
-            );
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => HomeScreen(isSuperAdmin: isSuperAdmin)),
-            );
+          if (email.isEmpty) {
+            if (mounted) {
+              setState(() => _isLoading = false);
+              _showError('VIP access requires your email so your account can be recovered on login.');
+            }
+            return;
           }
+
+          // Create (or sign in to) a real Firebase Auth account so the user
+          // can log back in later with email + VIP code as their password.
+          late final String uid;
+          try {
+            final cred = await FirebaseAuth.instance
+                .createUserWithEmailAndPassword(email: email, password: potentialCode);
+            await cred.user?.updateDisplayName(fullName.isNotEmpty ? fullName : 'VIP Member');
+            uid = cred.user!.uid;
+          } on FirebaseAuthException catch (e) {
+            if (e.code == 'email-already-in-use') {
+              try {
+                final cred = await FirebaseAuth.instance
+                    .signInWithEmailAndPassword(email: email, password: potentialCode);
+                uid = cred.user!.uid;
+              } on FirebaseAuthException {
+                if (mounted) {
+                  setState(() => _isLoading = false);
+                  _showError('This email already has an account with a different password. Use Log In, then your VIP access will be attached to that account.');
+                }
+                return;
+              }
+            } else {
+              if (mounted) {
+                setState(() => _isLoading = false);
+                _showError('VIP sign up failed: ${e.message}');
+              }
+              return;
+            }
+          }
+
+          await UserService().setUser(uid, fullName.isNotEmpty ? fullName : 'VIP Member');
+
+          // Persist isVip in Firestore under the real Firebase Auth UID so the
+          // login path can detect VIP status on future sign-ins.
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid)
+              .set({
+                'isVip': true,
+                'isSuperAdmin': isSuperAdmin,
+                'email': email,
+              }, SetOptions(merge: true));
+
+          if (!mounted) return;
+          Provider.of<SubscriptionService>(context, listen: false).setVipStatus(true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(isSuperAdmin ? 'Welcome Super Admin!' : 'VIP Code Accepted — Full Access Unlocked!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => HomeScreen(isSuperAdmin: isSuperAdmin)),
+          );
           return;
         }
       } catch (e) {

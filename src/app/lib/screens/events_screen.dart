@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -102,7 +102,7 @@ class EventsScreen extends StatelessWidget {
 
           // Overlay
           Positioned.fill(
-            child: Container(color: Colors.black.withOpacity(0.4)),
+            child: Container(color: Colors.black.withValues(alpha: 0.4)),
           ),
 
           // Content
@@ -116,7 +116,7 @@ class EventsScreen extends StatelessWidget {
                 Text(
                   event.type == EventType.national ? 'National Notice Board' : 'Notice Board',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 24,
                     fontWeight: FontWeight.w600,
                     letterSpacing: 1.1,
@@ -138,9 +138,9 @@ class EventsScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
+                    color: Colors.white.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -172,7 +172,7 @@ class EventsScreen extends StatelessWidget {
                          Text(
                           descriptionStr,
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.95), // Brighter white for better visibility
+                            color: Colors.white.withValues(alpha: 0.95), // Brighter white for better visibility
                             fontSize: 13,
                             height: 1.3,
                           ),
@@ -184,14 +184,14 @@ class EventsScreen extends StatelessWidget {
                          Text(
                           intentStr,
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.8),
+                            color: Colors.white.withValues(alpha: 0.8),
                             fontSize: 12,
                           ),
                         )
                       else 
                          Text(
                           'Join us for a moment of shared intention...', 
-                          style: TextStyle(color: Colors.white.withOpacity(0.6), fontStyle: FontStyle.italic, fontSize: 12)
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontStyle: FontStyle.italic, fontSize: 12)
                         ),
                         
                       if (event.type == EventType.global && event.originTime != null)
@@ -247,7 +247,7 @@ class EventsScreen extends StatelessWidget {
                       horizontal: 12,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.2),
+                      color: Colors.blue.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
@@ -263,7 +263,7 @@ class EventsScreen extends StatelessWidget {
                           child: Text(
                             '${NumberFormat.decimalPattern().format(event.participantCount)} users joined worldwide',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.9),
+                              color: Colors.white.withValues(alpha: 0.9),
                               fontSize: 11,
                             ),
                             overflow: TextOverflow.ellipsis,
@@ -295,11 +295,11 @@ class EventsScreen extends StatelessWidget {
                                 );
                               },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white.withOpacity(0.15),
+                                backgroundColor: Colors.white.withValues(alpha: 0.15),
                                 foregroundColor: Colors.white,
                                 elevation: 0,
                                 side: BorderSide(
-                                  color: Colors.white.withOpacity(0.5),
+                                  color: Colors.white.withValues(alpha: 0.5),
                                 ),
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 12,
@@ -449,7 +449,7 @@ class EventsScreen extends StatelessWidget {
                         width: double.infinity,
                         child: TextButton.icon(
                           onPressed: () {
-                             Share.share(_buildInviteMessage(event)); 
+                             SharePlus.instance.share(ShareParams(text: _buildInviteMessage(event))); 
                           },
                           icon: const Icon(
                             Icons.share,
@@ -510,7 +510,7 @@ class EventsScreen extends StatelessWidget {
                                         icon: const Icon(Icons.check, size: 18),
                                         label: const Text('Intent Added'),
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.green.withOpacity(0.8),
+                                          backgroundColor: Colors.green.withValues(alpha: 0.8),
                                           foregroundColor: Colors.white,
                                           elevation: 2,
                                           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -576,7 +576,7 @@ class EventsScreen extends StatelessWidget {
                           Expanded(
                             child: TextButton.icon(
                               onPressed: () {
-                                Share.share(_buildInviteMessage(event));
+                                SharePlus.instance.share(ShareParams(text: _buildInviteMessage(event)));
                               },
                               icon: const Icon(
                                 Icons.share,
@@ -601,7 +601,7 @@ class EventsScreen extends StatelessWidget {
                       horizontal: 12,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
+                      color: Colors.white.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
@@ -654,8 +654,8 @@ class EventsScreen extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: isHighlight
-                ? Colors.amber.withOpacity(0.2)
-                : Colors.white.withOpacity(0.1),
+                ? Colors.amber.withValues(alpha: 0.2)
+                : Colors.white.withValues(alpha: 0.1),
             shape: BoxShape.circle,
           ),
           child: Icon(
@@ -672,7 +672,7 @@ class EventsScreen extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.7),
+                  color: Colors.white.withValues(alpha: 0.7),
                   fontSize: 11,
                 ),
               ),
@@ -688,7 +688,7 @@ class EventsScreen extends StatelessWidget {
                 Text(
                   subValue,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 13,
                   ),
                 ),
@@ -703,7 +703,7 @@ class EventsScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.1),
+        color: Colors.white.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -722,7 +722,7 @@ class EventsScreen extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.6),
+              color: Colors.white.withValues(alpha: 0.6),
               fontSize: 11,
             ),
           ),
@@ -743,11 +743,6 @@ class EventsScreen extends StatelessWidget {
       return '$timeStr Today';
     }
     return '$timeStr Today';
-  }
-
-  // Helper widget for National User Count
-  Widget _buildNationalUserCount(BuildContext context) {
-      return _NationalUserCount();
   }
 }
 
@@ -775,7 +770,7 @@ class _NationalUserCount extends StatelessWidget {
             horizontal: 12,
           ),
           decoration: BoxDecoration(
-            color: Colors.blue.withOpacity(0.2),
+            color: Colors.blue.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Row(
@@ -791,7 +786,7 @@ class _NationalUserCount extends StatelessWidget {
                 child: Text(
                   '$count National users in $timeZone',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 11,
                   ),
                   overflow: TextOverflow.ellipsis,

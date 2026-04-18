@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/subscription_screen.dart';
 import 'screens/event_overlay_screen.dart';
 import 'services/event_service.dart';
 import 'services/favorites_service.dart';
@@ -18,20 +19,20 @@ import 'services/profanity_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  print("HARMONY_APP_STARTING: This is the correct app!");
+  debugPrint("HARMONY_APP_STARTING: This is the correct app!");
 
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    print("HARMONY_APP_FIREBASE: Initialized successfully");
+    debugPrint("HARMONY_APP_FIREBASE: Initialized successfully");
     
     // Initialize Services
     await SubscriptionService().init();
     await NotificationService().init();
     await ProfanityService().init();
   } catch (e) {
-    print("HARMONY_APP_FIREBASE_ERROR: $e");
+    debugPrint("HARMONY_APP_FIREBASE_ERROR: $e");
   }
 
   runApp(
@@ -151,10 +152,10 @@ class _SplashScreenState extends State<SplashScreen> {
           launchEventId,
           forceVideo: autoPlayVideo,
         );
-        print('HARMONY_ALARM: launch event received in splash: $launchEventId');
+        debugPrint('HARMONY_ALARM: launch event received in splash: $launchEventId');
       }
     } catch (e) {
-      print('HARMONY_ALARM: failed to read launch event: $e');
+      debugPrint('HARMONY_ALARM: failed to read launch event: $e');
     }
 
     // Check for maintenance mode
@@ -182,7 +183,7 @@ class _SplashScreenState extends State<SplashScreen> {
         }
       }
     } catch (e) {
-      print("Error checking maintenance mode: $e");
+      debugPrint("Error checking maintenance mode: $e");
     }
 
     await Future.delayed(
@@ -192,7 +193,7 @@ class _SplashScreenState extends State<SplashScreen> {
     );
 
     if (launchedFromAlarm) {
-      print('HARMONY_ALARM: skipping Welcome navigation for alarm launch');
+      debugPrint('HARMONY_ALARM: skipping Welcome navigation for alarm launch');
       return;
     }
 
@@ -205,13 +206,24 @@ class _SplashScreenState extends State<SplashScreen> {
             onTimeout: () => FirebaseAuth.instance.currentUser,
           );
       if (firebaseUser != null) {
-        // Already authenticated — go straight to Home
+        // Already authenticated: require VIP or active subscription before Home.
         final subscriptionService = context.read<SubscriptionService>();
         await subscriptionService.refreshVipFromAuthUser();
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => HomeScreen(isSuperAdmin: subscriptionService.isVip)),
-        );
+        await subscriptionService.refreshSubscriptionStatus();
+
+        if (!mounted) return;
+
+        if (subscriptionService.isSubscribed) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => HomeScreen(isSuperAdmin: subscriptionService.isVip)),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
+          );
+        }
       } else {
         Navigator.pushReplacement(
           context,

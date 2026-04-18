@@ -32,11 +32,11 @@ class ChatListScreen extends StatelessWidget {
             
             return Card( // Wrapped in Card for better visibility on gradient
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: Colors.white.withOpacity(0.1),
+              color: Colors.white.withValues(alpha: 0.1),
               child: ListTile(
                 leading: CircleAvatar(
                   backgroundColor: group['colorValue'] != null 
-                      ? Color(group['colorValue']).withOpacity(0.2) 
+                      ? Color(group['colorValue']).withValues(alpha: 0.2) 
                       : Colors.indigo.shade100,
                   child: Icon(
                     group['iconCode'] != null 

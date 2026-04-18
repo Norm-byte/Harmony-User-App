@@ -366,12 +366,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 margin: const EdgeInsets.all(12), // Added margin to match Feed style
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.indigo.shade900.withOpacity(0.9), // Darker, more prominent
+                  color: Colors.indigo.shade900.withValues(alpha: 0.9), // Darker, more prominent
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.withOpacity(0.5)),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
                    boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
+                      color: Colors.black.withValues(alpha: 0.2),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     ),
@@ -397,7 +397,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                         ),
                          const Spacer(),
-                        Icon(Icons.push_pin, size: 16, color: Colors.white.withOpacity(0.5)),
+                        Icon(Icons.push_pin, size: 16, color: Colors.white.withValues(alpha: 0.5)),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -447,7 +447,7 @@ class _ChatScreenState extends State<ChatScreen> {
                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                            constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
                            decoration: BoxDecoration(
-                             color: isMe ? Colors.indigo : Colors.white.withOpacity(0.1),
+                             color: isMe ? Colors.indigo : Colors.white.withValues(alpha: 0.1),
                              borderRadius: BorderRadius.only(
                                topLeft: const Radius.circular(12),
                                topRight: const Radius.circular(12),
@@ -553,7 +553,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
                     decoration: BoxDecoration(
-                      color: isMe ? Colors.indigo : Colors.white.withOpacity(0.1), // Changed for dark theme
+                      color: isMe ? Colors.indigo : Colors.white.withValues(alpha: 0.1), // Changed for dark theme
                       borderRadius: BorderRadius.only(
                         topLeft: const Radius.circular(12),
                         topRight: const Radius.circular(12),
@@ -664,10 +664,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.purple.shade900.withOpacity(0.6),
+                  color: Colors.purple.shade900.withValues(alpha: 0.6),
                   border: Border(
-                    top: BorderSide(color: Colors.white.withOpacity(0.1)),
-                    bottom: BorderSide(color: Colors.white.withOpacity(0.1)),
+                    top: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                    bottom: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
                   ),
                 ),
                 child: Column(
@@ -738,10 +738,10 @@ class _ChatScreenState extends State<ChatScreen> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.3), // Darker input area
+              color: Colors.black.withValues(alpha: 0.3), // Darker input area
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
+                  color: Colors.black.withValues(alpha: 0.2),
                   offset: const Offset(0, -2),
                   blurRadius: 4,
                 ),
@@ -772,10 +772,10 @@ class _ChatScreenState extends State<ChatScreen> {
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: _messagesRemaining <= 10 ? Colors.red.withOpacity(0.2) : Colors.white.withOpacity(0.1),
+                      color: _messagesRemaining <= 10 ? Colors.red.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                        color: _messagesRemaining <= 10 ? Colors.red.withOpacity(0.5) : Colors.white24,
+                        color: _messagesRemaining <= 10 ? Colors.red.withValues(alpha: 0.5) : Colors.white24,
                       ),
                     ),
                     child: Row(

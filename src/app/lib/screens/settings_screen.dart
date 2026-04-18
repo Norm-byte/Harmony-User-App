@@ -9,10 +9,11 @@ import '../services/group_service.dart';
 import '../services/event_service.dart';
 import '../services/user_service.dart';
 import '../services/subscription_service.dart';
-import '../widgets/favorite_item_card.dart';
 import 'category_favorites_screen.dart';
 import 'chat_screen.dart';
 import 'community_groups_screen.dart';
+import 'legal_document_screen.dart';
+import 'personal_information_screen.dart';
 import 'welcome_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -24,11 +25,10 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 2, vsync: this, initialIndex: 1);
   }
 
   @override
@@ -77,7 +77,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                      builder: (context, eventService, _) {
                        return Card(
                           elevation: 4,
-                          color: Colors.white.withOpacity(0.1),
+                          color: Colors.white.withValues(alpha: 0.1),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                           child: Padding(
                             padding: const EdgeInsets.all(16),
@@ -123,7 +123,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                 Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.05),
+                                    color: Colors.white.withValues(alpha: 0.05),
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(color: Colors.white12),
                                   ),
@@ -195,12 +195,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
                                         gradient: LinearGradient(
-                                          colors: [Colors.purple.shade900.withOpacity(0.4), Colors.pink.shade900.withOpacity(0.4)],
+                                          colors: [Colors.purple.shade900.withValues(alpha: 0.4), Colors.pink.shade900.withValues(alpha: 0.4)],
                                           begin: Alignment.topLeft,
                                           end: Alignment.bottomRight,
                                         ),
                                         borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: Colors.pinkAccent.withOpacity(0.3)),
+                                        border: Border.all(color: Colors.pinkAccent.withValues(alpha: 0.3)),
                                         boxShadow: [
                                           BoxShadow(color: Colors.black26, blurRadius: 4, offset: const Offset(0, 2))
                                         ],
@@ -259,7 +259,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.1),
+                                  color: Colors.white.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: const Text("You haven't joined any chat rooms yet.", style: TextStyle(color: Colors.white54)),
@@ -302,7 +302,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                               margin: const EdgeInsets.only(right: 12, top: 8), // Add top margin for delete button space if needed
                                               padding: const EdgeInsets.all(12),
                                               decoration: BoxDecoration(
-                                                color: Colors.white.withOpacity(0.1),
+                                                color: Colors.white.withValues(alpha: 0.1),
                                                 borderRadius: BorderRadius.circular(12),
                                                 border: Border.all(color: Colors.white12),
                                               ),
@@ -310,7 +310,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                                 children: [
                                                   CircleAvatar(
                                                     radius: 16,
-                                                    backgroundColor: color.withOpacity(0.2),
+                                                    backgroundColor: color.withValues(alpha: 0.2),
                                                     child: Icon(icon, color: color, size: 18),
                                                   ),
                                                   const SizedBox(width: 8),
@@ -383,22 +383,32 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                   // FIX: Only consider it "Present" if there is a LIVE/FUTURE entry.
                                   // If the entry found is expired, we should ignore it and inject the new one.
                                   bool validEntryExists = combinedEvents.any((m) {
-                                      if (m['eventId'] != event.id) return false;
+                                      if (m['eventId'] != event.id) {
+                                        return false;
+                                      }
                                       
                                       // Check expiration of this specific history item
                                       dynamic rawEnd = m['endTime'];
                                       DateTime? end;
-                                      if (rawEnd is Timestamp) end = rawEnd.toDate();
-                                      else if (rawEnd is DateTime) end = rawEnd;
-                                      else if (rawEnd is String) end = DateTime.tryParse(rawEnd);
+                                      if (rawEnd is Timestamp) {
+                                        end = rawEnd.toDate();
+                                      } else if (rawEnd is DateTime) {
+                                        end = rawEnd;
+                                      } else if (rawEnd is String) {
+                                        end = DateTime.tryParse(rawEnd);
+                                      }
                                       
                                       // Fallback for End Time
                                       if (end == null) {
                                           dynamic rawStart = m['startTime'] ?? m['timestamp'];
                                           DateTime? start;
-                                          if (rawStart is Timestamp) start = rawStart.toDate();
-                                          else if (rawStart is DateTime) start = rawStart;
-                                          else if (rawStart is String) start = DateTime.tryParse(rawStart);
+                                          if (rawStart is Timestamp) {
+                                            start = rawStart.toDate();
+                                          } else if (rawStart is DateTime) {
+                                            start = rawStart;
+                                          } else if (rawStart is String) {
+                                            start = DateTime.tryParse(rawStart);
+                                          }
                                           
                                           if (start != null) {
                                               end = start.add(const Duration(hours: 1));
@@ -439,16 +449,24 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                            // Robust Timestamp handling
                            dynamic rawEnd = e['endTime'];
                            DateTime? end;
-                           if (rawEnd is Timestamp) end = rawEnd.toDate();
-                           else if (rawEnd is DateTime) end = rawEnd; // Handle optimistic updates
-                           else if (rawEnd is String) end = DateTime.tryParse(rawEnd); // Fallback
+                           if (rawEnd is Timestamp) {
+                             end = rawEnd.toDate();
+                           } else if (rawEnd is DateTime) {
+                             end = rawEnd; // Handle optimistic updates
+                           } else if (rawEnd is String) {
+                             end = DateTime.tryParse(rawEnd); // Fallback
+                           }
 
                            // Robust StartTime handling to catch missing EndTime
                            dynamic rawStart = e['startTime'] ?? e['timestamp'];
                            DateTime? start;
-                           if (rawStart is Timestamp) start = rawStart.toDate().toUtc(); // Normalize to UTC
-                           else if (rawStart is DateTime) start = rawStart.toUtc();
-                           else if (rawStart is String) start = DateTime.tryParse(rawStart)?.toUtc();
+                           if (rawStart is Timestamp) {
+                             start = rawStart.toDate().toUtc(); // Normalize to UTC
+                           } else if (rawStart is DateTime) {
+                             start = rawStart.toUtc();
+                           } else if (rawStart is String) {
+                             start = DateTime.tryParse(rawStart)?.toUtc();
+                           }
 
                            // If we have no end time, assume 1 hour duration from start
                            if (end == null && start != null) {
@@ -456,7 +474,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                            }
 
                            // Normalize End Time to UTC for comparison
-                           if (end != null) end = end.toUtc();
+                           if (end != null) {
+                             end = end.toUtc();
+                           }
                            final nowUtc = now.toUtc();
 
                            // Check Visibility After Preference (Default to 0 if not saved)
@@ -471,7 +491,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                            }
                            
                            // Safety: If no timestamps at all, remove it to be safe/clean
-                           if (end == null && start == null) return false;
+                           if (end == null && start == null) {
+                             return false;
+                           }
 
                            return true;
                         }).toList();
@@ -490,7 +512,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                  width: double.infinity,
                                  padding: const EdgeInsets.all(16),
                                  decoration: BoxDecoration(
-                                   color: Colors.white.withOpacity(0.1),
+                                   color: Colors.white.withValues(alpha: 0.1),
                                    borderRadius: BorderRadius.circular(12),
                                  ),
                                  child: const Text("You haven't joined any active events.", style: TextStyle(color: Colors.white54)),
@@ -509,8 +531,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                       // Robust StartTime handling
                                       dynamic rawStart = event['startTime'] ?? event['timestamp'];
                                       DateTime? start;
-                                      if (rawStart is Timestamp) start = rawStart.toDate();
-                                      else if (rawStart is DateTime) start = rawStart;
+                                      if (rawStart is Timestamp) {
+                                        start = rawStart.toDate();
+                                      } else if (rawStart is DateTime) {
+                                        start = rawStart;
+                                      }
                                       
                                       final dateStr = start != null 
                                           ? DateFormat('MMM d, h:mm a').format(start) 
@@ -521,7 +546,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                         margin: const EdgeInsets.only(right: 12),
                                         padding: const EdgeInsets.all(12), // Restored padding
                                         decoration: BoxDecoration(
-                                          color: Colors.white.withOpacity(0.1),
+                                          color: Colors.white.withValues(alpha: 0.1),
                                           borderRadius: BorderRadius.circular(12), // Restored radius
                                           border: Border.all(color: Colors.white12),
                                         ),
@@ -612,13 +637,19 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               // 2. Settings Tab (Technical/Personal)
               Consumer2<UserService, SubscriptionService>(
                 builder: (context, userService, subscriptionService, _) {
+                  final authUser = FirebaseAuth.instance.currentUser;
                   return ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
                        ListTile(
                          leading: const Icon(Icons.stars, color: Colors.amber),
-                         title: Text(subscriptionService.isSubscribed ? 'Manage Subscription' : 'Subscribe to Premium', style: const TextStyle(color: Colors.white)), 
-                         subtitle: Text(subscriptionService.isSubscribed ? 'Active Plan' : 'Unlock full potential', style: const TextStyle(color: Colors.white54)),
+                         title: const Text('Manage Subscription', style: TextStyle(color: Colors.white)),
+                         subtitle: Text(
+                           subscriptionService.isVip
+                               ? 'VIP Access'
+                               : (subscriptionService.isSubscribed ? 'Active Plan' : 'Subscription required'),
+                           style: const TextStyle(color: Colors.white54),
+                         ),
                          trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
                          onTap: () async {
                               // loading
@@ -682,17 +713,17 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                        ListTile(
                          leading: const Icon(Icons.badge_outlined, color: Colors.white),
                          title: const Text('Profile Information', style: TextStyle(color: Colors.white)),
-                         subtitle: Text('${userService.userName} • ${userService.timeZone}', style: const TextStyle(color: Colors.white54)),
+                         subtitle: Text(
+                           '${userService.userName} • ${userService.timeZone}',
+                           style: const TextStyle(color: Colors.white54),
+                         ),
                          trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
-                         onTap: () {},
-                       ),
-                       const Divider(color: Colors.white12),
-                       ListTile(
-                         leading: const Icon(Icons.lock_outline, color: Colors.white70),
-                         title: const Text('Change Password', style: TextStyle(color: Colors.white)),
-                         subtitle: const Text('Update your account password', style: TextStyle(color: Colors.white38, fontSize: 12)),
-                         trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
-                         onTap: () => _showChangePasswordDialog(context),
+                         onTap: () {
+                           Navigator.push(
+                             context,
+                             MaterialPageRoute(builder: (_) => const PersonalInformationScreen()),
+                           );
+                         },
                        ),
                        const Divider(color: Colors.white12),
                        ListTile(
@@ -741,179 +772,6 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     );
   }
 
-  void _showChangePasswordDialog(BuildContext context) {
-    final subscriptionService = Provider.of<SubscriptionService>(
-      context,
-      listen: false,
-    );
-
-    if (subscriptionService.isVip) {
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          backgroundColor: const Color(0xFF2A2A2A),
-          title: const Text('Password Change Not Allowed', style: TextStyle(color: Colors.white)),
-          content: const Text(
-            'This account is linked to a managed Beta/VIP access code. Password changes are disabled for Beta/VIP accounts.',
-            style: TextStyle(color: Colors.white70),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('OK', style: TextStyle(color: Colors.amber)),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    final newPasswordController = TextEditingController();
-    final confirmPasswordController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A2A),
-        title: const Text('Change Password', style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Enter your new password below.',
-              style: TextStyle(color: Colors.white70),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: newPasswordController,
-              obscureText: true,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: 'New Password',
-                labelStyle: TextStyle(color: Colors.white60),
-                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: confirmPasswordController,
-              obscureText: true,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: 'Confirm Password',
-                labelStyle: TextStyle(color: Colors.white60),
-                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
-          ),
-          TextButton(
-            child: const Text('Update', style: TextStyle(color: Colors.amber)),
-            onPressed: () async {
-              if (newPasswordController.text != confirmPasswordController.text) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Passwords do not match')),
-                );
-                return;
-              }
-              if (newPasswordController.text.length < 6) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Password must be at least 6 characters')),
-                );
-                return;
-              }
-
-              Navigator.pop(context); // Close input dialog
-
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.amber)),
-              );
-
-              try {
-                await FirebaseAuth.instance.currentUser!
-                    .updatePassword(newPasswordController.text);
-
-                if (context.mounted) {
-                  Navigator.pop(context); // Close loading
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Password updated successfully'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              } on FirebaseAuthException catch (e) {
-                if (context.mounted) {
-                  Navigator.pop(context); // Close loading
-                  if (e.code == 'requires-recent-login') {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'For security, please sign out and sign back in before changing your password.',
-                        ),
-                        backgroundColor: Colors.orange,
-                      ),
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error: ${e.message}')),
-                    );
-                  }
-                }
-              }
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGroupItem(BuildContext context, String name, IconData icon, Color color, GroupService groupService) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(
-        backgroundColor: color.withOpacity(0.2),
-        child: Icon(icon, color: color, size: 20),
-      ),
-      title: Text(name, style: const TextStyle(color: Colors.white)),
-      subtitle: const Text("Tap to open chat", style: TextStyle(color: Colors.white38, fontSize: 10)),
-      trailing: IconButton(
-        icon: const Icon(Icons.exit_to_app, color: Colors.redAccent, size: 20),
-        tooltip: 'Leave Chat Room',
-        onPressed: () async {
-           // We need to find the ID if possible, but leaveGroup handles name lookup internally
-           await groupService.leaveGroup(name);
-           if (context.mounted) {
-             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Left $name")));
-           }
-        },
-      ),
-      onTap: () {
-          // Navigate to Chat
-          // Safe lookup for ID
-          final group = groupService.myGroups.firstWhere((g) => g['name'] == name, orElse: () => {});
-          if (group.isNotEmpty && group['id'] != null) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ChatScreen(
-                    eventTitle: name,
-                    groupId: group['id'],
-                  ),
-                ),
-              );
-          }
-      },
-    );
-  }
-
   Widget _buildFavoritesList() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('youtube_sections').snapshots(),
@@ -936,7 +794,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   child: Text(
                     'No favorites yet.\nTap the heart icon on events to add them here.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white.withOpacity(0.5)),
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
                   ),
                 ),
               );
@@ -981,7 +839,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       width: 140,
                       margin: const EdgeInsets.only(right: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
+                        color: Colors.white.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: Colors.white24),
                       ),
@@ -1004,7 +862,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           Text(
                             '${items.length} items',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
+                              color: Colors.white.withValues(alpha: 0.7),
                               fontSize: 12,
                             ),
                           ),

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/user_service.dart';
-import '../services/subscription_service.dart';
 import '../services/notification_service.dart';
 import '../services/event_service.dart';
 import 'support_chat_screen.dart';
@@ -58,7 +57,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             onChanged: (val) =>
                 userService.setGlobalPriority(val), // Update UserService
             secondary: const Icon(Icons.public, color: Colors.white70),
-            activeColor: Colors.amber,
+            activeThumbColor: Colors.amber,
             contentPadding: EdgeInsets.zero,
           ),
           SwitchListTile(
@@ -84,7 +83,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
               }
             },
             secondary: const Icon(Icons.autorenew, color: Colors.white70),
-            activeColor: Colors.amber,
+            activeThumbColor: Colors.amber,
             contentPadding: EdgeInsets.zero,
           ),
           ListTile(
@@ -107,7 +106,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           const SizedBox(height: 8),
           Card(
             elevation: 2,
-            color: Colors.white.withOpacity(0.1),
+            color: Colors.white.withValues(alpha: 0.1),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
@@ -148,7 +147,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                           debugPrint('Dormant debug probe on toggle failed: $e');
                         }
 
-                        if (mounted) {
+                        if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
@@ -164,12 +163,12 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                         await NotificationService().cancelDormantPlaybackReminders();
                       }
 
-                      if (!mounted) return;
+                      if (!context.mounted) return;
                       if (value) {
                         _showDormantPlaybackSetup(context, userService);
                       }
                     },
-                    activeColor: Colors.amber,
+                    activeThumbColor: Colors.amber,
                     contentPadding: EdgeInsets.zero,
                     secondary: const Icon(
                       Icons.bedtime_outlined,
@@ -244,7 +243,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
       elevation: 0,
       color: Colors.transparent,
       shape: RoundedRectangleBorder(
-        side: BorderSide(color: Colors.white.withOpacity(0.1)),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
         borderRadius: BorderRadius.circular(12),
       ),
       child: ListTile(
@@ -279,9 +278,9 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             margin: const EdgeInsets.symmetric(horizontal: 8),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.05),
+              color: Colors.white.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withOpacity(0.1)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -334,7 +333,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.05),
+          color: Colors.white.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(label, style: const TextStyle(color: Colors.white24)),
@@ -356,8 +355,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
         icon = Icons.volume_up_rounded;
         break;
       case 2:
-        bgColor = Colors.white.withOpacity(0.04);
-        borderColor = Colors.white.withOpacity(0.08);
+        bgColor = Colors.white.withValues(alpha: 0.04);
+        borderColor = Colors.white.withValues(alpha: 0.08);
         textColor = Colors.white30;
         icon = null;
         break;
