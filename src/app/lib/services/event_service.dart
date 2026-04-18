@@ -703,17 +703,6 @@ class EventService extends ChangeNotifier {
   }) {
     final now = DateTime.now();
     List<Event> processedEvents = [];
-    int invalidTitleCount = 0;
-    int draftSkipCount = 0;
-    int expiredSkipCount = 0;
-    int tooEarlySkipCount = 0;
-
-    // Keep filtering explicit and deterministic: allow all quarter-hour lanes.
-    // Historical lane frequency profiling was too aggressive and could suppress
-    // legitimate slots when old data was imbalanced.
-    int nationalSlotTotal = 0;
-    int nationalSlotCurrentWeek = 0;
-    int nationalNonSlotCurrentWeek = 0;
 
     for (var doc in docs) {
       try {
@@ -749,11 +738,13 @@ class EventService extends ChangeNotifier {
         // Filter out invalid events
         final normalizedTitle = event.title.trim().toLowerCase();
         if (normalizedTitle.isEmpty || event.title.length < 2) {
-          invalidTitleCount++;
           continue;
         }
 
-        if (!event.isPublished) {
+        final publishedById =
+          doc.id.startsWith('slot_') || doc.id.startsWith('copy_');
+
+        if (!event.isPublished && !publishedById) {
           final rawIsDraft = data['isDraft'];
           final rawPublished = data['published'];
           final isDraft = rawIsDraft == true ||
@@ -764,7 +755,6 @@ class EventService extends ChangeNotifier {
               rawPublished == 1;
 
           if (isDraft && !publishedFallback) {
-            draftSkipCount++;
             continue;
           }
         }
@@ -784,36 +774,27 @@ class EventService extends ChangeNotifier {
           data['isRecurring'] == true ||
           data['isRecurring'] == 'true' ||
           data['isRecurring'] == 1;
+        final treatCurrentWeekSlotAsDaily =
+          isNationalSlotDoc && _isInCurrentUtcWeek(slotSourceUtcStart);
 
         // Admin-authoritative recurrence fallback:
         // in the national scheduler, isRecurring=true means the slot should
         // repeat every day regardless of the source doc date.
+        // Also, current-week slot_* docs are weekly schedule lanes and should
+        // continue surfacing through the week even when stored per-day.
         final effectiveRecurrence =
-          (hasNoRecurrence && isRecurringFlag) ? 'daily' : recurrence;
+          (hasNoRecurrence && (isRecurringFlag || treatCurrentWeekSlotAsDaily))
+          ? 'daily'
+          : recurrence;
 
         final isDaily = effectiveRecurrence == 'daily';
         final isWeekly = effectiveRecurrence == 'weekly';
         final isMonthly = effectiveRecurrence == 'monthly';
 
-        if (event.type == EventType.national) {
-          final eventUtc = slotSourceUtcStart;
-          if (isNationalSlotDoc) {
-            nationalSlotTotal++;
-            if (_isInCurrentUtcWeek(eventUtc)) {
-              nationalSlotCurrentWeek++;
-            }
-          } else {
-            if (_isInCurrentUtcWeek(eventUtc)) {
-              nationalNonSlotCurrentWeek++;
-            }
-          }
-        }
-
         if (isNationalSlotDoc) {
           final slotMinute = slotMeta?.minute ?? event.startTime.toUtc().minute;
 
           if (!_allowedNationalSlotMinutes.contains(slotMinute)) {
-            expiredSkipCount++;
             continue;
           }
 
@@ -843,13 +824,18 @@ class EventService extends ChangeNotifier {
 
           // For non-recurring national events, respect the exact stored date/time.
           // Only explicit recurrence should project into new dates.
-          DateTime localStart = DateTime(
+          // Convert the UTC start to a proper local DateTime so the
+          // expiry/tooEarly checks compare local-to-local correctly.
+          // (Using DateTime(utc.year, utc.month, ...) would strip UTC info
+          //  and create a spurious local time that is hours off.)
+          final utcBase = DateTime.utc(
             sourceUtcStart.year,
             sourceUtcStart.month,
             sourceUtcStart.day,
             hour,
             minute,
           );
+          DateTime localStart = utcBase.toLocal();
           DateTime localEnd = localStart.add(duration);
 
           if (isWeekly) {
@@ -935,7 +921,6 @@ class EventService extends ChangeNotifier {
         final localEndTime = displayEvent.endTime.toLocal();
 
         if (now.isAfter(localEndTime.add(visibilityAfter))) {
-          expiredSkipCount++;
           continue; // Too old
         }
 
@@ -950,7 +935,6 @@ class EventService extends ChangeNotifier {
 
             final skipTooEarly = now.isBefore(showTime);
           if (skipTooEarly) {
-            tooEarlySkipCount++;
             continue; // Too early to show
           }
         }
@@ -960,13 +944,6 @@ class EventService extends ChangeNotifier {
         print("DEBUG: Error processing event doc ${doc.id}: $e");
       }
     }
-
-    print(
-      'HARMONY_DIAG: docs=${docs.length} out=${processedEvents.length} '
-      'slotTotal=$nationalSlotTotal slotCurrentWeek=$nationalSlotCurrentWeek '
-      'nonSlotCurrentWeek=$nationalNonSlotCurrentWeek invalidTitle=$invalidTitleCount '
-      'draftSkip=$draftSkipCount expiredSkip=$expiredSkipCount tooEarlySkip=$tooEarlySkipCount',
-    );
 
     return processedEvents;
   }

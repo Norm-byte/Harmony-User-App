@@ -105,10 +105,10 @@ class Event {
           end = DateTime.parse(json['endTime']);
         }
       } else {
-        // 3. Fallback default: 10 seconds.
-        // Do NOT default to 1 hour or 15 minutes for National Events.
-        durationSecs = 10;
-        end = start.add(const Duration(seconds: 10));
+        // Fallback: national slot docs with no stored duration default to
+        // 1 hour so they survive the expiry window between publish and playback.
+        durationSecs = 3600;
+        end = start.add(const Duration(seconds: 3600));
       }
     } catch (e) {
       print("Error parsing endTime for event ${json['id']}: $e");
