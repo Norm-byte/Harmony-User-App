@@ -1,5 +1,34 @@
 # Project Context & History
 
+## Pause Log (April 21, 2026 - Live Deploy Verification Checkpoint)
+**Status at pause:** Clean reinstall completed and live behavior validated with build markers.
+
+### Locked Deployment State
+1. App version on device confirmed after full uninstall/reinstall:
+    - `versionName=1.0.11`
+    - `versionCode=30`
+2. Login screen marker visible: `Build 1.0.11`.
+3. Login no longer shows `Redeem VIP Code` button.
+
+### Confirmed Outcomes This Session
+1. Locked-phone event playback stability improved and verified in-device.
+2. My Harmony default tab restore delivered.
+3. Community view density improved (more messages visible per screen).
+4. Community counter reset observed at `100` after clean sign-in.
+5. Public-facing VIP wording removed from primary user login flow.
+6. Username/email exposure hardened in outbound write paths (login + chat/community/support sanitization pass).
+
+### Current UX Notes (Do Not Regress)
+1. Keep current compact community layout as baseline.
+2. Keep current login behavior and build marker approach for deployment verification until next stabilization pass.
+3. Keep current quota fallback behavior for elevated users.
+
+### Next Resume Tasks
+1. Replace temporary build markers once post-break validation is complete.
+2. Continue refining Community presentation toward text-first/no-card visual style if requested.
+3. Confirm final preferred display name source (`Admin1`) is consistently surfaced in all posting surfaces.
+
+
 ## Current Status (April 11, 2026 - Auth, Events, Access Fixes Verified)
 **Milestone:** Auth overhaul retained, event visibility restored, access overlays removed, and new Android release prepared and uploaded.
 **Status:** **User App fixed state verified live on Samsung device; Android release bundle v1.0.8+14 was built and uploaded to Play Console.**

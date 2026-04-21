@@ -52,6 +52,10 @@ class MainActivity: FlutterFragmentActivity() {
                 "MainActivity",
                 "captureLaunchEventId: stored eventId=$eventId autoPlay=$pendingLaunchAutoPlayVideo (authoritative alarm source)"
             )
+            // Consume one-shot alarm extras at capture time so repeated lifecycle
+            // callbacks do not keep re-queuing stale alarm launches.
+            intent.removeExtra("event_id")
+            intent.removeExtra("auto_play_video")
             applyAlarmLockscreenPresentation(enabled = true)
             notificationTapReceived = true
             invokeNotificationTapConsumption()
@@ -340,6 +344,29 @@ class MainActivity: FlutterFragmentActivity() {
                         result.success(eventId)
                     } catch (e: Exception) {
                         result.error("GET_LAST_ALARM_ERROR", e.message, null)
+                    }
+                }
+                "should_restore_for_event" -> {
+                    try {
+                        val eventId = call.argument<String>("event_id")?.trim().orEmpty()
+                        if (eventId.isEmpty()) {
+                            result.success(false)
+                        } else {
+                            val pending = pendingLaunchEventId
+                            val stored = peekStoredLaunchEventId()
+                            val lastKnown = lastAlarmLaunchedEventId
+                            val shouldRestore =
+                                eventId == lastKnown ||
+                                    eventId == pending ||
+                                    eventId == stored
+                            android.util.Log.d(
+                                "MainActivity",
+                                "should_restore_for_event: eventId=$eventId lastKnown=$lastKnown pending=$pending stored=$stored => $shouldRestore"
+                            )
+                            result.success(shouldRestore)
+                        }
+                    } catch (e: Exception) {
+                        result.error("SHOULD_RESTORE_ERROR", e.message, null)
                     }
                 }
                 else -> result.notImplemented()

@@ -108,7 +108,9 @@ class UserService extends ChangeNotifier {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     if (firebaseUser != null) {
       _userId = firebaseUser.uid;
-      _userName = prefs.getString('user_name') ?? firebaseUser.displayName ?? 'Member';
+      _userName = sanitizePublicDisplayName(
+        prefs.getString('user_name') ?? firebaseUser.displayName ?? 'Member',
+      );
     } else {
       // Generate a persistent anonymous ID for this installation if not found
       if (!prefs.containsKey('user_id')) {
@@ -118,7 +120,7 @@ class UserService extends ChangeNotifier {
         await prefs.setString('user_id', newId);
       }
       _userId = prefs.getString('user_id')!;
-      _userName = prefs.getString('user_name') ?? 'Guest';
+      _userName = sanitizePublicDisplayName(prefs.getString('user_name') ?? 'Guest');
 
       // FORCE RESET if ID is "Super Admin" (Debug Cleanup)
       if (_userId == 'Super Admin' || _userId.contains(' ')) {
@@ -173,12 +175,32 @@ class UserService extends ChangeNotifier {
 
   Future<void> setUser(String id, String name) async {
     _userId = id;
-    _userName = name;
+    _userName = sanitizePublicDisplayName(name);
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('user_id', id);
-    await prefs.setString('user_name', name);
+    await prefs.setString('user_name', _userName);
     _syncUserToFirestore();
+  }
+
+  static String sanitizePublicDisplayName(String? rawName) {
+    final input = (rawName ?? '').trim();
+    if (input.isEmpty) return 'Member';
+
+    var sanitized = input;
+    final atIndex = sanitized.indexOf('@');
+    if (atIndex > 0) {
+      sanitized = sanitized.substring(0, atIndex);
+    }
+
+    sanitized = sanitized.replaceAll(RegExp(r'[^A-Za-z0-9_. -]'), '').trim();
+    sanitized = sanitized.replaceAll(RegExp(r'\s+'), ' ');
+
+    if (sanitized.isEmpty) return 'Member';
+    if (sanitized.length > 24) {
+      sanitized = sanitized.substring(0, 24).trim();
+    }
+    return sanitized;
   }
 
   Future<void> clearUser() async {

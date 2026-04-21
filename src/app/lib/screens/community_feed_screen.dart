@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -24,17 +25,50 @@ class _CommunityFeedContent extends StatefulWidget {
   State<_CommunityFeedContent> createState() => _CommunityFeedScreenState();
 }
 
-class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
+class _CommunityFeedScreenState extends State<_CommunityFeedContent>
+  with WidgetsBindingObserver {
   final _postController = TextEditingController();
+  final ScrollController _feedScrollController = ScrollController();
   bool _isPosting = false;
   
   // Daily Message Limit State
   int _messagesRemaining = 0;
+  int _dailyLimit = 5;
   UsageService? _usageService;
+  bool _autoScrollEnabled = false;
+  double _autoScrollSpeedPxPerSecond = 28;
+  Timer? _autoScrollTimer;
+
+  BoxDecoration _glassPanelDecoration({
+    Color baseColor = Colors.white,
+    double alpha = 0.015,
+    Color borderColor = const Color(0x55A7E8FF),
+  }) {
+    return BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          baseColor.withValues(alpha: alpha + 0.01),
+          baseColor.withValues(alpha: alpha),
+        ],
+      ),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: borderColor),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.06),
+          blurRadius: 12,
+          offset: const Offset(0, 5),
+        ),
+      ],
+    );
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
@@ -51,9 +85,19 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _autoScrollTimer?.cancel();
+    _feedScrollController.dispose();
     _usageService?.removeListener(_calculateRemaining);
     _postController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _calculateRemaining();
+    }
   }
 
   Future<void> _calculateRemaining() async {
@@ -78,7 +122,48 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
     final int limit = _usageService?.maxDailySends ?? 5;
 
     setState(() {
+      _dailyLimit = limit;
       _messagesRemaining = (limit - sentToday).clamp(0, 9999);
+    });
+  }
+
+  void _applyFeedScrollSettings(Map<String, dynamic> data) {
+    final enabled = (data['auto_scroll_enabled'] as bool?) ?? false;
+    final speed = ((data['auto_scroll_speed'] as num?)?.toDouble() ?? 28.0)
+        .clamp(8.0, 120.0);
+
+    if (enabled == _autoScrollEnabled && speed == _autoScrollSpeedPxPerSecond) {
+      return;
+    }
+
+    _autoScrollEnabled = enabled;
+    _autoScrollSpeedPxPerSecond = speed;
+    _restartAutoScrollTimer();
+  }
+
+  void _restartAutoScrollTimer() {
+    _autoScrollTimer?.cancel();
+    if (!_autoScrollEnabled) return;
+
+    const interval = Duration(milliseconds: 120);
+    _autoScrollTimer = Timer.periodic(interval, (_) {
+      if (!mounted || !_autoScrollEnabled || !_feedScrollController.hasClients) {
+        return;
+      }
+      final step = _autoScrollSpeedPxPerSecond * (interval.inMilliseconds / 1000);
+      final position = _feedScrollController.position;
+      final maxExtent = position.maxScrollExtent;
+      if (maxExtent <= 0) return;
+
+      final target = (position.pixels + step) >= maxExtent
+          ? 0.0
+          : (position.pixels + step);
+
+      _feedScrollController.animateTo(
+        target,
+        duration: interval,
+        curve: Curves.linear,
+      );
     });
   }
   Future<void> _toggleLike(String docId, List<dynamic> likedBy) async {
@@ -111,13 +196,16 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
     final content = _postController.text.trim();
     if (content.isEmpty) return;
 
+    await _calculateRemaining();
+
     // Profanity Check
     if (ProfanityService().hasProfanity(content)) {
       final user = UserService();
+      final publicName = UserService.sanitizePublicDisplayName(user.userName);
       await FirebaseFirestore.instance.collection('moderation_queue').add({
         'content': content,
         'userId': user.userId,
-        'userName': user.userName,
+        'userName': publicName,
         'source': 'Community Room',
         'timestamp': FieldValue.serverTimestamp(),
         'reason': 'Profanity Detected',
@@ -151,10 +239,11 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
 
     try {
       final user = UserService();
+      final publicName = UserService.sanitizePublicDisplayName(user.userName);
       await FirebaseFirestore.instance.collection('community_posts').add({
         'content': content,
         'userId': user.userId,
-        'userName': user.userName,
+        'userName': publicName,
         'userPhoto': user.userPhoto,
         'timestamp': FieldValue.serverTimestamp(),
       });
@@ -184,7 +273,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
   Widget build(BuildContext context) {
     return GradientScaffold(
       appBar: AppBar(
-        title: const Text('Community Room'),
+        title: const Text('Community Room • 1.0.11'),
         foregroundColor: Colors.white,
       ),
       body: Column(
@@ -196,6 +285,13 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                 .doc('community_settings')
                 .snapshots(),
             builder: (context, snapshot) {
+              if (snapshot.hasData && snapshot.data!.exists) {
+                final settingsData = snapshot.data!.data() as Map<String, dynamic>;
+                _applyFeedScrollSettings(settingsData);
+              } else {
+                _applyFeedScrollSettings(const {});
+              }
+
               if (!snapshot.hasData || !snapshot.data!.exists) {
                 return const SizedBox.shrink();
               }
@@ -209,17 +305,10 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
               return Container(
                 margin: const EdgeInsets.all(16),
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.indigo.shade900.withValues(alpha: 0.8),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.withValues(alpha: 0.5)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                decoration: _glassPanelDecoration(
+                  baseColor: Colors.indigo.shade700,
+                  alpha: 0.18,
+                  borderColor: Colors.amber.withValues(alpha: 0.45),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -279,6 +368,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                 final posts = snapshot.data!.docs;
 
                 return ListView.builder(
+                  controller: _feedScrollController,
                   reverse: true, // Typically chats are bottom-up, but this was top-down. Let's keep it consistent or flip?
                   // User said "appear the same as... newly created chat rooms". Chat rooms are usually reverse.
                   // But this is a "Feed" (like Facebook). 
@@ -288,66 +378,79 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                   itemCount: posts.length,
                   itemBuilder: (context, index) {
                     final post = posts[index].data() as Map<String, dynamic>;
+                    final displayName = UserService.sanitizePublicDisplayName(
+                      post['userName']?.toString(),
+                    );
                     final timestamp = (post['timestamp'] as Timestamp?)?.toDate();
                     final likedBy = List<String>.from(post['likedBy'] ?? []);
                     final uid = UserService().userId;
 
-                    return Card(
-                      color: Colors.white.withValues(alpha: 0.1),
-                      margin: const EdgeInsets.only(bottom: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: _glassPanelDecoration(),
                       child: Padding(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
                                 CircleAvatar(
-                                  radius: 16,
+                                  radius: 12,
                                   backgroundColor: Colors.white24,
                                   backgroundImage: post['userPhoto'] != null ? NetworkImage(post['userPhoto']) : null,
                                   child: post['userPhoto'] == null 
-                                      ? Text((post['userName'] ?? '?')[0].toUpperCase(), style: const TextStyle(color: Colors.white))
+                                      ? Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : 'M', style: const TextStyle(color: Colors.white, fontSize: 11))
                                       : null,
                                 ),
-                                const SizedBox(width: 8),
+                                const SizedBox(width: 6),
                                 Text(
-                                  post['userName'] ?? 'Anonymous',
+                                  displayName,
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
+                                    fontSize: 13,
                                   ),
                                 ),
                                 const Spacer(),
                                 if (timestamp != null)
                                   Text(
                                     DateFormat('MMM d, h:mm a').format(timestamp),
-                                    style: TextStyle(fontSize: 12, color: Colors.white54),
+                                    style: TextStyle(fontSize: 10, color: Colors.white54),
                                   ),
                               ],
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 6),
                             Text(
                               post['content'] ?? '',
-                              style: const TextStyle(color: Colors.white),
+                              style: const TextStyle(color: Colors.white, height: 1.25, fontSize: 13),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 6),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
                                 GestureDetector(
                                   onTap: () => _toggleLike(posts[index].id, likedBy),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        likedBy.contains(uid) ? Icons.thumb_up : Icons.thumb_up_outlined,
-                                        size: 16,
-                                        color: likedBy.contains(uid) ? Colors.greenAccent : Colors.white54
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text('${post['likes'] ?? 0}', style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                                    ],
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.04),
+                                      borderRadius: BorderRadius.circular(999),
+                                      border: Border.all(color: Colors.white10),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          likedBy.contains(uid) ? Icons.thumb_up : Icons.thumb_up_outlined,
+                                          size: 14,
+                                          color: likedBy.contains(uid) ? Colors.greenAccent : Colors.white54
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text('${post['likes'] ?? 0}', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ],
@@ -365,7 +468,8 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
           // Post Input Area (Moved to Bottom)
           Container(
             padding: const EdgeInsets.all(16),
-            color: Colors.white.withValues(alpha: 0.1),
+            margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            decoration: _glassPanelDecoration(alpha: 0.06),
             child: Row(
               children: [
                 Expanded(
@@ -380,7 +484,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                         borderSide: BorderSide.none,
                       ),
                       filled: true,
-                      fillColor: Colors.white.withValues(alpha: 0.1),
+                      fillColor: Colors.white.withValues(alpha: 0.08),
                       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     ),
                   ),
@@ -406,7 +510,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent> {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '$_messagesRemaining',
+                          '$_messagesRemaining/$_dailyLimit',
                           style: TextStyle(
                             color: _messagesRemaining <= 3 ? Colors.redAccent : Colors.white70,
                             fontSize: 12,

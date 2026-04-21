@@ -31,7 +31,7 @@ class _RedeemCodeScreenState extends State<RedeemCodeScreen> {
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
         setState(() {
-          _errorMessage = 'Please log in before redeeming a VIP code.';
+          _errorMessage = 'Please log in before redeeming an access code.';
         });
         return;
       }
@@ -56,6 +56,10 @@ class _RedeemCodeScreenState extends State<RedeemCodeScreen> {
       
       // Check if this is a Super Admin code (permanent)
       final isSuperAdmin = data['type'] == 'super_admin';
+        final vipQuotaTier =
+          (data['vipQuotaTier'] as String?)?.trim().isNotEmpty == true
+            ? (data['vipQuotaTier'] as String).trim()
+            : 'tier_beta';
 
       if (!isSuperAdmin) {
         // Mark as redeemed only if it's a standard one-time code
@@ -77,6 +81,7 @@ class _RedeemCodeScreenState extends State<RedeemCodeScreen> {
           .set({
             'isVip': true,
             'isSuperAdmin': isSuperAdmin,
+            'vipQuotaTier': vipQuotaTier,
           }, SetOptions(merge: true));
 
       if (mounted) {
@@ -111,7 +116,7 @@ class _RedeemCodeScreenState extends State<RedeemCodeScreen> {
   Widget build(BuildContext context) {
     return GradientScaffold(
       appBar: AppBar(
-        title: const Text('Redeem VIP Code', style: TextStyle(color: Colors.white)),
+        title: const Text('Redeem Access Code', style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -139,7 +144,7 @@ class _RedeemCodeScreenState extends State<RedeemCodeScreen> {
               controller: _codeController,
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                labelText: 'VIP Code',
+                labelText: 'Access Code',
                 labelStyle: const TextStyle(color: Colors.white70),
                 hintText: 'XXXX-XXXX',
                 hintStyle: const TextStyle(color: Colors.white38),

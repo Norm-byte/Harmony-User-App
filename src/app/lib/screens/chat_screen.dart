@@ -188,11 +188,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (ProfanityService().hasProfanity(text)) {
       final userService = UserService();
+      final senderName = UserService.sanitizePublicDisplayName(
+        userService.userName,
+      );
       // Send to moderation queue instead of blocking silently
       await FirebaseFirestore.instance.collection('moderation_queue').add({
          'content': text,
          'userId': userService.userId,
-         'userName': userService.userName,
+         'userName': senderName,
          'source': 'Chat Room (${widget.eventTitle})',
          'timestamp': FieldValue.serverTimestamp(),
          'reason': 'Profanity Detected',
@@ -222,7 +225,9 @@ class _ChatScreenState extends State<ChatScreen> {
       // Send to Firestore
       try {
         final userService = UserService(); // Use singleton
-        String senderName = userService.userName;
+        String senderName = UserService.sanitizePublicDisplayName(
+          userService.userName,
+        );
         String senderId = userService.userId;
         
         await FirebaseFirestore.instance
@@ -433,7 +438,9 @@ class _ChatScreenState extends State<ChatScreen> {
                        final data = docs[index].data() as Map<String, dynamic>;
                        final isMe = data['sender'] == 'Me' || (data['isMe'] == true) || (data['userId'] == UserService().userId); 
                        final text = data['text'] ?? '';
-                       final sender = data['sender'] ?? 'User';
+                       final sender = UserService.sanitizePublicDisplayName(
+                         data['sender']?.toString(),
+                       );
                        final senderId = data['userId'] ?? '';
                        final likedBy = List<String>.from(data['likedBy'] ?? []);
                        final dislikedBy = List<String>.from(data['dislikedBy'] ?? []);
@@ -569,7 +576,9 @@ class _ChatScreenState extends State<ChatScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                msg['sender'],
+                                UserService.sanitizePublicDisplayName(
+                                  msg['sender']?.toString(),
+                                ),
                                 style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,

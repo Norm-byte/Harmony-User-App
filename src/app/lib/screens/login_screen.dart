@@ -21,6 +21,22 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  
+  String _quotaTierFromCodeType(String? type, {String? explicitTier}) {
+    final normalizedExplicit = explicitTier?.trim();
+    if (normalizedExplicit != null && normalizedExplicit.isNotEmpty) {
+      return normalizedExplicit;
+    }
+  
+    switch (type) {
+      case 'super_admin':
+        return 'tier_beta';
+      case 'admin_gift':
+      case 'beta_tester':
+      default:
+        return 'tier_beta';
+    }
+  }
 
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
@@ -36,7 +52,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final user = credential.user!;
       debugPrint('HARMONY_LOGIN_AUTH_OK: uid=${user.uid} email=${user.email}');
-      final displayName = user.displayName ?? user.email ?? 'Member';
+      final displayName = UserService.sanitizePublicDisplayName(
+        (user.displayName != null && user.displayName!.trim().isNotEmpty)
+        ? user.displayName
+        : 'Member',
+      );
       await UserService().setUser(user.uid, displayName);
 
       if (!mounted) return;
@@ -59,6 +79,9 @@ class _LoginScreenState extends State<LoginScreen> {
             .doc(user.uid)
             .get();
         isSuperAdmin = userDoc.data()?['isSuperAdmin'] == true;
+        if (isSuperAdmin && !subService.isVip) {
+          await subService.setVipStatus(true);
+        }
         debugPrint('HARMONY_LOGIN_USERDOC: isVip=${userDoc.data()?['isVip']} isSuperAdmin=$isSuperAdmin');
       } catch (e) {
         debugPrint('HARMONY_LOGIN_USERDOC_ERROR: $e');
@@ -80,13 +103,27 @@ class _LoginScreenState extends State<LoginScreen> {
                 .where((d) => d.data()['status'] == 'active')
                 .firstOrNull;
             if (activeDoc != null) {
-              isSuperAdmin = activeDoc.data()['type'] == 'super_admin';
+              final codeType = activeDoc.data()['type'] as String?;
+              final matchedSuperAdminCode = codeType == 'super_admin';
+              final quotaTier = _quotaTierFromCodeType(
+                codeType,
+                explicitTier: activeDoc.data()['vipQuotaTier'] as String?,
+              );
+  
+              isSuperAdmin = matchedSuperAdminCode;
               await subService.setVipStatus(true);
               await FirebaseFirestore.instance
                   .collection('users')
                   .doc(user.uid)
-                  .set({'isVip': true, 'isSuperAdmin': isSuperAdmin}, SetOptions(merge: true));
-              debugPrint('HARMONY_LOGIN_VIP: code match, isSuperAdmin=$isSuperAdmin');
+                  .set(
+                    {
+                      'isVip': true,
+                      'isSuperAdmin': matchedSuperAdminCode,
+                      'vipQuotaTier': quotaTier,
+                    },
+                    SetOptions(merge: true),
+                  );
+              debugPrint('HARMONY_LOGIN_VIP: active code match type=$codeType tier=$quotaTier');
             } else {
               debugPrint('HARMONY_LOGIN_VIP: no active code match for "$enteredCode" (docs=${vipQuery.docs.length})');
             }
@@ -105,22 +142,48 @@ class _LoginScreenState extends State<LoginScreen> {
             user.email!.toUpperCase(),
           };
           for (final email in emailsToTry) {
-            final assignedVip = await FirebaseFirestore.instance
+            final assignedByAssignee = await FirebaseFirestore.instance
                 .collection('vip_codes')
                 .where('assignee', isEqualTo: email)
                 .limit(10)
                 .get();
-            final activeDocs = assignedVip.docs
+
+            final assignedByContact = await FirebaseFirestore.instance
+                .collection('vip_codes')
+                .where('contactInfo', isEqualTo: email)
+                .limit(10)
+                .get();
+
+            final combinedDocs = [...assignedByAssignee.docs, ...assignedByContact.docs];
+            final activeDocs = combinedDocs
                 .where((d) => d.data()['status'] == 'active')
                 .toList();
             if (activeDocs.isNotEmpty) {
-              isSuperAdmin = activeDocs.any((d) => d.data()['type'] == 'super_admin');
+              final matchedSuperAdminAssignment =
+                  activeDocs.any((d) => d.data()['type'] == 'super_admin');
+              final preferredDoc = activeDocs.firstWhere(
+                (d) => d.data()['type'] == 'beta_tester',
+                orElse: () => activeDocs.first,
+              );
+              final quotaTier = _quotaTierFromCodeType(
+                preferredDoc.data()['type'] as String?,
+                explicitTier: preferredDoc.data()['vipQuotaTier'] as String?,
+              );
+  
+              isSuperAdmin = matchedSuperAdminAssignment;
               await subService.setVipStatus(true);
               await FirebaseFirestore.instance
                   .collection('users')
                   .doc(user.uid)
-                  .set({'isVip': true, 'isSuperAdmin': isSuperAdmin}, SetOptions(merge: true));
-              debugPrint('HARMONY_LOGIN_VIP: email assignee match ($email), isSuperAdmin=$isSuperAdmin');
+                  .set(
+                    {
+                      'isVip': true,
+                      'isSuperAdmin': matchedSuperAdminAssignment,
+                      'vipQuotaTier': quotaTier,
+                    },
+                    SetOptions(merge: true),
+                  );
+              debugPrint('HARMONY_LOGIN_VIP: assignee match ($email) tier=$quotaTier');
               break;
             }
           }
@@ -245,6 +308,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 const Text(
                   'Sign in to continue your journey',
                   style: TextStyle(color: Colors.white70, fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Build 1.0.11',
+                  style: TextStyle(color: Colors.white54, fontSize: 11),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 40),

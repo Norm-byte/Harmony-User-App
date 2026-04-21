@@ -28,7 +28,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this, initialIndex: 1);
+    _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
   }
 
   @override
@@ -646,7 +646,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                          title: const Text('Manage Subscription', style: TextStyle(color: Colors.white)),
                          subtitle: Text(
                            subscriptionService.isVip
-                               ? 'VIP Access'
+                               ? 'Early Access'
                                : (subscriptionService.isSubscribed ? 'Active Plan' : 'Subscription required'),
                            style: const TextStyle(color: Colors.white54),
                          ),
@@ -667,9 +667,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                     context: context,
                                     builder: (_) => AlertDialog(
                                       backgroundColor: const Color(0xFF2A2A2A),
-                                      title: const Text('VIP Member', style: TextStyle(color: Colors.amber)),
+                                      title: const Text('Early Access Enabled', style: TextStyle(color: Colors.amber)),
                                       content: const Text(
-                                        'You have full access via VIP Override.\n\nNo subscription management is needed.',
+                                        'You currently have full access enabled.\n\nNo subscription management is needed right now.',
                                         style: TextStyle(color: Colors.white),
                                       ),
                                       actions: [

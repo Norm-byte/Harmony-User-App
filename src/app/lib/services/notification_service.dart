@@ -324,6 +324,23 @@ class NotificationService {
     }
   }
 
+  Future<bool> shouldRestoreForEvent(String? eventId) async {
+    if (!Platform.isAndroid) return false;
+    final trimmed = eventId?.trim() ?? '';
+    if (trimmed.isEmpty) return false;
+
+    try {
+      final value = await _dormantAlarmChannel.invokeMethod<dynamic>(
+        'should_restore_for_event',
+        <String, dynamic>{'event_id': trimmed},
+      );
+      return value == true;
+    } catch (e) {
+      debugPrint('Failed native should-restore check for $trimmed: $e');
+      return false;
+    }
+  }
+
   Future<void> cancelDormantPlaybackReminders() async {
     if (!Platform.isAndroid) return;
 

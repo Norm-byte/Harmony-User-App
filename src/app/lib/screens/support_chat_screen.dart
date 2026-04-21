@@ -35,11 +35,12 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       
       // 3. Send to Moderation Queue (Silent Background Operation)
       final user = UserService();
+      final publicName = UserService.sanitizePublicDisplayName(user.userName);
       try {
         await FirebaseFirestore.instance.collection('moderation_queue').add({
           'content': content,
           'userId': user.userId,
-          'userName': user.userName,
+          'userName': publicName,
           // 'userEmail': user.userEmail, // Removed as not available
           'source': 'Support Chat',
           'timestamp': FieldValue.serverTimestamp(),
@@ -56,6 +57,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
 
     try {
       final user = UserService();
+      final publicName = UserService.sanitizePublicDisplayName(user.userName);
       final batch = FirebaseFirestore.instance.batch();
       
       // 1. Write to user's private message thread
@@ -78,7 +80,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       batch.set(inboxRef, {
         'content': content,
         'userId': user.userId,
-        'userName': user.userName,
+        'userName': publicName,
         // 'userEmail': user.userEmail,
         'timestamp': FieldValue.serverTimestamp(),
         'read': false,

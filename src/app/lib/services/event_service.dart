@@ -538,8 +538,9 @@ class EventService extends ChangeNotifier {
       final slotKey = event.originTime != null && event.originTime!.isNotEmpty
           ? event.originTime!
           : '${localStart.hour.toString().padLeft(2, '0')}:${localStart.minute.toString().padLeft(2, '0')}';
-      final titleKey = event.title.trim().toLowerCase();
-      final dedupeKey = 'national:$slotKey:$titleKey';
+        // A national lane should surface one noticeboard card per slot.
+        // Title/content drift between stale and fresh docs must not create duplicates.
+        final dedupeKey = 'national:$slotKey';
       final existing = deduped[dedupeKey];
 
       if (existing == null) {
@@ -859,7 +860,9 @@ class EventService extends ChangeNotifier {
 
         // 1. Check Visibility After Event
         final effectiveVisibilityAfterMinutes =
-          displayEvent.visibilityAfterMinutes ?? 0;
+          displayEvent.visibilityAfterMinutes ??
+          displayEvent.noticeBoardVisibilityAfterMinutes ??
+          0;
         final visibilityAfter = Duration(
           minutes: effectiveVisibilityAfterMinutes,
         );
@@ -873,7 +876,9 @@ class EventService extends ChangeNotifier {
           // 2. Check Show Before Event (UI visibility window only)
           int defaultShowBefore = 60;
           final showBefore = Duration(
-            minutes: displayEvent.showBeforeMinutes ?? defaultShowBefore,
+            minutes: displayEvent.showBeforeMinutes ??
+                displayEvent.noticeBoardShowBeforeMinutes ??
+                defaultShowBefore,
           );
           final localStartTime = displayEvent.startTime.toLocal();
           final showTime = localStartTime.subtract(showBefore);
@@ -1301,6 +1306,17 @@ class EventService extends ChangeNotifier {
     if (shouldRestoreLockscreen) {
       debugPrint('HARMONY_ALARM: requesting post-event lockscreen restore (v2)');
       NotificationService().restoreLockscreenPresentation();
+    } else if (currentEventId != null) {
+      // Native fallback avoids race conditions where Dart-side alarm markers
+      // were missed but Android still knows this event was alarm-launched.
+      NotificationService().shouldRestoreForEvent(currentEventId).then((shouldRestoreNative) {
+        if (shouldRestoreNative) {
+          debugPrint(
+            'HARMONY_ALARM: native authoritative restore accepted for id=$currentEventId',
+          );
+          NotificationService().restoreLockscreenPresentation();
+        }
+      });
     }
 
     notifyListeners();

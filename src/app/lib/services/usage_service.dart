@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'subscription_service.dart';
 
@@ -18,7 +19,10 @@ class UsageService extends ChangeNotifier {
   bool _allowVideoUploads = _defaultAllowVideoUploads;
 
   StreamSubscription? _tiersSubscription;
+  StreamSubscription<User?>? _authSubscription;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocSubscription;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _latestDocs = [];
+  Map<String, dynamic>? _currentUserData;
 
   UsageService(this._subscriptionService) {
     _init();
@@ -32,12 +36,19 @@ class UsageService extends ChangeNotifier {
   @override
   void dispose() {
     _tiersSubscription?.cancel();
+    _authSubscription?.cancel();
+    _userDocSubscription?.cancel();
     _subscriptionService.removeListener(_evaluateLimits);
     super.dispose();
   }
 
   void _init() {
     _subscriptionService.addListener(_evaluateLimits);
+
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
+      _bindUserDocListener(user?.uid);
+    });
+    _bindUserDocListener(FirebaseAuth.instance.currentUser?.uid);
     
     // Listen to real-time changes in Product Tiers
     _tiersSubscription = FirebaseFirestore.instance
@@ -48,6 +59,26 @@ class UsageService extends ChangeNotifier {
       _evaluateLimits();
     }, onError: (e) {
       debugPrint("Error listening to product_tiers: $e");
+    });
+  }
+
+  void _bindUserDocListener(String? uid) {
+    _userDocSubscription?.cancel();
+    if (uid == null || uid.isEmpty) {
+      _currentUserData = null;
+      _evaluateLimits();
+      return;
+    }
+
+    _userDocSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen((doc) {
+      _currentUserData = doc.data();
+      _evaluateLimits();
+    }, onError: (e) {
+      debugPrint('Error listening to users/$uid for quota overrides: $e');
     });
   }
 
@@ -66,15 +97,56 @@ class UsageService extends ChangeNotifier {
       
       Map<String, dynamic> limitsToApply = {};
       bool limitsFound = false;
+      final hasElevatedAccess =
+          _subscriptionService.isVip || (_currentUserData?['isSuperAdmin'] == true);
+
+      final vipQuotaTier = (_currentUserData?['vipQuotaTier'] as String?)
+          ?.trim();
+      if (hasElevatedAccess && vipQuotaTier != null && vipQuotaTier.isNotEmpty) {
+        if (tierDocs.containsKey(vipQuotaTier)) {
+          limitsToApply = tierDocs[vipQuotaTier]?['limits'] ?? {};
+          limitsFound = true;
+        } else {
+          for (var doc in _latestDocs) {
+            final data = doc.data();
+            if (data['revenueCatOfferingId'] == vipQuotaTier) {
+              limitsToApply = data['limits'] ?? {};
+              limitsFound = true;
+              break;
+            }
+          }
+        }
+      }
+
+      // Safety fallback: VIP users without a mapped tier should never drop to free limits.
+      if (!limitsFound && hasElevatedAccess) {
+        limitsToApply = {
+          'maxDailySends': 100,
+          'maxMonthlySends': 3000,
+          'maxActiveForums': 1,
+        };
+        limitsFound = true;
+      }
+
+      if (limitsFound && hasElevatedAccess) {
+        final currentDaily = (limitsToApply['maxDailySends'] as num?)?.toInt() ?? 0;
+        if (currentDaily < 100) {
+          limitsToApply['maxDailySends'] = 100;
+        }
+        final currentMonthly = (limitsToApply['maxMonthlySends'] as num?)?.toInt() ?? 0;
+        if (currentMonthly > 0 && currentMonthly < 3000) {
+          limitsToApply['maxMonthlySends'] = 3000;
+        }
+      }
 
       // Logic to determine which Tier applies
-      if (!_subscriptionService.isSubscribed) {
+      if (!limitsFound && !_subscriptionService.isSubscribed) {
         // CASE A: User is NOT subscribed -> Use 'tier_free' configuration
         if (tierDocs.containsKey('tier_free')) {
           limitsToApply = tierDocs['tier_free']?['limits'] ?? {};
           limitsFound = true;
         }
-      } else {
+      } else if (!limitsFound) {
         // CASE B: User IS subscribed -> Find matching Tier based on RevenueCat Offering ID
         final customerInfo = _subscriptionService.customerInfo;
         
@@ -96,7 +168,7 @@ class UsageService extends ChangeNotifier {
         }
 
         // Fallback: If subscribed but no RC match found
-        if (!limitsFound && tierDocs.containsKey('tier_free')) {
+          if (!limitsFound && tierDocs.containsKey('tier_free')) {
            limitsToApply = tierDocs['tier_free']?['limits'] ?? {};
            limitsFound = true;
         }
