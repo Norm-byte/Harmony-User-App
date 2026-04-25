@@ -26,7 +26,7 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     debugPrint("HARMONY_APP_FIREBASE: Initialized successfully");
-    
+
     // Initialize Services
     await SubscriptionService().init();
     await NotificationService().init();
@@ -43,8 +43,10 @@ void main() async {
         ChangeNotifierProvider(create: (_) => UserService()),
         ChangeNotifierProvider(create: (_) => SubscriptionService()),
         ChangeNotifierProxyProvider<SubscriptionService, UsageService>(
-           create: (context) => UsageService(context.read<SubscriptionService>()),
-           update: (context, subscription, previous) => UsageService(subscription),
+          create: (context) =>
+              UsageService(context.read<SubscriptionService>()),
+          update: (context, subscription, previous) =>
+              UsageService(subscription),
         ),
         ChangeNotifierProvider(create: (_) => GroupService(), lazy: false),
       ],
@@ -86,10 +88,36 @@ class HarmonyUserApp extends StatelessWidget {
   }
 }
 
-class AppLifecycleManager extends StatelessWidget {
+class AppLifecycleManager extends StatefulWidget {
   final Widget child;
 
   const AppLifecycleManager({super.key, required this.child});
+
+  @override
+  State<AppLifecycleManager> createState() => _AppLifecycleManagerState();
+}
+
+class _AppLifecycleManagerState extends State<AppLifecycleManager>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // App starts in foreground.
+    context.read<EventService>().setAppInForegroundState(true);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final isForeground = state == AppLifecycleState.resumed;
+    context.read<EventService>().setAppInForegroundState(isForeground);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +125,10 @@ class AppLifecycleManager extends StatelessWidget {
       builder: (context, eventService, _) {
         return Stack(
           children: [
-            child,
+            widget.child,
+            if (eventService.isAlarmLaunchTransitionActive &&
+                !eventService.isEventActive)
+              const Positioned.fill(child: ColoredBox(color: Colors.black)),
             if (eventService.isEventActive)
               Positioned.fill(
                 child: EventOverlayScreen(
@@ -124,6 +155,9 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  bool _launchCheckResolved = false;
+  bool _suppressSplashVisuals = false;
+
   @override
   void initState() {
     super.initState();
@@ -152,10 +186,25 @@ class _SplashScreenState extends State<SplashScreen> {
           launchEventId,
           forceVideo: autoPlayVideo,
         );
-        debugPrint('HARMONY_ALARM: launch event received in splash: $launchEventId');
+        debugPrint(
+          'HARMONY_ALARM: launch event received in splash: $launchEventId',
+        );
+      }
+
+      if (mounted) {
+        setState(() {
+          _launchCheckResolved = true;
+          _suppressSplashVisuals = launchedFromAlarm;
+        });
       }
     } catch (e) {
       debugPrint('HARMONY_ALARM: failed to read launch event: $e');
+      if (mounted) {
+        setState(() {
+          _launchCheckResolved = true;
+          _suppressSplashVisuals = false;
+        });
+      }
     }
 
     // Check for maintenance mode
@@ -216,7 +265,10 @@ class _SplashScreenState extends State<SplashScreen> {
         if (subscriptionService.isSubscribed) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (context) => HomeScreen(isSuperAdmin: subscriptionService.isVip)),
+            MaterialPageRoute(
+              builder: (context) =>
+                  HomeScreen(isSuperAdmin: subscriptionService.isVip),
+            ),
           );
         } else {
           Navigator.pushReplacement(
@@ -235,6 +287,13 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_launchCheckResolved || _suppressSplashVisuals) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: SizedBox.expand(),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: Center(

@@ -154,9 +154,9 @@ class Event {
       mediaUrl: json['mediaUrl'] ?? json['audioUrl'] ?? json['visualUrl'],
       noticeBoardBgImage: json['noticeBoardBgImage'],
       noticeBoardBgColor: json['noticeBoardBgColor'],
-      // Be defensive: old/manual data may store booleans as strings or ints.
-      // Only explicit false-like values should hide events.
-      isPublished: _asBool(json['isPublished'], defaultValue: true),
+      // Strict published gate: only explicit published=true docs should be
+      // eligible in the user app. Missing/legacy values are treated as false.
+      isPublished: _asBool(json['isPublished'], defaultValue: false),
     );
   }
 

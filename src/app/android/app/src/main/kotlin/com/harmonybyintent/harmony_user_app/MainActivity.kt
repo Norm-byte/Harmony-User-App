@@ -27,6 +27,8 @@ class MainActivity: FlutterFragmentActivity() {
     private var lastAlarmNotificationId: Int? = null
     @Volatile
     private var lockscreenPresentationApplied: Boolean = false
+    @Volatile
+    private var alarmLaunchShouldBackgroundOnRestore: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,10 +53,12 @@ class MainActivity: FlutterFragmentActivity() {
     private fun captureLaunchEventId(intent: android.content.Intent?) {
         val eventId = intent?.getStringExtra("event_id")
         if (!eventId.isNullOrBlank()) {
+            val fromForegroundAlarm = intent.getBooleanExtra("from_foreground_alarm", false)
             pendingLaunchEventId = eventId
             pendingLaunchAutoPlayVideo = intent.getBooleanExtra("auto_play_video", false)
             // Store the event ID as the authoritative last-alarm-launched ID for native queries
             lastAlarmLaunchedEventId = eventId
+            alarmLaunchShouldBackgroundOnRestore = !fromForegroundAlarm
             lastAlarmNotificationId = eventId.hashCode()
             getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
@@ -63,12 +67,16 @@ class MainActivity: FlutterFragmentActivity() {
                 .apply()
             android.util.Log.d(
                 "MainActivity",
-                "captureLaunchEventId: stored eventId=$eventId autoPlay=$pendingLaunchAutoPlayVideo (authoritative alarm source)"
+                "captureLaunchEventId: stored eventId=$eventId autoPlay=$pendingLaunchAutoPlayVideo " +
+                    "fromForegroundAlarm=$fromForegroundAlarm (authoritative alarm source)"
             )
             cancelAlarmNotificationForEvent(eventId)
             intent.removeExtra("event_id")
             intent.removeExtra("auto_play_video")
-            applyAlarmLockscreenPresentation(enabled = pendingLaunchAutoPlayVideo)
+            intent.removeExtra("from_foreground_alarm")
+            applyAlarmLockscreenPresentation(
+                enabled = pendingLaunchAutoPlayVideo && !fromForegroundAlarm
+            )
             notificationTapReceived = true
             invokeNotificationTapConsumption()
         }
@@ -135,7 +143,8 @@ class MainActivity: FlutterFragmentActivity() {
     private fun restoreAlarmLockscreenPresentation() {
         android.util.Log.d(
             "MainActivity",
-            "restoreAlarmLockscreenPresentation: begin applied=$lockscreenPresentationApplied"
+            "restoreAlarmLockscreenPresentation: begin applied=$lockscreenPresentationApplied " +
+                "backgroundOnRestore=$alarmLaunchShouldBackgroundOnRestore"
         )
 
         // Cancel the alarm notification so it doesn't linger in the shade
@@ -160,10 +169,11 @@ class MainActivity: FlutterFragmentActivity() {
                     android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
             )
 
-            // Move app to background so the lockscreen is restored without destroying the task.
-            // Keeping the task alive means the next notification tap resumes instantly via
-            // onNewIntent() rather than restarting Flutter from scratch (which causes the
-            // loading splash to re-appear).
+        }
+
+        // Return to the screen/app the user was on only for true notification
+        // launches (or lockscreen/fullscreen alarm presentations).
+        if (lockscreenPresentationApplied || alarmLaunchShouldBackgroundOnRestore) {
             try {
                 moveTaskToBack(true)
             } catch (_: Exception) {
@@ -171,6 +181,7 @@ class MainActivity: FlutterFragmentActivity() {
         }
 
         lockscreenPresentationApplied = false
+        alarmLaunchShouldBackgroundOnRestore = false
 
         android.util.Log.d("MainActivity", "restoreAlarmLockscreenPresentation: complete")
     }
@@ -322,6 +333,7 @@ class MainActivity: FlutterFragmentActivity() {
                         // Clear Intent extras so repeated calls don't re-read stale data
                         intent?.removeExtra("event_id")
                         intent?.removeExtra("auto_play_video")
+                        intent?.removeExtra("from_foreground_alarm")
                         android.util.Log.d("MainActivity", "consume_launch_event_id: value=$value")
                         result.success(value)
                     } catch (e: Exception) {
@@ -342,6 +354,7 @@ class MainActivity: FlutterFragmentActivity() {
                         // Clear Intent extras so repeated calls don't re-read stale data
                         intent?.removeExtra("event_id")
                         intent?.removeExtra("auto_play_video")
+                        intent?.removeExtra("from_foreground_alarm")
                         android.util.Log.d(
                             "MainActivity",
                             "consume_launch_payload: eventId=${eventId ?: ""} autoPlay=$autoPlayVideo"
@@ -375,7 +388,10 @@ class MainActivity: FlutterFragmentActivity() {
                 "get_last_alarm_launched_event_id" -> {
                     try {
                         val eventId = lastAlarmLaunchedEventId ?: ""
-                        android.util.Log.d("MainActivity", "get_last_alarm_launched_event_id: returning $eventId")
+                        // One-shot consume to prevent stale IDs from forcing
+                        // unrelated foreground events to be treated as alarm launches.
+                        lastAlarmLaunchedEventId = null
+                        android.util.Log.d("MainActivity", "get_last_alarm_launched_event_id: returning(consumed) $eventId")
                         result.success(eventId)
                     } catch (e: Exception) {
                         result.error("GET_LAST_ALARM_ERROR", e.message, null)

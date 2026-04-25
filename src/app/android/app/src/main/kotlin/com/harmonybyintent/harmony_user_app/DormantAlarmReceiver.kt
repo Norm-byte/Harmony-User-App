@@ -269,7 +269,7 @@ class DormantAlarmReceiver : BroadcastReceiver() {
 
         if (appInForeground) {
             // App is open: launch for auto-play, but skip notification (user doesn't need tap prompt).
-            launchAppForEvent(context, eventId, isFullScreen)
+            launchAppForEvent(context, eventId, isFullScreen, fromForegroundAlarm = true)
             android.util.Log.d("DormantAlarmReceiver", "App in foreground: skipping notification, launching auto-play for $eventId")
         } else if (deviceLocked) {
             // Device is locked: post notification so full-screen intent can legitimately wake/launch playback.
@@ -379,7 +379,12 @@ class DormantAlarmReceiver : BroadcastReceiver() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun launchAppForEvent(context: Context, eventId: String, autoPlayVideo: Boolean) {
+    private fun launchAppForEvent(
+        context: Context,
+        eventId: String,
+        autoPlayVideo: Boolean,
+        fromForegroundAlarm: Boolean = false
+    ) {
         try {
             val launchIntent = Intent(context, MainActivity::class.java)
             launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -388,6 +393,7 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                 Intent.FLAG_ACTIVITY_NO_ANIMATION
             launchIntent.putExtra("event_id", eventId)
             launchIntent.putExtra("auto_play_video", autoPlayVideo)
+            launchIntent.putExtra("from_foreground_alarm", fromForegroundAlarm)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
                 val options = android.app.ActivityOptions.makeCustomAnimation(context, 0, 0).toBundle()

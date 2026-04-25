@@ -1,5 +1,63 @@
 # Project Context & History
 
+## Checkpoint (April 25, 2026 - Bulletin Source Fixed)
+**Status:** Home bulletin regression resolved and confirmed by user.
+
+### Confirmed Resolution
+1. User confirmed the home-screen bulletin now correctly displays text from App Content input.
+2. Bulletin is no longer showing event noticeboard text.
+3. This behavior is now considered the expected baseline and must not regress.
+
+### Implementation Notes (Locked Intent)
+1. App bulletin reader on Home uses dedicated App Content fields:
+    - `appContentShowBulletin`
+    - `appContentBulletinText`
+2. App Content admin publisher writes dedicated fields and neutralizes legacy bulletin fields to avoid cross-talk.
+3. Admin hosting was rebuilt and deployed so live publish flow matches source changes.
+
+### Next Active Validation
+1. Resume event playback test path while phone is in another app (Calculator).
+2. Expected behavior for notification path:
+    - Notification appears at event time.
+    - User taps notification.
+    - Event playback displays correctly.
+    - App returns user to prior screen/app after event.
+3. Next timed validation slot prepared: 21:30.
+
+## Pause Log (April 23, 2026 - Final Night Checkpoint)
+**Status at pause:** Functional flow is partially recovered after rollback to a prior approved baseline. Event playback and return path improved; residual pre-event visual artifact remains.
+
+### What Is Confirmed From Final 23:15 Run
+1. Event selection and trigger fired on time (`HARMONY_STRICT_V3` at 23:15).
+2. Event payload was captured and consumed (`captureLaunchEventId` then `consume_launch_payload`).
+3. User-observed outcome matched logs: slight pre-event flash/swirl, event played, then returned to Calculator.
+4. Return behavior is currently the strongest validated gain compared to the earlier regression loop.
+
+### Residual Issue To Fix Next Session
+1. Pre-event flash/black swirl still occurs during Harmony foreground handoff.
+2. Log evidence points to Android `SnapshotStartingWindow` and app-transition surfaces on task 490 during 23:15:04-23:15:05.
+3. A non-fatal method-channel mismatch is present:
+    - `MissingPluginException` for `is_device_locked` on channel `com.harmonybyintent.harmony_user_app/dormant_alarm`.
+
+### Locked Intent For Tomorrow (Do Not Drift)
+1. Keep rollback baseline as reference point (no broad UI/theme experimentation).
+2. Make one targeted fix pass only:
+    - Fix `is_device_locked` method-channel implementation mismatch.
+    - Re-test one controlled event.
+3. If result is acceptable, immediately prepare commit and Android App Bundle before migration.
+
+### Operational Notes
+1. Release install may fail with signature mismatch if device currently has debug-signed build.
+2. Debug install path is currently the reliable in-place validation route.
+3. Keep test cycles minimal; user requested closure-first execution.
+
+### Tomorrow Fast-Start Checklist
+1. Pull latest workspace state and verify no unintended file drift.
+2. Fix `is_device_locked` channel parity between Dart and Android native layer.
+3. Build/install (debug) and run one timed event validation.
+4. If pass criteria met, build release AAB and prepare commit.
+5. Execute migration checklist to move project from Windows to MacBook.
+
 ## Pause Log (April 21, 2026 - Live Deploy Verification Checkpoint)
 **Status at pause:** Clean reinstall completed and live behavior validated with build markers.
 

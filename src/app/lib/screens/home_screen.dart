@@ -156,37 +156,10 @@ class _HomeScreenState extends State<HomeScreen> {
             final featuredBody = data['featuredBody'] as String? ?? '';
             String? noticeBgImage;
 
-            String _buildNoticeText(Event e) {
-              final description = e.description.trim();
-              if (description.isNotEmpty) return description;
-
-              final eventTitle = e.title.trim();
-              final intent = (e.mostPopularIntent ?? '').trim();
-              final localStart = e.startTime.toLocal();
-              final hh = localStart.hour.toString().padLeft(2, '0');
-              final mm = localStart.minute.toString().padLeft(2, '0');
-
-              if (intent.isNotEmpty) {
-                return 'Pure Tone Focus: $intent at $hh:$mm';
-              }
-              if (eventTitle.isNotEmpty) {
-                return '$eventTitle at $hh:$mm';
-              }
-              return 'A Harmony tone session is available in My Harmony at $hh:$mm.';
-            }
-
-            final noticeEvent = eventService.activeNoticeboardEvent;
-            if (noticeEvent != null) {
-              showBulletin = true;
-              bulletinText = _buildNoticeText(noticeEvent);
-              if (noticeEvent.noticeBoardBgImage != null &&
-                  noticeEvent.noticeBoardBgImage!.isNotEmpty) {
-                noticeBgImage = noticeEvent.noticeBoardBgImage;
-              }
-            } else {
-              showBulletin = data['showBulletin'] as bool? ?? false;
-              bulletinText = data['bulletinText'] as String? ?? '';
-            }
+            // Hard rule: home bulletin is App Content-only and uses
+            // dedicated keys to avoid legacy/event writers overriding text.
+            showBulletin = data['appContentShowBulletin'] as bool? ?? false;
+            bulletinText = data['appContentBulletinText'] as String? ?? '';
 
             return Stack(
               children: [
@@ -460,6 +433,10 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
   bool _isInitialized = false;
   bool _hasError = false;
 
+  bool _isYoutubeUrl(String url) {
+    return url.contains('youtu') || (url.length == 11 && !url.contains('/'));
+  }
+
   @override
   void initState() {
     super.initState();
@@ -472,13 +449,10 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
     }
   }
 
-  bool _isYoutubeUrl(String url) {
-    return url.contains('youtu') || (url.length == 11 && !url.contains('/'));
-  }
-
   @override
   void didUpdateWidget(_FeaturedContentWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+
     if (widget.url != oldWidget.url || widget.type != oldWidget.type) {
       _disposeVideo();
       if (widget.url.isNotEmpty) {

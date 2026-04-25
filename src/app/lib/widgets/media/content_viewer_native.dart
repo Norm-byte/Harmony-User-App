@@ -41,7 +41,8 @@ class ContentViewer extends StatelessWidget {
       );
     }
 
-    final isVideo = url.toLowerCase().contains('.mp4') ||
+    final isVideo =
+        url.toLowerCase().contains('.mp4') ||
         url.toLowerCase().contains('.mov') ||
         url.toLowerCase().contains('.webm') ||
         url.toLowerCase().contains('.mpeg') ||
@@ -52,9 +53,10 @@ class ContentViewer extends StatelessWidget {
         url.toLowerCase().contains('.wav') ||
         url.toLowerCase().contains('.aac') ||
         url.toLowerCase().contains('.m4a');
-    
+
     final isPdf = url.toLowerCase().contains('.pdf');
-    final isDoc = url.toLowerCase().contains('.ppt') ||
+    final isDoc =
+        url.toLowerCase().contains('.ppt') ||
         url.toLowerCase().contains('.pptx') ||
         url.toLowerCase().contains('.doc') ||
         url.toLowerCase().contains('.docx');
@@ -67,7 +69,14 @@ class ContentViewer extends StatelessWidget {
     }
 
     if (isVideo) {
-      return _NativeVideoPlayer(url: url, controls: controls, autoPlay: autoPlay, loop: loop, fit: fit, volume: volume);
+      return _NativeVideoPlayer(
+        url: url,
+        controls: controls,
+        autoPlay: autoPlay,
+        loop: loop,
+        fit: fit,
+        volume: volume,
+      );
     } else if (isPdf) {
       return SfPdfViewer.network(
         url,
@@ -80,14 +89,13 @@ class ContentViewer extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.description,
-              color: Colors.white,
-              size: 48,
-            ),
+            const Icon(Icons.description, color: Colors.white, size: 48),
             const SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+              onPressed: () => launchUrl(
+                Uri.parse(url),
+                mode: LaunchMode.externalApplication,
+              ),
               icon: const Icon(Icons.open_in_new),
               label: const Text('Open Document'),
             ),
@@ -105,14 +113,14 @@ class ContentViewer extends StatelessWidget {
           child: CircularProgressIndicator(
             value: loadingProgress.expectedTotalBytes != null
                 ? loadingProgress.cumulativeBytesLoaded /
-                    loadingProgress.expectedTotalBytes!
+                      loadingProgress.expectedTotalBytes!
                 : null,
             color: Colors.white,
           ),
         );
       },
-      errorBuilder: (_, __, ___) => const Center(
-          child: Icon(Icons.broken_image, color: Colors.white)),
+      errorBuilder: (_, __, ___) =>
+          const Center(child: Icon(Icons.broken_image, color: Colors.white)),
     );
   }
 }
@@ -122,7 +130,11 @@ class _NativeYoutubePlayer extends StatefulWidget {
   final bool autoPlay;
   final double volume;
 
-  const _NativeYoutubePlayer({required this.url, this.autoPlay = false, required this.volume});
+  const _NativeYoutubePlayer({
+    required this.url,
+    this.autoPlay = false,
+    required this.volume,
+  });
 
   @override
   State<_NativeYoutubePlayer> createState() => _NativeYoutubePlayerState();
@@ -141,14 +153,16 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
       final uri = Uri.parse(url);
       if (uri.pathSegments.contains('shorts')) {
         final index = uri.pathSegments.indexOf('shorts');
-        if (index + 1 < uri.pathSegments.length) return uri.pathSegments[index + 1];
+        if (index + 1 < uri.pathSegments.length)
+          return uri.pathSegments[index + 1];
       }
       if (uri.pathSegments.contains('live')) {
         final index = uri.pathSegments.indexOf('live');
-        if (index + 1 < uri.pathSegments.length) return uri.pathSegments[index + 1];
+        if (index + 1 < uri.pathSegments.length)
+          return uri.pathSegments[index + 1];
       }
     } catch (_) {}
-    
+
     return null;
   }
 
@@ -158,7 +172,7 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
     final videoId = _extractVideoId(widget.url);
     debugPrint('YoutubePlayer: URL: ${widget.url}');
     debugPrint('YoutubePlayer: Extracted ID: $videoId');
-    
+
     _controller = YoutubePlayerController(
       initialVideoId: videoId ?? '',
       flags: YoutubePlayerFlags(
@@ -169,7 +183,7 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
         loop: true,
       ),
     );
-    
+
     // Set volume after init
     // Youtube volume is 0-100
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -193,7 +207,8 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
           children: [
             const Icon(Icons.error, color: Colors.red, size: 48),
             const SizedBox(height: 8),
-            Text('Invalid Video ID\nURL: ${widget.url}', 
+            Text(
+              'Invalid Video ID\nURL: ${widget.url}',
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white),
             ),
@@ -284,7 +299,10 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
   void _attachPlaybackGuard() {
     _controller?.addListener(() {
       final controller = _controller;
-      if (controller == null || !_initialized || !widget.autoPlay || widget.controls) {
+      if (controller == null ||
+          !_initialized ||
+          !widget.autoPlay ||
+          widget.controls) {
         return;
       }
 
@@ -295,7 +313,9 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
 
       if (!value.isPlaying && !value.isCompleted) {
         final now = DateTime.now();
-        if (_lastAutoResume == null || now.difference(_lastAutoResume!) > const Duration(milliseconds: 750)) {
+        if (_lastAutoResume == null ||
+            now.difference(_lastAutoResume!) >
+                const Duration(milliseconds: 750)) {
           _lastAutoResume = now;
           controller.play();
         }
@@ -305,27 +325,32 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
 
   Future<void> _initializePlayer() async {
     try {
-      // CACHE STRATEGY IMPROVED (v4+): 
+      // CACHE STRATEGY IMPROVED (v4+):
       // 1. Check if file exists in cache WITHOUT blocking for download.
       // 2. If cached -> Play file (Instant).
       // 3. If NOT cached -> Stream from Network (Instant Start) while caching in background.
-      
+
       final fileInfo = await DefaultCacheManager().getFileFromCache(widget.url);
-      
+
       if (fileInfo != null && await fileInfo.file.exists()) {
-         debugPrint("Playing from local cache: ${widget.url}");
-         _controller = VideoPlayerController.file(fileInfo.file);
+        debugPrint("Playing from local cache: ${widget.url}");
+        _controller = VideoPlayerController.file(fileInfo.file);
       } else {
-         debugPrint("File not in cache. Streaming network URL for immediate playback: ${widget.url}");
-         _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
-         
-         // Verify connection/validity implicitly by letting initialize() run below.
-         // Trigger background download for next time (Fire and Forget)
-         DefaultCacheManager().downloadFile(widget.url).then((_) {
-            debugPrint("Background download complete for: ${widget.url}");
-         }).catchError((e) {
-            debugPrint("Background download failed (non-fatal): $e");
-         });
+        debugPrint(
+          "File not in cache. Streaming network URL for immediate playback: ${widget.url}",
+        );
+        _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+
+        // Verify connection/validity implicitly by letting initialize() run below.
+        // Trigger background download for next time (Fire and Forget)
+        DefaultCacheManager()
+            .downloadFile(widget.url)
+            .then((_) {
+              debugPrint("Background download complete for: ${widget.url}");
+            })
+            .catchError((e) {
+              debugPrint("Background download failed (non-fatal): $e");
+            });
       }
     } catch (e) {
       debugPrint("Player init error: $e. Fallback to network stream.");
@@ -373,18 +398,15 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
 
     if (!_initialized || _controller == null) {
       return Container(
-        color: Colors.black,
+        color: Colors.transparent,
         alignment: Alignment.center,
-        child: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.music_video, color: Colors.white30, size: 44),
-            SizedBox(height: 8),
-            Text(
-              'Preparing media...',
-              style: TextStyle(color: Colors.white54, fontSize: 14),
-            ),
-          ],
+        child: const SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Colors.white30,
+          ),
         ),
       );
     }
@@ -411,14 +433,18 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
             GestureDetector(
               onTap: () {
                 setState(() {
-                  _controller!.value.isPlaying ? _controller!.pause() : _controller!.play();
+                  _controller!.value.isPlaying
+                      ? _controller!.pause()
+                      : _controller!.play();
                 });
               },
               child: Container(
                 color: Colors.transparent,
                 child: Center(
                   child: Icon(
-                    _controller!.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                    _controller!.value.isPlaying
+                        ? Icons.pause
+                        : Icons.play_arrow,
                     color: Colors.white.withValues(alpha: 0.7),
                     size: 48,
                   ),

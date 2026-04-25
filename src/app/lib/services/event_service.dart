@@ -31,6 +31,8 @@ class EventService extends ChangeNotifier {
   bool _pendingAlarmForceVideo = false;
   bool? _pendingAlarmVerifiedExists;
   bool _currentEventFromAlarmLaunch = false;
+  bool _isAlarmLaunchTransitionActive = false;
+  Timer? _alarmLaunchTransitionTimer;
   bool _nativeLaunchPayloadCheckInFlight = false;
   String? _lastKnownAlarmLaunchEventId;
   String? _lastNoticeboardDebugSignature;
@@ -91,7 +93,9 @@ class EventService extends ChangeNotifier {
     if (active.isEmpty) {
       if (_lastNoticeboardDebugSignature != 'none') {
         _lastNoticeboardDebugSignature = 'none';
-        debugPrint('HARMONY_NOTICEBOARD: none active at ${now.toIso8601String()}');
+        debugPrint(
+          'HARMONY_NOTICEBOARD: none active at ${now.toIso8601String()}',
+        );
       }
       return null;
     }
@@ -103,12 +107,12 @@ class EventService extends ChangeNotifier {
     final selectedVisibilityAfter = Duration(
       minutes: selected.noticeBoardVisibilityAfterMinutes ?? 0,
     );
-    final selectedShowTime = selected.startTime
-        .toLocal()
-        .subtract(selectedShowBefore);
-    final selectedHideTime = selected.endTime
-        .toLocal()
-        .add(selectedVisibilityAfter);
+    final selectedShowTime = selected.startTime.toLocal().subtract(
+      selectedShowBefore,
+    );
+    final selectedHideTime = selected.endTime.toLocal().add(
+      selectedVisibilityAfter,
+    );
     final signature =
         '${selected.id}|${selectedShowTime.toIso8601String()}|${selectedHideTime.toIso8601String()}';
 
@@ -131,6 +135,7 @@ class EventService extends ChangeNotifier {
   List<Map<String, dynamic>> get myEvents => _myEvents;
 
   bool _isEventActive = false;
+  bool _isAppInForeground = true;
   bool _isWorldwide = false;
   String _currentEventTitle = '';
   String _currentEventDescription = '';
@@ -147,10 +152,15 @@ class EventService extends ChangeNotifier {
   final Map<String, DateTime> _recentlyDismissedIds = {};
 
   bool get isEventActive => _isEventActive;
+  bool get isAlarmLaunchTransitionActive => _isAlarmLaunchTransitionActive;
   bool get isWorldwide => _isWorldwide;
   String get currentEventTitle => _currentEventTitle;
   String get currentEventDescription => _currentEventDescription;
   String? get currentEventMediaUrl => _currentEventMediaUrl;
+
+  void setAppInForegroundState(bool isForeground) {
+    _isAppInForeground = isForeground;
+  }
 
   // Track Auto-Join processing to prevent spamming Firestore
   final Set<String> _autoJoinInProgress = {};
@@ -314,8 +324,8 @@ class EventService extends ChangeNotifier {
 
     // Listen to National Events
     _eventsSubscription = _firestore
-      .collection('events')
-      .where('isPublished', isEqualTo: true)
+        .collection('events')
+        .where('isPublished', isEqualTo: true)
         .snapshots()
         .listen(
           (snapshot) {
@@ -330,8 +340,8 @@ class EventService extends ChangeNotifier {
 
     // Listen to Global Events
     _globalEventsSubscription = _firestore
-      .collection('global_events')
-      .where('isPublished', isEqualTo: true)
+        .collection('global_events')
+        .where('isPublished', isEqualTo: true)
         .snapshots()
         .listen(
           (snapshot) {
@@ -384,7 +394,10 @@ class EventService extends ChangeNotifier {
   }
 
   void _refreshEvents() {
-    _nationalEvents = _processDocs(_nationalDocs, overrideType: EventType.national);
+    _nationalEvents = _processDocs(
+      _nationalDocs,
+      overrideType: EventType.national,
+    );
     _globalEvents = _processDocs(_globalDocs, overrideType: EventType.global);
     _mergeEvents();
   }
@@ -435,10 +448,14 @@ class EventService extends ChangeNotifier {
           return;
         }
         // Found a pending alarm launch - queue it as pending so the next cycle triggers it with fromAlarmLaunch=true
-        print('HARMONY_ALARM: found stored launch payload eventId=$eventId, queuing as pending alarm');
+        print(
+          'HARMONY_ALARM: found stored launch payload eventId=$eventId, queuing as pending alarm',
+        );
         _lastKnownAlarmLaunchEventId = eventId;
         _pendingAlarmEventId = eventId;
-        _pendingAlarmEventExpiresAt = DateTime.now().add(const Duration(minutes: 5));
+        _pendingAlarmEventExpiresAt = DateTime.now().add(
+          const Duration(minutes: 5),
+        );
         _pendingAlarmForceVideo = autoPlayVideo;
         _pendingAlarmVerifiedExists = null;
         _verifyPendingAlarmEventStillPublished(eventId);
@@ -461,12 +478,18 @@ class EventService extends ChangeNotifier {
     _pendingAlarmEventExpiresAt = DateTime.now().add(holdFor);
     _pendingAlarmForceVideo = forceVideo;
     _pendingAlarmVerifiedExists = null;
+    _alarmLaunchTransitionTimer?.cancel();
+    _isAlarmLaunchTransitionActive = true;
+    notifyListeners();
     print('HARMONY_ALARM: queued immediate playback for $_pendingAlarmEventId');
     _verifyPendingAlarmEventStillPublished(_pendingAlarmEventId!);
     _attemptPendingAlarmPlayback(forceWindow: true);
   }
 
-  void _clearPendingAlarmPlayback({String? reason}) {
+  void _clearPendingAlarmPlayback({
+    String? reason,
+    bool restoreNativePresentation = true,
+  }) {
     final shouldRestoreNativePresentation =
         _pendingAlarmForceVideo || _currentEventFromAlarmLaunch;
     if (reason != null && reason.isNotEmpty) {
@@ -476,7 +499,12 @@ class EventService extends ChangeNotifier {
     _pendingAlarmEventExpiresAt = null;
     _pendingAlarmForceVideo = false;
     _pendingAlarmVerifiedExists = null;
-    if (shouldRestoreNativePresentation) {
+    if (!_isEventActive && _isAlarmLaunchTransitionActive) {
+      _alarmLaunchTransitionTimer?.cancel();
+      _isAlarmLaunchTransitionActive = false;
+      notifyListeners();
+    }
+    if (restoreNativePresentation && shouldRestoreNativePresentation) {
       NotificationService().restoreLockscreenPresentation();
     }
   }
@@ -532,7 +560,9 @@ class EventService extends ChangeNotifier {
 
     final now = DateTime.now();
     if (now.isAfter(expiresAt)) {
-      _clearPendingAlarmPlayback(reason: 'pending playback expired for $pendingId');
+      _clearPendingAlarmPlayback(
+        reason: 'pending playback expired for $pendingId',
+      );
       print('HARMONY_ALARM: pending playback expired for $pendingId');
       return false;
     }
@@ -566,6 +596,7 @@ class EventService extends ChangeNotifier {
       _currentEventFromAlarmLaunch = true;
       _clearPendingAlarmPlayback(
         reason: 'pending target already active (${target.id})',
+        restoreNativePresentation: false,
       );
       print(
         'HARMONY_ALARM: target ${target.id} already active; upgraded to alarm launch and skipping retrigger',
@@ -575,7 +606,8 @@ class EventService extends ChangeNotifier {
 
     final startLocal = target.startTime.toLocal();
     final endLocal = target.endTime.toLocal();
-    final inWindow = now.isAfter(startLocal.subtract(const Duration(minutes: 2))) &&
+    final inWindow =
+        now.isAfter(startLocal.subtract(const Duration(minutes: 2))) &&
         now.isBefore(endLocal.add(const Duration(minutes: 5)));
 
     if (!forceWindow && !inWindow) {
@@ -594,13 +626,18 @@ class EventService extends ChangeNotifier {
         '(ended ${endLocal.toIso8601String()}, now ${DateTime.now().toIso8601String()})',
       );
       NotificationService().cancelNotificationForEvent(target.id);
-      _clearPendingAlarmPlayback(reason: 'event already ended, late tap dropped for ${target.id}');
+      _clearPendingAlarmPlayback(
+        reason: 'event already ended, late tap dropped for ${target.id}',
+      );
       return false;
     }
 
     // Cap playback duration to whatever time is left in the event window.
     // The user sees only what there is still to see — no full replay.
-    final cappedSeconds = remaining.inSeconds.clamp(1, target.durationSeconds ?? 3600);
+    final cappedSeconds = remaining.inSeconds.clamp(
+      1,
+      target.durationSeconds ?? 3600,
+    );
     if (cappedSeconds < (target.durationSeconds ?? 3600)) {
       print(
         'HARMONY_ALARM: late tap for ${target.id} — capping duration to '
@@ -612,7 +649,9 @@ class EventService extends ChangeNotifier {
     _dismissedEventStartTimes.remove(target.id);
     _recentlyDismissedIds.remove(target.id);
 
-    print('HARMONY_ALARM: forcing playback for ${target.id} from launch intent');
+    print(
+      'HARMONY_ALARM: forcing playback for ${target.id} from launch intent',
+    );
     final forcedStart = DateTime.now();
     final forcedMedia = forceVideo
         ? _selectPlaybackMediaForForcedVideo(target)
@@ -629,7 +668,10 @@ class EventService extends ChangeNotifier {
       durationSeconds: cappedSeconds,
     );
 
-    _clearPendingAlarmPlayback(reason: 'pending alarm playback consumed');
+    _clearPendingAlarmPlayback(
+      reason: 'pending alarm playback consumed',
+      restoreNativePresentation: false,
+    );
     return true;
   }
 
@@ -683,8 +725,10 @@ class EventService extends ChangeNotifier {
       }
 
       final eventDistance = event.startTime.difference(now).inSeconds.abs();
-      final existingDistance =
-          existing.startTime.difference(now).inSeconds.abs();
+      final existingDistance = existing.startTime
+          .difference(now)
+          .inSeconds
+          .abs();
 
       if (eventDistance < existingDistance) {
         deduped[dedupeKey] = event;
@@ -767,7 +811,8 @@ class EventService extends ChangeNotifier {
         // Do not drop these events, otherwise stale titled events can appear to
         // "replace" intended blank slots in the noticeboard UI.
 
-        final isDraftDoc = data['isDraft'] == true || doc.id.startsWith('draft_slot_');
+        final isDraftDoc =
+            data['isDraft'] == true || doc.id.startsWith('draft_slot_');
         if (isDraftDoc || !event.isPublished) {
           continue;
         }
@@ -939,6 +984,7 @@ class EventService extends ChangeNotifier {
   void dispose() {
     _timer?.cancel();
     _notificationSyncTimer?.cancel();
+    _alarmLaunchTransitionTimer?.cancel();
     _eventsSubscription?.cancel();
     _globalEventsSubscription?.cancel();
     _myEventsSubscription?.cancel();
@@ -1117,6 +1163,20 @@ class EventService extends ChangeNotifier {
     }
 
     if (bestEventToTrigger != null) {
+      final lifecycleState = WidgetsBinding.instance.lifecycleState;
+      final isResumed = lifecycleState == AppLifecycleState.resumed;
+
+      // Do not auto-trigger regular timeline playback while the app is in the
+      // background. Backgrounded playback can lose the video surface and
+      // degrade into audio-only. Alarm-launch playback still uses the pending
+      // alarm path above.
+      if (!_isAppInForeground || !isResumed) {
+        print(
+          'HARMONY_STRICT_V3: Skipping background auto-trigger for ${bestEventToTrigger.id}',
+        );
+        return;
+      }
+
       // ABSOLUTE STRICT CHECK: If this exact ID is active, DO NOTHING.
       if (_isEventActive && _currentEventId == bestEventToTrigger.id) {
         print(
@@ -1157,12 +1217,25 @@ class EventService extends ChangeNotifier {
     // DateTime? endTime, // REMOVED to prevent accidental usage
     int? durationSeconds,
   }) {
+    final effectiveFromAlarmLaunch =
+        fromAlarmLaunch || (id != null && id == _lastKnownAlarmLaunchEventId);
+
+    if (!effectiveFromAlarmLaunch) {
+      final lifecycleState = WidgetsBinding.instance.lifecycleState;
+      if (lifecycleState != AppLifecycleState.resumed) {
+        print(
+          "HARMONY_STRICT_V3: blocked non-alarm trigger while lifecycle=$lifecycleState for id=${id ?? 'unknown'}",
+        );
+        return;
+      }
+    }
+
     print(
       "HARMONY_STRICT_V3: Triggering Event '$title' with Duration: $durationSeconds",
     );
 
-    final effectiveFromAlarmLaunch =
-        fromAlarmLaunch || (id != null && id == _lastKnownAlarmLaunchEventId);
+    _alarmLaunchTransitionTimer?.cancel();
+    _isAlarmLaunchTransitionActive = false;
 
     _isEventActive = true;
     _currentEventId = id;
@@ -1192,25 +1265,25 @@ class EventService extends ChangeNotifier {
     }
 
     // Async verify: ask native for the last alarm-launched event ID.
-    // get_last_alarm_launched_event_id is set by captureLaunchEventId and never cleared,
-    // making it reliable even when _nativeLaunchPayloadCheckInFlight is stuck.
-    // This resolves <100ms after trigger, well before any dismiss timer fires.
+    // Native now returns this as a one-shot consume token to avoid stale IDs
+    // leaking into later foreground events.
     if (!effectiveFromAlarmLaunch && id != null) {
       final checkId = id;
       _dormantAlarmChannel
           .invokeMethod<String>('get_last_alarm_launched_event_id')
           .then((nativeId) {
-        if (nativeId != null &&
-            nativeId.isNotEmpty &&
-            nativeId == checkId &&
-            _currentEventId == checkId) {
-          _currentEventFromAlarmLaunch = true;
-          _lastKnownAlarmLaunchEventId = nativeId;
-          print(
-            'HARMONY_ALARM: async alarm launch verified for $checkId (native=$nativeId)',
-          );
-        }
-      }).catchError((_) {});
+            if (nativeId != null &&
+                nativeId.isNotEmpty &&
+                nativeId == checkId &&
+                _currentEventId == checkId) {
+              _currentEventFromAlarmLaunch = true;
+              _lastKnownAlarmLaunchEventId = nativeId;
+              print(
+                'HARMONY_ALARM: async alarm launch verified for $checkId (native=$nativeId)',
+              );
+            }
+          })
+          .catchError((_) {});
     }
 
     _dismissTimer?.cancel();
@@ -1245,7 +1318,9 @@ class EventService extends ChangeNotifier {
   }
 
   void dismissEvent() {
-    print("DEBUG: dismissEvent called for ID: $_currentEventId [restore-v3-sync]");
+    print(
+      "DEBUG: dismissEvent called for ID: $_currentEventId [restore-v3-sync]",
+    );
     final currentEventId = _currentEventId;
     bool shouldRestoreLockscreen = _currentEventFromAlarmLaunch;
 
@@ -1303,13 +1378,29 @@ class EventService extends ChangeNotifier {
 
     // Alarm launch IDs are one-shot markers. Clear after dismiss when consumed,
     // so foreground/non-alarm playback of later events doesn't inherit restore behavior.
-    if (currentEventId != null && _lastKnownAlarmLaunchEventId == currentEventId) {
+    if (currentEventId != null &&
+        _lastKnownAlarmLaunchEventId == currentEventId) {
       _lastKnownAlarmLaunchEventId = null;
     }
 
     if (shouldRestoreLockscreen) {
+      _alarmLaunchTransitionTimer?.cancel();
+      _isAlarmLaunchTransitionActive = true;
       print('HARMONY_ALARM: requesting post-event lockscreen restore (v2)');
       NotificationService().restoreLockscreenPresentation();
+
+      _alarmLaunchTransitionTimer = Timer(
+        const Duration(milliseconds: 700),
+        () {
+          if (!_isEventActive && _isAlarmLaunchTransitionActive) {
+            _isAlarmLaunchTransitionActive = false;
+            notifyListeners();
+          }
+        },
+      );
+    } else {
+      _alarmLaunchTransitionTimer?.cancel();
+      _isAlarmLaunchTransitionActive = false;
     }
 
     notifyListeners();
@@ -1343,7 +1434,9 @@ class EventService extends ChangeNotifier {
       // If event already started by scheduler path, upgrade it so dismiss uses alarm restore.
       if (_isEventActive && _currentEventId == eventId) {
         _currentEventFromAlarmLaunch = true;
-        print('HARMONY_ALARM: upgraded active event to alarm launch for $eventId');
+        print(
+          'HARMONY_ALARM: upgraded active event to alarm launch for $eventId',
+        );
         return;
       }
 
