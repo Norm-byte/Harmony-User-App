@@ -314,7 +314,8 @@ class EventService extends ChangeNotifier {
 
     // Listen to National Events
     _eventsSubscription = _firestore
-        .collection('events')
+      .collection('events')
+      .where('isPublished', isEqualTo: true)
         .snapshots()
         .listen(
           (snapshot) {
@@ -329,7 +330,8 @@ class EventService extends ChangeNotifier {
 
     // Listen to Global Events
     _globalEventsSubscription = _firestore
-        .collection('global_events')
+      .collection('global_events')
+      .where('isPublished', isEqualTo: true)
         .snapshots()
         .listen(
           (snapshot) {
@@ -491,7 +493,10 @@ class EventService extends ChangeNotifier {
         if (!doc.exists) return false;
         final data = doc.data();
         if (data == null) return false;
-        return data['isPublished'] as bool? ?? true;
+        final isPublished = data['isPublished'] == true;
+        final isDraft = data['isDraft'] == true;
+        final isDraftId = doc.id.startsWith('draft_slot_');
+        return isPublished && !isDraft && !isDraftId;
       }
 
       final stillPublished =
@@ -578,9 +583,8 @@ class EventService extends ChangeNotifier {
     }
 
     // ── MISSED = MISSED enforcement ─────────────────────────────────────────
-    // Compute how much of the event window is still remaining.  The event ends
+    // Compute how much of the event window is still remaining. The event ends
     // at endLocal; anything past that is completely missed — no replay ever.
-    final endLocal = target.endTime.toLocal();
     final remaining = endLocal.difference(DateTime.now());
 
     if (remaining.inSeconds <= 0) {
@@ -759,12 +763,12 @@ class EventService extends ChangeNotifier {
           );
         }
 
-        // Filter out invalid events
-        if (event.title.trim().isEmpty || event.title.length < 2) {
-          continue;
-        }
+        // Keep blank titles: admins may intentionally publish empty title cards.
+        // Do not drop these events, otherwise stale titled events can appear to
+        // "replace" intended blank slots in the noticeboard UI.
 
-        if (!event.isPublished) {
+        final isDraftDoc = data['isDraft'] == true || doc.id.startsWith('draft_slot_');
+        if (isDraftDoc || !event.isPublished) {
           continue;
         }
 
@@ -782,10 +786,7 @@ class EventService extends ChangeNotifier {
           DateTime baseDate = event.startTime;
           final localNow = DateTime.now();
 
-          if (isDaily ||
-              (hasNoRecurrence &&
-                  event.originTime != null &&
-                  event.originTime!.contains(':'))) {
+          if (isDaily) {
             baseDate = localNow;
           } else if (isWeekly) {
             // Fix: If weekly, we must ensure baseDate has the correct weekday
@@ -833,15 +834,8 @@ class EventService extends ChangeNotifier {
             minutes: event.visibilityAfterMinutes ?? 0,
           );
           if (localEnd.add(visibilityAfter).isBefore(localNow) &&
-              (isDaily ||
-                  isWeekly ||
-                  (hasNoRecurrence &&
-                      event.originTime != null &&
-                      event.originTime!.contains(':')))) {
-            if (isDaily ||
-                (hasNoRecurrence &&
-                    event.originTime != null &&
-                    event.originTime!.contains(':'))) {
+              (isDaily || isWeekly)) {
+            if (isDaily) {
               localStart = localStart.add(const Duration(days: 1));
               localEnd = localStart.add(duration);
             } else if (isWeekly) {
