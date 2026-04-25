@@ -29,6 +29,7 @@ class EventService extends ChangeNotifier {
   String? _pendingAlarmEventId;
   DateTime? _pendingAlarmEventExpiresAt;
   bool _pendingAlarmForceVideo = false;
+  bool? _pendingAlarmVerifiedExists;
   bool _currentEventFromAlarmLaunch = false;
   bool _nativeLaunchPayloadCheckInFlight = false;
   String? _lastKnownAlarmLaunchEventId;
@@ -437,6 +438,8 @@ class EventService extends ChangeNotifier {
         _pendingAlarmEventId = eventId;
         _pendingAlarmEventExpiresAt = DateTime.now().add(const Duration(minutes: 5));
         _pendingAlarmForceVideo = autoPlayVideo;
+        _pendingAlarmVerifiedExists = null;
+        _verifyPendingAlarmEventStillPublished(eventId);
       }
     } catch (e) {
       print('HARMONY_ALARM: _tryConsumeStoredLaunchPayload failed: $e');
@@ -455,8 +458,58 @@ class EventService extends ChangeNotifier {
     _pendingAlarmEventId = eventId.trim();
     _pendingAlarmEventExpiresAt = DateTime.now().add(holdFor);
     _pendingAlarmForceVideo = forceVideo;
+    _pendingAlarmVerifiedExists = null;
     print('HARMONY_ALARM: queued immediate playback for $_pendingAlarmEventId');
+    _verifyPendingAlarmEventStillPublished(_pendingAlarmEventId!);
     _attemptPendingAlarmPlayback(forceWindow: true);
+  }
+
+  void _clearPendingAlarmPlayback({String? reason}) {
+    if (reason != null && reason.isNotEmpty) {
+      print('HARMONY_ALARM: clearing pending playback ($reason)');
+    }
+    _pendingAlarmEventId = null;
+    _pendingAlarmEventExpiresAt = null;
+    _pendingAlarmForceVideo = false;
+    _pendingAlarmVerifiedExists = null;
+  }
+
+  Future<void> _verifyPendingAlarmEventStillPublished(String eventId) async {
+    try {
+      final national = await _firestore.collection('events').doc(eventId).get();
+      final global = await _firestore
+          .collection('global_events')
+          .doc(eventId)
+          .get();
+
+      bool existsAndPublished(DocumentSnapshot<Map<String, dynamic>> doc) {
+        if (!doc.exists) return false;
+        final data = doc.data();
+        if (data == null) return false;
+        return data['isPublished'] as bool? ?? true;
+      }
+
+      final stillPublished =
+          existsAndPublished(national) || existsAndPublished(global);
+
+      // Ignore verification result if pending ID changed mid-flight.
+      if (_pendingAlarmEventId != eventId) return;
+
+      _pendingAlarmVerifiedExists = stillPublished;
+
+      if (!stillPublished) {
+        await NotificationService().cancelNotificationForEvent(eventId);
+        _clearPendingAlarmPlayback(
+          reason: 'stale alarm dropped for deleted/unpublished event $eventId',
+        );
+      }
+    } catch (e) {
+      // Keep pending state when verification fails transiently; next cycle retries.
+      if (_pendingAlarmEventId == eventId) {
+        _pendingAlarmVerifiedExists = null;
+      }
+      print('HARMONY_ALARM: verify pending event failed for $eventId: $e');
+    }
   }
 
   bool _attemptPendingAlarmPlayback({bool forceWindow = false}) {
@@ -469,10 +522,21 @@ class EventService extends ChangeNotifier {
 
     final now = DateTime.now();
     if (now.isAfter(expiresAt)) {
-      _pendingAlarmEventId = null;
-      _pendingAlarmEventExpiresAt = null;
-      _pendingAlarmForceVideo = false;
+      _clearPendingAlarmPlayback(reason: 'pending playback expired for $pendingId');
       print('HARMONY_ALARM: pending playback expired for $pendingId');
+      return false;
+    }
+
+    // Do not allow alarm playback until we confirm the event still exists in Firestore.
+    if (_pendingAlarmVerifiedExists == null) {
+      _verifyPendingAlarmEventStillPublished(pendingId);
+      return false;
+    }
+
+    if (_pendingAlarmVerifiedExists == false) {
+      _clearPendingAlarmPlayback(
+        reason: 'pending event no longer exists in Firestore ($pendingId)',
+      );
       return false;
     }
 
@@ -490,9 +554,9 @@ class EventService extends ChangeNotifier {
 
     if (_isEventActive && _currentEventId == target.id) {
       _currentEventFromAlarmLaunch = true;
-      _pendingAlarmEventId = null;
-      _pendingAlarmEventExpiresAt = null;
-      _pendingAlarmForceVideo = false;
+      _clearPendingAlarmPlayback(
+        reason: 'pending target already active (${target.id})',
+      );
       print(
         'HARMONY_ALARM: target ${target.id} already active; upgraded to alarm launch and skipping retrigger',
       );
@@ -530,9 +594,7 @@ class EventService extends ChangeNotifier {
       durationSeconds: target.durationSeconds,
     );
 
-    _pendingAlarmEventId = null;
-    _pendingAlarmEventExpiresAt = null;
-    _pendingAlarmForceVideo = false;
+    _clearPendingAlarmPlayback(reason: 'pending alarm playback consumed');
     return true;
   }
 
