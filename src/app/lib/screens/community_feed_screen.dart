@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,6 +30,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
   with WidgetsBindingObserver {
   final _postController = TextEditingController();
   final ScrollController _feedScrollController = ScrollController();
+  final Map<String, Future<String>> _resolvedNameFutureByUserId = {};
   bool _isPosting = false;
   
   // Daily Message Limit State
@@ -192,6 +194,122 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
     _calculateRemaining();
   }
 
+  bool _looksLikeFallbackName(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return true;
+    final normalized = trimmed.toLowerCase();
+    if (normalized == 'member' || normalized == 'guest') return true;
+    if (RegExp(r'^user[a-z0-9]{4,}$', caseSensitive: false).hasMatch(trimmed)) {
+      return true;
+    }
+    if (RegExp(r'^[a-z0-9]{6}$', caseSensitive: false).hasMatch(trimmed) &&
+        RegExp(r'\d').hasMatch(trimmed)) {
+      return true;
+    }
+    return false;
+  }
+
+  Future<String> _fetchBestNameForUserId(
+    String userId,
+    String fallback,
+  ) async {
+    try {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .get();
+      final data = userDoc.data();
+
+      final emailPrefix = (data?['email'] as String?)?.contains('@') == true
+          ? (data!['email'] as String).split('@').first.trim()
+          : null;
+
+      final candidates = <String?>[
+        data?['username'] as String?,
+        data?['userName'] as String?,
+        data?['name'] as String?,
+        data?['displayName'] as String?,
+        emailPrefix,
+        fallback,
+      ];
+
+      for (final candidate in candidates) {
+        final sanitized = UserService.sanitizePublicDisplayName(candidate);
+        if (UserService.isRecognizedPublicDisplayName(sanitized) &&
+            !_looksLikeFallbackName(sanitized)) {
+          return sanitized;
+        }
+      }
+
+      if (data?['isSuperAdmin'] == true) {
+        return 'Admin 1';
+      }
+    } catch (_) {}
+
+    if (UserService.isRecognizedPublicDisplayName(fallback) &&
+        !_looksLikeFallbackName(fallback)) {
+      return fallback;
+    }
+    return 'Member';
+  }
+
+  Future<String> _resolveDisplayNameForPost(Map<String, dynamic> post) {
+    final rawName = UserService.sanitizePublicDisplayName(post['userName']?.toString());
+    final userId = (post['userId']?.toString() ?? '').trim();
+    final currentUser = UserService();
+
+    // A valid explicit post name should always override any stale cached fallback.
+    if (UserService.isRecognizedPublicDisplayName(rawName) &&
+        !_looksLikeFallbackName(rawName)) {
+      if (userId.isNotEmpty) {
+        _resolvedNameFutureByUserId[userId] = Future.value(rawName);
+      }
+      return Future.value(rawName);
+    }
+
+    if (userId.isEmpty) {
+      final localName = UserService.sanitizePublicDisplayName(currentUser.userName);
+      if (UserService.isRecognizedPublicDisplayName(localName) &&
+          !_looksLikeFallbackName(localName)) {
+        return Future.value(localName);
+      }
+      if (UserService.isRecognizedPublicDisplayName(rawName) &&
+          !_looksLikeFallbackName(rawName)) {
+        return Future.value(rawName);
+      }
+      return Future.value('Admin 1');
+    }
+
+    if (userId == currentUser.userId) {
+      final localName = UserService.sanitizePublicDisplayName(currentUser.userName);
+      if (UserService.isRecognizedPublicDisplayName(localName) &&
+          !_looksLikeFallbackName(localName)) {
+        _resolvedNameFutureByUserId[userId] = Future.value(localName);
+        return Future.value(localName);
+      }
+
+      final recovered = currentUser.ensureRecognizedPublicDisplayName().then((value) {
+        if (value != null &&
+            UserService.isRecognizedPublicDisplayName(value) &&
+            !_looksLikeFallbackName(value)) {
+          return value;
+        }
+        return 'Admin 1';
+      });
+      _resolvedNameFutureByUserId[userId] = recovered;
+      return recovered;
+    }
+
+    final existing = _resolvedNameFutureByUserId[userId];
+    if (existing != null) {
+      return existing;
+    }
+
+    final future = _fetchBestNameForUserId(userId, rawName);
+    _resolvedNameFutureByUserId[userId] = future;
+    return future;
+  }
+
   Future<void> _submitPost() async {
     final content = _postController.text.trim();
     if (content.isEmpty) return;
@@ -201,10 +319,15 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
     // Profanity Check
     if (ProfanityService().hasProfanity(content)) {
       final user = UserService();
-      final publicName = UserService.sanitizePublicDisplayName(user.userName);
+      final userId = user.userId.isNotEmpty
+          ? user.userId
+          : (FirebaseAuth.instance.currentUser?.uid ?? '');
+      final publicName =
+          await user.ensureRecognizedPublicDisplayName() ??
+          UserService.sanitizePublicDisplayName(user.userName);
       await FirebaseFirestore.instance.collection('moderation_queue').add({
         'content': content,
-        'userId': user.userId,
+        'userId': userId,
         'userName': publicName,
         'source': 'Community Room',
         'timestamp': FieldValue.serverTimestamp(),
@@ -239,10 +362,37 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
 
     try {
       final user = UserService();
-      final publicName = UserService.sanitizePublicDisplayName(user.userName);
+      final userId = user.userId.isNotEmpty
+          ? user.userId
+          : (FirebaseAuth.instance.currentUser?.uid ?? '');
+      if (userId.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not resolve account id. Please re-login and try again.'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
+      }
+      final publicName = await user.ensureRecognizedPublicDisplayName();
+      if (publicName == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Your account username is not recognized. Messaging is disabled until your profile name is fixed.',
+              ),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
+      }
       await FirebaseFirestore.instance.collection('community_posts').add({
         'content': content,
-        'userId': user.userId,
+        'userId': userId,
         'userName': publicName,
         'userPhoto': user.userPhoto,
         'timestamp': FieldValue.serverTimestamp(),
@@ -378,86 +528,82 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                   itemCount: posts.length,
                   itemBuilder: (context, index) {
                     final post = posts[index].data() as Map<String, dynamic>;
-                    final displayName = UserService.sanitizePublicDisplayName(
-                      post['userName']?.toString(),
-                    );
                     final timestamp = (post['timestamp'] as Timestamp?)?.toDate();
                     final likedBy = List<String>.from(post['likedBy'] ?? []);
                     final uid = UserService().userId;
 
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: _glassPanelDecoration(),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 12,
-                                  backgroundColor: Colors.white24,
-                                  backgroundImage: post['userPhoto'] != null ? NetworkImage(post['userPhoto']) : null,
-                                  child: post['userPhoto'] == null 
-                                      ? Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : 'M', style: const TextStyle(color: Colors.white, fontSize: 11))
-                                      : null,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  displayName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                    fontSize: 13,
+                    return FutureBuilder<String>(
+                      future: _resolveDisplayNameForPost(post),
+                      builder: (context, nameSnapshot) {
+                        final displayName = nameSnapshot.data ?? 'Member';
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 11,
+                                    backgroundColor: Colors.white12,
+                                    backgroundImage: post['userPhoto'] != null ? NetworkImage(post['userPhoto']) : null,
+                                    child: post['userPhoto'] == null
+                                        ? Text(
+                                            displayName.isNotEmpty ? displayName[0].toUpperCase() : 'M',
+                                            style: const TextStyle(color: Colors.white, fontSize: 10),
+                                          )
+                                        : null,
                                   ),
-                                ),
-                                const Spacer(),
-                                if (timestamp != null)
+                                  const SizedBox(width: 6),
                                   Text(
-                                    DateFormat('MMM d, h:mm a').format(timestamp),
-                                    style: TextStyle(fontSize: 10, color: Colors.white54),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              post['content'] ?? '',
-                              style: const TextStyle(color: Colors.white, height: 1.25, fontSize: 13),
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                GestureDetector(
-                                  onTap: () => _toggleLike(posts[index].id, likedBy),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.04),
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(color: Colors.white10),
+                                    displayName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                      fontSize: 12,
                                     ),
+                                  ),
+                                  const Spacer(),
+                                  if (timestamp != null)
+                                    Text(
+                                      DateFormat('MMM d, h:mm a').format(timestamp),
+                                      style: TextStyle(fontSize: 10, color: Colors.white54),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                post['content'] ?? '',
+                                style: const TextStyle(color: Colors.white, height: 1.22, fontSize: 13),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  GestureDetector(
+                                    onTap: () => _toggleLike(posts[index].id, likedBy),
                                     child: Row(
                                       children: [
                                         Icon(
                                           likedBy.contains(uid) ? Icons.thumb_up : Icons.thumb_up_outlined,
-                                          size: 14,
-                                          color: likedBy.contains(uid) ? Colors.greenAccent : Colors.white54
+                                          size: 13,
+                                          color: likedBy.contains(uid) ? Colors.greenAccent : Colors.white54,
                                         ),
                                         const SizedBox(width: 4),
-                                        Text('${post['likes'] ?? 0}', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                        Text(
+                                          '${post['likes'] ?? 0}',
+                                          style: const TextStyle(color: Colors.white54, fontSize: 11),
+                                        ),
                                       ],
                                     ),
                                   ),
-                                ),
-                              ],
-                            )
-                          ],
-                        ),
-                      ),
+                                ],
+                              ),
+                              Divider(color: Colors.white.withValues(alpha: 0.05), height: 10),
+                            ],
+                          ),
+                        );
+                      },
                     );
                   },
                 );

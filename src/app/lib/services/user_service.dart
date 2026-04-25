@@ -147,6 +147,23 @@ class UserService extends ChangeNotifier {
     // Sync to Firestore
     _syncUserToFirestore();
     _startPresenceHeartbeat();
+
+    // If a persisted session skipped login hydration, recover a valid
+    // public username from Firestore/auth before chat gates run.
+    unawaited(_repairDisplayNameIfNeeded());
+  }
+
+  Future<void> _repairDisplayNameIfNeeded() async {
+    if (isRecognizedPublicDisplayName(_userName)) {
+      return;
+    }
+
+    final recoveredName = await ensureRecognizedPublicDisplayName();
+    if (recoveredName != null) {
+      debugPrint('HARMONY_IDENTITY: recovered display name=$recoveredName');
+    } else {
+      debugPrint('HARMONY_IDENTITY: could not recover a recognized display name');
+    }
   }
 
   void _startPresenceHeartbeat() {
@@ -201,6 +218,65 @@ class UserService extends ChangeNotifier {
       sanitized = sanitized.substring(0, 24).trim();
     }
     return sanitized;
+  }
+
+  static bool isRecognizedPublicDisplayName(String? rawName) {
+    final sanitized = sanitizePublicDisplayName(rawName);
+    final normalized = sanitized.trim().toLowerCase();
+    return normalized.isNotEmpty && normalized != 'member' && normalized != 'guest';
+  }
+
+  Future<String?> ensureRecognizedPublicDisplayName() async {
+    final current = sanitizePublicDisplayName(_userName);
+    if (isRecognizedPublicDisplayName(current)) {
+      return current;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final effectiveUid = _userId.isNotEmpty ? _userId : (firebaseUser?.uid ?? '');
+    if (effectiveUid.isEmpty) {
+      return null;
+    }
+
+    try {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(effectiveUid)
+          .get();
+      final userData = userDoc.data();
+      final emailPrefix = (userData?['email'] as String?)?.contains('@') == true
+          ? (userData!['email'] as String).split('@').first.trim()
+          : (firebaseUser?.email?.contains('@') == true
+                ? firebaseUser!.email!.split('@').first.trim()
+                : null);
+
+      final candidates = <String?>[
+        userData?['username'] as String?,
+        userData?['userName'] as String?,
+        userData?['name'] as String?,
+        userData?['displayName'] as String?,
+        firebaseUser?.displayName,
+        emailPrefix,
+      ];
+
+      for (final candidate in candidates) {
+        final sanitized = sanitizePublicDisplayName(candidate);
+        if (isRecognizedPublicDisplayName(sanitized)) {
+          await setUser(effectiveUid, sanitized);
+          return sanitized;
+        }
+      }
+
+      if (userData?['isSuperAdmin'] == true) {
+        const fallbackAdminName = 'Admin 1';
+        await setUser(effectiveUid, fallbackAdminName);
+        return fallbackAdminName;
+      }
+    } catch (e) {
+      debugPrint('HARMONY_IDENTITY: failed to recover display name: $e');
+    }
+
+    return null;
   }
 
   Future<void> clearUser() async {

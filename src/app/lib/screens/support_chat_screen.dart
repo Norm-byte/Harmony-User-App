@@ -19,6 +19,20 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
   Future<void> _sendMessage() async {
     final content = _messageController.text.trim();
     if (content.isEmpty) return;
+
+    final user = UserService();
+    final publicName = await user.ensureRecognizedPublicDisplayName();
+    if (publicName == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Your account username is not recognized. Messaging is disabled until your profile name is fixed.',
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
     
     // Profanity Check
     if (ProfanityService().hasProfanity(content)) {
@@ -34,8 +48,6 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       _messageController.clear();
       
       // 3. Send to Moderation Queue (Silent Background Operation)
-      final user = UserService();
-      final publicName = UserService.sanitizePublicDisplayName(user.userName);
       try {
         await FirebaseFirestore.instance.collection('moderation_queue').add({
           'content': content,
@@ -56,8 +68,6 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
     setState(() => _isSending = true);
 
     try {
-      final user = UserService();
-      final publicName = UserService.sanitizePublicDisplayName(user.userName);
       final batch = FirebaseFirestore.instance.batch();
       
       // 1. Write to user's private message thread

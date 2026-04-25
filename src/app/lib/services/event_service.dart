@@ -2,40 +2,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/event.dart';
 import 'notification_service.dart';
 import 'user_service.dart';
 
-class _SlotDocMetadata {
-  final int hour;
-  final int minute;
-  final DateTime dateUtc;
-
-  const _SlotDocMetadata({
-    required this.hour,
-    required this.minute,
-    required this.dateUtc,
-  });
-}
-
 class EventService extends ChangeNotifier {
-  // National slot docs are date-specific and not stored as recurring.
-  // Only show slots published for in the current UTC week.
-  // Each week's events are independent by date, not by synthesis/rollforward.
-  static const Set<int> _allowedNationalSlotMinutes = {0, 15, 30, 45};
-
-  static DateTime _startOfUtcWeek(DateTime utcDate) {
-    final utcMidnight = DateTime.utc(utcDate.year, utcDate.month, utcDate.day);
-    return utcMidnight.subtract(Duration(days: utcMidnight.weekday - 1));
-  }
-
-  static bool _isInCurrentUtcWeek(DateTime utcDate) {
-    final nowUtc = DateTime.now().toUtc();
-    final weekStart = _startOfUtcWeek(nowUtc);
-    final weekEnd = weekStart.add(const Duration(days: 7));
-    return !utcDate.isBefore(weekStart) && utcDate.isBefore(weekEnd);
-  }
-
   // Singleton pattern
   static final EventService _instance = EventService._internal();
   factory EventService() => _instance;
@@ -59,12 +32,69 @@ class EventService extends ChangeNotifier {
   bool _currentEventFromAlarmLaunch = false;
   bool _nativeLaunchPayloadCheckInFlight = false;
   String? _lastKnownAlarmLaunchEventId;
-  String? _lastNoticeboardDebugSignature;
+  bool _hasLoadedNationalDocs = false;
+  bool _hasLoadedGlobalDocs = false;
 
   List<Event> _events = [];
   List<Event> _nationalEvents = [];
   List<Event> _globalEvents = [];
   List<Event> get events => _events;
+  bool get hasLoadedEventSources =>
+      _hasLoadedNationalDocs && _hasLoadedGlobalDocs;
+
+  Event? get activeNoticeboardEvent {
+    final now = DateTime.now();
+    final candidates = _events.where((event) {
+      final hasNoticeText = (event.noticeBoardText ?? '').trim().isNotEmpty;
+      final hasNoticeBg = (event.noticeBoardBgImage ?? '').trim().isNotEmpty;
+      if (!hasNoticeText && !hasNoticeBg) return false;
+
+      final showBefore = Duration(
+        minutes: event.noticeBoardShowBeforeMinutes ?? event.showBeforeMinutes ?? 60,
+      );
+      final visibilityAfter = Duration(
+        minutes:
+            event.noticeBoardVisibilityAfterMinutes ??
+            event.visibilityAfterMinutes ??
+            0,
+      );
+
+      final showTime = event.startTime.toLocal().subtract(showBefore);
+      final hideTime = event.endTime.toLocal().add(visibilityAfter);
+      return !now.isBefore(showTime) && now.isBefore(hideTime);
+    }).toList();
+
+    if (candidates.isEmpty) return null;
+    candidates.sort((a, b) => a.startTime.compareTo(b.startTime));
+    return candidates.first;
+  }
+
+  List<Event> get visibleNoticeboardEvents {
+    final now = DateTime.now();
+    final items = _events.where((event) {
+      final hasNoticeText = (event.noticeBoardText ?? '').trim().isNotEmpty;
+      final hasNoticeBg = (event.noticeBoardBgImage ?? '').trim().isNotEmpty;
+      if (!hasNoticeText && !hasNoticeBg) return false;
+
+      final showBefore = Duration(
+        minutes:
+            event.noticeBoardShowBeforeMinutes ?? event.showBeforeMinutes ?? 60,
+      );
+      final visibilityAfter = Duration(
+        minutes:
+            event.noticeBoardVisibilityAfterMinutes ??
+            event.visibilityAfterMinutes ??
+            0,
+      );
+
+      final showTime = event.startTime.toLocal().subtract(showBefore);
+      final hideTime = event.endTime.toLocal().add(visibilityAfter);
+      return !now.isBefore(showTime) && now.isBefore(hideTime);
+    }).toList();
+
+    items.sort((a, b) => a.startTime.compareTo(b.startTime));
+    return items;
+  }
 
   // My Events (History)
   List<Map<String, dynamic>> _myEvents = [];
@@ -119,14 +149,14 @@ class EventService extends ChangeNotifier {
     try {
       // Use UserService instead of FirebaseAuth
       final userId = UserService().userId;
-      debugPrint(
+      print(
         "HARMONY_DEBUG: joinEvent called for user '$userId', event '$eventTitle'",
       );
 
       // 1. Check for Duplicates
       bool isAlreadyJoined = _myEvents.any((doc) => doc['eventId'] == eventId);
       if (isAlreadyJoined) {
-        debugPrint("HARMONY_DEBUG: User already joined event $eventId");
+        print("HARMONY_DEBUG: User already joined event $eventId");
         // Update intent locally if re-joining logic was desired, but for now just return
         return "Already Joined";
       }
@@ -154,108 +184,61 @@ class EventService extends ChangeNotifier {
               'status': 'registered',
             });
 
-        debugPrint("HARMONY_DEBUG: Event joined successfully in Firestore");
+        print("HARMONY_DEBUG: Event joined successfully in Firestore");
         return "Success: $userId";
       } else {
-        debugPrint("HARMONY_DEBUG: Error: No User ID found in UserService");
+        print("HARMONY_DEBUG: Error: No User ID found in UserService");
         return "Error: No User ID";
       }
     } catch (e) {
-      debugPrint("Error joining event: $e");
+      print("Error joining event: $e");
       return "Error: $e";
     }
   }
 
+  // Helper to extract core intent concept from user sentence
+  String _extractCoreIntent(String text) {
+    const coreIntents = [
+      'Harmony',
+      'Peace',
+      'Love',
+      'Joy',
+      'Gratitude',
+      'Compassion',
+      'Faith',
+      'Trust',
+      'Mindfulness',
+      'Kindness',
+      'Hope',
+      'Freedom',
+      'Unity',
+      'Patience',
+      'Courage',
+      'Wisdom',
+      'Truth',
+      'Healing',
+      'Abundance',
+      'Clarity',
+      'Focus',
+      'Balance',
+      'Strength',
+      'Respect',
+      'Forgiveness',
+      'Acceptance',
+      'Presence',
+    ];
+
+    final lowerText = text.toLowerCase();
+    for (final core in coreIntents) {
+      if (lowerText.contains(core.toLowerCase())) {
+        return core;
+      }
+    }
+    return text; // Fallback to full text if no core concept found
+  }
 
   List<QueryDocumentSnapshot> _nationalDocs = [];
   List<QueryDocumentSnapshot> _globalDocs = [];
-  bool _hasLoadedNationalDocs = false;
-  bool _hasLoadedGlobalDocs = false;
-
-  bool get hasLoadedEventSources =>
-      _hasLoadedNationalDocs && _hasLoadedGlobalDocs;
-
-  List<Event> get visibleNoticeboardEvents {
-    final now = DateTime.now();
-    final candidates = _dedupeNationalEvents([
-      ..._processDocs(
-        _nationalDocs,
-        overrideType: EventType.national,
-        forDormantScheduling: true,
-      ),
-      ..._processDocs(
-        _globalDocs,
-        overrideType: EventType.global,
-        forDormantScheduling: true,
-      ),
-    ]);
-
-    final visible = candidates.where((event) {
-      final showBefore = Duration(
-        minutes: event.noticeBoardShowBeforeMinutes ?? 60,
-      );
-      final visibilityAfter = Duration(
-        minutes: event.noticeBoardVisibilityAfterMinutes ?? 0,
-      );
-      final showTime = event.startTime.toLocal().subtract(showBefore);
-      final hideTime = event.endTime.toLocal().add(visibilityAfter);
-      return !now.isBefore(showTime) && now.isBefore(hideTime);
-    }).toList();
-
-    visible.sort((a, b) {
-      final aShowTime = a.startTime.toLocal().subtract(
-        Duration(minutes: a.noticeBoardShowBeforeMinutes ?? 60),
-      );
-      final bShowTime = b.startTime.toLocal().subtract(
-        Duration(minutes: b.noticeBoardShowBeforeMinutes ?? 60),
-      );
-      return aShowTime.compareTo(bShowTime);
-    });
-
-    return visible;
-  }
-
-  Event? get activeNoticeboardEvent {
-    final now = DateTime.now();
-    final active = visibleNoticeboardEvents;
-
-    if (active.isEmpty) {
-      if (_lastNoticeboardDebugSignature != 'none') {
-        _lastNoticeboardDebugSignature = 'none';
-        debugPrint('HARMONY_NOTICEBOARD: none active at ${now.toIso8601String()}');
-      }
-      return null;
-    }
-
-    final selected = active.first;
-    final selectedShowBefore = Duration(
-      minutes: selected.noticeBoardShowBeforeMinutes ?? 60,
-    );
-    final selectedVisibilityAfter = Duration(
-      minutes: selected.noticeBoardVisibilityAfterMinutes ?? 0,
-    );
-    final selectedShowTime = selected.startTime
-        .toLocal()
-        .subtract(selectedShowBefore);
-    final selectedHideTime = selected.endTime
-        .toLocal()
-        .add(selectedVisibilityAfter);
-    final signature =
-        '${selected.id}|${selectedShowTime.toIso8601String()}|${selectedHideTime.toIso8601String()}';
-
-    if (_lastNoticeboardDebugSignature != signature) {
-      _lastNoticeboardDebugSignature = signature;
-      debugPrint(
-        'HARMONY_NOTICEBOARD: selected=${selected.id} '
-        'show=${selectedShowTime.toIso8601String()} '
-        'hide=${selectedHideTime.toIso8601String()} '
-        'nbShowBefore=${selected.noticeBoardShowBeforeMinutes ?? 60} '
-        'nbAfter=${selected.noticeBoardVisibilityAfterMinutes ?? 0}',
-      );
-    }
-
-    return selected;
-  }
 
   // Track current subscribed ID to prevent unnecessary reconnections
   String? _currentListenedUserId;
@@ -264,7 +247,7 @@ class EventService extends ChangeNotifier {
     // Set up MethodChannel listener for immediate payload consumption
     _dormantAlarmChannel.setMethodCallHandler((call) async {
       if (call.method == 'on_notification_tap_received') {
-        debugPrint('HARMONY_ALARM: MethodChannel onNotificationTapReceived called');
+        print('HARMONY_ALARM: MethodChannel onNotificationTapReceived called');
         // Immediately consume the payload without waiting for the periodic loop
         await _checkNativeLaunchPayloadIfAny();
         return {'success': true};
@@ -279,16 +262,14 @@ class EventService extends ChangeNotifier {
     if (userService.userId.isNotEmpty) {
       _listenToMyEvents(userService.userId);
     } else {
-      debugPrint("HARMONY_DEBUG: UserService ID is empty on init V3");
+      print("HARMONY_DEBUG: UserService ID is empty on init");
     }
-
-    _tryConsumeStoredLaunchPayload();
 
     // Listen for changes
     userService.addListener(() {
       if (userService.userId.isNotEmpty &&
           userService.userId != _currentListenedUserId) {
-        debugPrint("HARMONY_DEBUG: UserService ID changed to ${userService.userId}");
+        print("HARMONY_DEBUG: UserService ID changed to ${userService.userId}");
         _listenToMyEvents(userService.userId);
       }
 
@@ -312,7 +293,7 @@ class EventService extends ChangeNotifier {
             _refreshEvents();
           },
           onError: (e) {
-            debugPrint("Error listening to national events: $e");
+            print("Error listening to national events: $e");
           },
         );
 
@@ -327,7 +308,7 @@ class EventService extends ChangeNotifier {
             _refreshEvents();
           },
           onError: (e) {
-            debugPrint("Error listening to global events: $e");
+            print("Error listening to global events: $e");
           },
         );
   }
@@ -335,7 +316,7 @@ class EventService extends ChangeNotifier {
   void _listenToMyEvents(String userId) {
     if (userId.isEmpty) return;
 
-    debugPrint(
+    print(
       "HARMONY_DEBUGGING: Starting stream for users/$userId/registered_events",
     );
     _currentListenedUserId = userId; // Update tracker
@@ -350,7 +331,7 @@ class EventService extends ChangeNotifier {
         .snapshots()
         .listen(
           (snapshot) {
-            debugPrint(
+            print(
               "HARMONY_DEBUGGING: Received ${snapshot.docs.length} my_events docs for user $userId",
             );
             _myEvents = snapshot.docs.map((doc) => doc.data()).toList();
@@ -365,7 +346,7 @@ class EventService extends ChangeNotifier {
             notifyListeners();
           },
           onError: (e) {
-            debugPrint("HARMONY_DEBUGGING: Error listening to my events: $e");
+            print("HARMONY_DEBUGGING: Error listening to my events: $e");
           },
         );
   }
@@ -376,6 +357,20 @@ class EventService extends ChangeNotifier {
     _mergeEvents();
   }
 
+  // Synchronously peek at SharedPreferences for a stored launch payload from MainActivity.
+  // If found, set _pendingAlarmEventId so the next checkForEvents can trigger it with fromAlarmLaunch=true.
+  // This completes BEFORE any event triggering, preventing the race condition where the event starts before we mark it as from-alarm.
+  void _peekAndSetPendingAlarmFromSharedPreferences() {
+    try {
+      final prefs = SharedPreferences.getInstance().then((p) => p);
+      // Note: SharedPreferences.getInstance is Future-based, we can't make it sync in Dart
+      // So we use a different approach: trigger consumption via asyc task but set a flag
+      // to indicate we should mark the NEXT matching event as from-alarm
+      _tryConsumeStoredLaunchPayload();
+    } catch (e) {
+      // Silent fail - this is a best-effort peek
+    }
+  }
 
   // Try to consume the stored launch payload from the MethodChannel.
   // Unlike _checkNativeLaunchPayloadIfAny, this doesn't try to trigger the event,
@@ -395,7 +390,9 @@ class EventService extends ChangeNotifier {
       }
       autoPlayVideo = payload['auto_play_video'] == true;
 
-      eventId ??= await NotificationService().consumeLaunchEventId();
+      if (eventId == null) {
+        eventId = await NotificationService().consumeLaunchEventId();
+      }
 
       if (eventId != null && eventId.isNotEmpty) {
         // Don't re-queue if this event was already played and dismissed this session.
@@ -406,14 +403,14 @@ class EventService extends ChangeNotifier {
           return;
         }
         // Found a pending alarm launch - queue it as pending so the next cycle triggers it with fromAlarmLaunch=true
-        debugPrint('HARMONY_ALARM: found stored launch payload eventId=$eventId, queuing as pending alarm');
+        print('HARMONY_ALARM: found stored launch payload eventId=$eventId, queuing as pending alarm');
         _lastKnownAlarmLaunchEventId = eventId;
         _pendingAlarmEventId = eventId;
         _pendingAlarmEventExpiresAt = DateTime.now().add(const Duration(minutes: 5));
         _pendingAlarmForceVideo = autoPlayVideo;
       }
     } catch (e) {
-      debugPrint('HARMONY_ALARM: _tryConsumeStoredLaunchPayload failed: $e');
+      print('HARMONY_ALARM: _tryConsumeStoredLaunchPayload failed: $e');
     } finally {
       _nativeLaunchPayloadCheckInFlight = false;
     }
@@ -429,7 +426,7 @@ class EventService extends ChangeNotifier {
     _pendingAlarmEventId = eventId.trim();
     _pendingAlarmEventExpiresAt = DateTime.now().add(holdFor);
     _pendingAlarmForceVideo = forceVideo;
-    debugPrint('HARMONY_ALARM: queued immediate playback for $_pendingAlarmEventId');
+    print('HARMONY_ALARM: queued immediate playback for $_pendingAlarmEventId');
     _attemptPendingAlarmPlayback(forceWindow: true);
   }
 
@@ -446,7 +443,7 @@ class EventService extends ChangeNotifier {
       _pendingAlarmEventId = null;
       _pendingAlarmEventExpiresAt = null;
       _pendingAlarmForceVideo = false;
-      debugPrint('HARMONY_ALARM: pending playback expired for $pendingId');
+      print('HARMONY_ALARM: pending playback expired for $pendingId');
       return false;
     }
 
@@ -467,7 +464,7 @@ class EventService extends ChangeNotifier {
       _pendingAlarmEventId = null;
       _pendingAlarmEventExpiresAt = null;
       _pendingAlarmForceVideo = false;
-      debugPrint(
+      print(
         'HARMONY_ALARM: target ${target.id} already active; upgraded to alarm launch and skipping retrigger',
       );
       return true;
@@ -485,7 +482,7 @@ class EventService extends ChangeNotifier {
     _dismissedEventStartTimes.remove(target.id);
     _recentlyDismissedIds.remove(target.id);
 
-    debugPrint('HARMONY_ALARM: forcing playback for ${target.id} from launch intent');
+    print('HARMONY_ALARM: forcing playback for ${target.id} from launch intent');
     final forcedStart = DateTime.now();
     final forcedMedia = forceVideo
         ? _selectPlaybackMediaForForcedVideo(target)
@@ -538,9 +535,8 @@ class EventService extends ChangeNotifier {
       final slotKey = event.originTime != null && event.originTime!.isNotEmpty
           ? event.originTime!
           : '${localStart.hour.toString().padLeft(2, '0')}:${localStart.minute.toString().padLeft(2, '0')}';
-        // A national lane should surface one noticeboard card per slot.
-        // Title/content drift between stale and fresh docs must not create duplicates.
-        final dedupeKey = 'national:$slotKey';
+      final titleKey = event.title.trim().toLowerCase();
+      final dedupeKey = 'national:$slotKey:$titleKey';
       final existing = deduped[dedupeKey];
 
       if (existing == null) {
@@ -581,17 +577,18 @@ class EventService extends ChangeNotifier {
   void _scheduleDormantPlaybackSync() {
     _notificationSyncTimer?.cancel();
     _notificationSyncTimer = Timer(const Duration(milliseconds: 300), () {
-      final dormantNational = _processDocs(
+      final dormantEvents = [
+        ..._processDocs(
           _nationalDocs,
           overrideType: EventType.national,
           forDormantScheduling: true,
-        );
-      final dormantGlobal = _processDocs(
+        ),
+        ..._processDocs(
           _globalDocs,
           overrideType: EventType.global,
           forDormantScheduling: true,
-        );
-      final dormantEvents = [...dormantNational, ...dormantGlobal];
+        ),
+      ];
 
       dormantEvents.sort((a, b) => a.startTime.compareTo(b.startTime));
 
@@ -600,7 +597,7 @@ class EventService extends ChangeNotifier {
         userService: UserService(),
       );
 
-      debugPrint(
+      print(
         'HARMONY_DORMANT: sync requested with ${dormantEvents.length} candidate events',
       );
     });
@@ -611,35 +608,10 @@ class EventService extends ChangeNotifier {
     for (int i = 0; i < a.length; i++) {
       if (a[i].id != b[i].id ||
           a[i].startTime != b[i].startTime ||
-          a[i].endTime != b[i].endTime) {
+          a[i].endTime != b[i].endTime)
         return false;
-      }
     }
     return true;
-  }
-
-  _SlotDocMetadata? _parseSlotDocMetadata(String docId) {
-    final match = RegExp(
-      r'^(?:slot|copy)_(\d{2})(\d{2})_(\d{8})(?:_.*)?$',
-    ).firstMatch(docId);
-    if (match == null) return null;
-
-    final hour = int.tryParse(match.group(1)!);
-    final minute = int.tryParse(match.group(2)!);
-    final dateRaw = match.group(3)!;
-
-    if (hour == null || minute == null || dateRaw.length != 8) return null;
-
-    final year = int.tryParse(dateRaw.substring(0, 4));
-    final month = int.tryParse(dateRaw.substring(4, 6));
-    final day = int.tryParse(dateRaw.substring(6, 8));
-    if (year == null || month == null || day == null) return null;
-
-    return _SlotDocMetadata(
-      hour: hour,
-      minute: minute,
-      dateUtc: DateTime.utc(year, month, day, hour, minute),
-    );
   }
 
   List<Event> _processDocs(
@@ -654,107 +626,59 @@ class EventService extends ChangeNotifier {
       try {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
-        final preliminarySlotMeta = _parseSlotDocMetadata(doc.id);
-
-        // Pure-tone national slots may intentionally omit title in admin.
-        // Provide a deterministic fallback so the user app does not drop them.
-        final rawTitle = (data['title'] ?? '').toString().trim();
-        if (rawTitle.length < 2) {
-          final rawType = (data['type'] ?? '').toString().trim().toLowerCase();
-          final isNationalByData = rawType == 'national';
-          final isNationalByOverride = overrideType == EventType.national;
-          if (isNationalByData || isNationalByOverride) {
-            final intent = (data['intent'] ?? '').toString().trim();
-            if (intent.isNotEmpty) {
-              data['title'] = 'Pure Tone - $intent';
-            } else if (preliminarySlotMeta != null) {
-              final hh = preliminarySlotMeta.hour.toString().padLeft(2, '0');
-              final mm = preliminarySlotMeta.minute.toString().padLeft(2, '0');
-              data['title'] = 'Pure Tone $hh:$mm';
-            } else {
-              data['title'] = 'Pure Tone Session';
-            }
-          }
-        }
-
         final rawEvent = Event.fromJson(data);
         final event = overrideType != null
             ? rawEvent.copyWith(type: overrideType)
             : rawEvent;
+
+        if (event.type == EventType.national) {
+          print(
+            "DEBUG: National Event '${event.title}': DurationSecs(RAW)=${data['durationSeconds']}, Start=${event.startTime}, End=${event.endTime}, Duration=${event.endTime.difference(event.startTime).inSeconds}s",
+          );
+        }
+
         // Filter out invalid events
-        final normalizedTitle = event.title.trim().toLowerCase();
-        if (normalizedTitle.isEmpty || event.title.length < 2) {
+        if (event.title.trim().isEmpty || event.title.length < 2) {
           continue;
         }
 
-        final publishedById =
-          doc.id.startsWith('slot_') || doc.id.startsWith('copy_');
-
-        if (!event.isPublished && !publishedById) {
-          final rawIsDraft = data['isDraft'];
-          final rawPublished = data['published'];
-          final isDraft = rawIsDraft == true ||
-              rawIsDraft == 'true' ||
-              rawIsDraft == 1;
-          final publishedFallback = rawPublished == true ||
-              rawPublished == 'true' ||
-              rawPublished == 1;
-
-          if (isDraft && !publishedFallback) {
-            continue;
-          }
+        if (!event.isPublished) {
+          continue;
         }
-
-        final isNationalSlotDoc =
-          event.type == EventType.national &&
-          _parseSlotDocMetadata(doc.id) != null;
-        final slotMeta = isNationalSlotDoc
-          ? _parseSlotDocMetadata(doc.id)
-          : null;
-        final slotSourceUtcStart = slotMeta?.dateUtc ?? event.startTime.toUtc();
 
         final recurrence = (event.recurrenceType ?? '').trim().toLowerCase();
-        final hasNoRecurrence =
-          recurrence.isEmpty || recurrence == 'none' || recurrence == 'null';
-        final isRecurringFlag =
-          data['isRecurring'] == true ||
-          data['isRecurring'] == 'true' ||
-          data['isRecurring'] == 1;
-        final treatCurrentWeekSlotAsDaily =
-          isNationalSlotDoc && _isInCurrentUtcWeek(slotSourceUtcStart);
-
-        // Admin-authoritative recurrence fallback:
-        // in the national scheduler, isRecurring=true means the slot should
-        // repeat every day regardless of the source doc date.
-        // Also, current-week slot_* docs are weekly schedule lanes and should
-        // continue surfacing through the week even when stored per-day.
-        final effectiveRecurrence =
-          (hasNoRecurrence && (isRecurringFlag || treatCurrentWeekSlotAsDaily))
-          ? 'daily'
-          : recurrence;
-
-        final isDaily = effectiveRecurrence == 'daily';
-        final isWeekly = effectiveRecurrence == 'weekly';
-        final isMonthly = effectiveRecurrence == 'monthly';
-
-        if (isNationalSlotDoc) {
-          final slotMinute = slotMeta?.minute ?? event.startTime.toUtc().minute;
-
-          if (!_allowedNationalSlotMinutes.contains(slotMinute)) {
-            continue;
-          }
-
-        }
+        final isDaily = recurrence == 'daily';
+        final isWeekly = recurrence == 'weekly';
+        final isMonthly = recurrence == 'monthly';
+        final hasNoRecurrence = recurrence.isEmpty || recurrence == 'none';
 
         // Handle Recurrence
         Event displayEvent = event;
 
         if (event.type == EventType.national) {
+          // Fix: Use the event's actual date (for standard events) unless it is 'Daily' recurrence
+          DateTime baseDate = event.startTime;
           final localNow = DateTime.now();
 
-          final sourceUtcStart = slotSourceUtcStart;
-          int hour = sourceUtcStart.hour;
-          int minute = sourceUtcStart.minute;
+          if (isDaily ||
+              (hasNoRecurrence &&
+                  event.originTime != null &&
+                  event.originTime!.contains(':'))) {
+            baseDate = localNow;
+          } else if (isWeekly) {
+            // Fix: If weekly, we must ensure baseDate has the correct weekday
+            // But be careful not to override standard events
+            // Let's find the most recent occurrence of this weekday
+            // This prevents "5 notice boards" by normalizing to *one* date
+
+            // Find the difference in days to align back to this week
+            // int dayDiff = localNow.weekday - baseDate.weekday;
+            // baseDate = localNow.subtract(Duration(days: dayDiff));
+          }
+
+          int hour = event.startTime.hour;
+          int minute = event.startTime.minute;
+
           if (event.originTime != null && event.originTime!.contains(':')) {
             final parts = event.originTime!.split(':');
             if (parts.length == 2) {
@@ -763,83 +687,54 @@ class EventService extends ChangeNotifier {
             }
           }
 
-          final duration = event.endTime.difference(event.startTime);
-          final visibilityAfter = Duration(
-            minutes: event.visibilityAfterMinutes ?? 0,
-          );
-
-          // For non-recurring national events, respect the exact stored date/time.
-          // Only explicit recurrence should project into new dates.
-          // Convert the UTC start to a proper local DateTime so the
-          // expiry/tooEarly checks compare local-to-local correctly.
-          // (Using DateTime(utc.year, utc.month, ...) would strip UTC info
-          //  and create a spurious local time that is hours off.)
-          final utcBase = DateTime.utc(
-            sourceUtcStart.year,
-            sourceUtcStart.month,
-            sourceUtcStart.day,
+          DateTime localStart = DateTime(
+            baseDate.year,
+            baseDate.month,
+            baseDate.day,
             hour,
             minute,
           );
-          DateTime localStart = utcBase.toLocal();
+
+          final duration = event.endTime.difference(event.startTime);
           DateTime localEnd = localStart.add(duration);
 
-          if (isWeekly) {
-            localStart = DateTime(
-              localNow.year,
-              localNow.month,
-              localNow.day,
-              hour,
-              minute,
-            );
-            localEnd = localStart.add(duration);
-            // Anchor to the event's intended weekday, then roll forward by week.
-            final targetWeekday = event.startTime.weekday;
-            final daysUntil = (targetWeekday - localNow.weekday + 7) % 7;
-            localStart = localStart.add(Duration(days: daysUntil));
-            localEnd = localStart.add(duration);
-            while (localEnd.add(visibilityAfter).isBefore(localNow)) {
-              localStart = localStart.add(const Duration(days: 7));
-              localEnd = localStart.add(duration);
-            }
-          } else if (isDaily) {
-            localStart = DateTime(
-              localNow.year,
-              localNow.month,
-              localNow.day,
-              hour,
-              minute,
-            );
-            localEnd = localStart.add(duration);
-            // Only explicitly daily events roll forward day to day.
-            while (localEnd.add(visibilityAfter).isBefore(localNow)) {
+          // Fix: Check if event is in the past, accounting for 'showBeforeMinutes'
+          // If the event ended in the past, but we are within the 'Show Before' window of the NEXT occurrence, advance.
+          // But if we are within the 'Show Before' window of THIS occurrence (even if 'isBefore(localNow)' was false), show it.
+
+          // Wait, localEnd.isBefore(localNow) means the event has ENDED.
+          // If it ended, we should look for the NEXT one.
+          // BUT, what if we have visibilityAfterMinutes?
+          // If localEnd is before now, but now < localEnd + visibilityAfter, we should still show THIS one.
+
+          final visibilityAfter = Duration(
+            minutes: event.visibilityAfterMinutes ?? 0,
+          );
+          if (localEnd.add(visibilityAfter).isBefore(localNow) &&
+              (isDaily ||
+                  isWeekly ||
+                  (hasNoRecurrence &&
+                      event.originTime != null &&
+                      event.originTime!.contains(':')))) {
+            if (isDaily ||
+                (hasNoRecurrence &&
+                    event.originTime != null &&
+                    event.originTime!.contains(':'))) {
               localStart = localStart.add(const Duration(days: 1));
               localEnd = localStart.add(duration);
+            } else if (isWeekly) {
+              // Keep adding 7 days until we are in the future (or present)
+              while (localEnd.isBefore(localNow)) {
+                localStart = localStart.add(const Duration(days: 7));
+                localEnd = localStart.add(duration);
+              }
             }
-          } else if (isMonthly) {
-            localStart = DateTime(
-              localNow.year,
-              localNow.month,
-              event.startTime.day,
-              hour,
-              minute,
-            );
-            localEnd = localStart.add(duration);
-            while (localEnd.add(visibilityAfter).isBefore(localNow)) {
-              localStart = DateTime(
-                localStart.year,
-                localStart.month + 1,
-                localStart.day,
-                localStart.hour,
-                localStart.minute,
-              );
-              localEnd = localStart.add(duration);
-            }
-          } else {
-            // No recurrence: respect the exact stored date/time.
           }
 
-          displayEvent = event.copyWith(startTime: localStart, endTime: localEnd);
+          displayEvent = event.copyWith(
+            startTime: localStart,
+            endTime: localEnd,
+          );
         } else {
           if (!hasNoRecurrence) {
             final duration = event.endTime.difference(event.startTime);
@@ -859,12 +754,8 @@ class EventService extends ChangeNotifier {
         }
 
         // 1. Check Visibility After Event
-        final effectiveVisibilityAfterMinutes =
-          displayEvent.visibilityAfterMinutes ??
-          displayEvent.noticeBoardVisibilityAfterMinutes ??
-          0;
         final visibilityAfter = Duration(
-          minutes: effectiveVisibilityAfterMinutes,
+          minutes: displayEvent.visibilityAfterMinutes ?? 0,
         );
         final localEndTime = displayEvent.endTime.toLocal();
 
@@ -876,25 +767,21 @@ class EventService extends ChangeNotifier {
           // 2. Check Show Before Event (UI visibility window only)
           int defaultShowBefore = 60;
           final showBefore = Duration(
-            minutes: displayEvent.showBeforeMinutes ??
-                displayEvent.noticeBoardShowBeforeMinutes ??
-                defaultShowBefore,
+            minutes: displayEvent.showBeforeMinutes ?? defaultShowBefore,
           );
           final localStartTime = displayEvent.startTime.toLocal();
           final showTime = localStartTime.subtract(showBefore);
 
-            final skipTooEarly = now.isBefore(showTime);
-          if (skipTooEarly) {
+          if (now.isBefore(showTime)) {
             continue; // Too early to show
           }
         }
 
         processedEvents.add(displayEvent);
       } catch (e) {
-        debugPrint("DEBUG: Error processing event doc ${doc.id}: $e");
+        print("DEBUG: Error processing event doc ${doc.id}: $e");
       }
     }
-
     return processedEvents;
   }
 
@@ -944,17 +831,17 @@ class EventService extends ChangeNotifier {
 
   // DEBUGGING METHODS
   void debugForceRefresh() {
-    debugPrint("HARMONY_DEBUG: Force Refresh Triggered");
+    print("HARMONY_DEBUG: Force Refresh Triggered");
     final userService = UserService();
     if (userService.userId.isNotEmpty) {
       _listenToMyEvents(userService.userId);
     } else {
-      debugPrint("HARMONY_DEBUG: Cannot refresh, userId empty");
+      print("HARMONY_DEBUG: Cannot refresh, userId empty");
     }
   }
 
   Future<void> debugAddDummyEvent() async {
-    debugPrint("HARMONY_DEBUG: Debug Add Dummy Event Triggered");
+    print("HARMONY_DEBUG: Debug Add Dummy Event Triggered");
     await joinEvent(
       'debug_event_${DateTime.now().millisecondsSinceEpoch}',
       'Debug Event',
@@ -1024,7 +911,7 @@ class EventService extends ChangeNotifier {
 
           if (!alreadyJoined && !pending) {
             _autoJoinInProgress.add(event.id);
-            debugPrint(
+            print(
               "HARMONY_AUTO_JOIN: Initiating auto-join for ${event.title} (${event.id})",
             );
 
@@ -1085,17 +972,17 @@ class EventService extends ChangeNotifier {
           bestEventToTrigger = event;
         } else {
           // 1. Prefer Closer Start Time (Newest)
-          if (startLocal.isAfter(bestEventToTrigger.startTime.toLocal())) {
+          if (startLocal.isAfter(bestEventToTrigger!.startTime.toLocal())) {
             bestEventToTrigger = event;
           }
           // 2. Same Start Time? Check Global Priority
           else if (startLocal.isAtSameMomentAs(
-            bestEventToTrigger.startTime.toLocal(),
+            bestEventToTrigger!.startTime.toLocal(),
           )) {
             final userService = UserService();
             bool preferGlobal = userService.globalPriority;
             bool currentIsGlobal = event.type == EventType.global;
-            bool bestIsGlobal = bestEventToTrigger.type == EventType.global;
+            bool bestIsGlobal = bestEventToTrigger!.type == EventType.global;
 
             if (preferGlobal) {
               // If we prefer global, and current IS global but best IS NOT, switch to current
@@ -1116,13 +1003,13 @@ class EventService extends ChangeNotifier {
     if (bestEventToTrigger != null) {
       // ABSOLUTE STRICT CHECK: If this exact ID is active, DO NOTHING.
       if (_isEventActive && _currentEventId == bestEventToTrigger.id) {
-        debugPrint(
+        print(
           "HARMONY_STRICT_V3: Event ${bestEventToTrigger.id} is already playing. IGNORING.",
         );
         return;
       }
 
-      debugPrint(
+      print(
         "HARMONY_STRICT_V3: Selecting New Event: ${bestEventToTrigger.title} (${bestEventToTrigger.id})",
       );
 
@@ -1154,7 +1041,7 @@ class EventService extends ChangeNotifier {
     // DateTime? endTime, // REMOVED to prevent accidental usage
     int? durationSeconds,
   }) {
-    debugPrint(
+    print(
       "HARMONY_STRICT_V3: Triggering Event '$title' with Duration: $durationSeconds",
     );
 
@@ -1163,6 +1050,7 @@ class EventService extends ChangeNotifier {
 
     _isEventActive = true;
     _currentEventId = id;
+    NotificationService().cancelNotificationForEvent(id);
     _currentEventStartTime = startTime;
     _currentEventEndTime =
         null; // Explicitly nullify this. use STRICT timer only.
@@ -1184,7 +1072,7 @@ class EventService extends ChangeNotifier {
     _currentEventFromAlarmLaunch = effectiveFromAlarmLaunch;
 
     if (effectiveFromAlarmLaunch && id != null) {
-      debugPrint('HARMONY_ALARM: trigger marked as alarm launch for id=$id');
+      print('HARMONY_ALARM: trigger marked as alarm launch for id=$id');
     }
 
     // Async verify: ask native for the last alarm-launched event ID.
@@ -1202,7 +1090,7 @@ class EventService extends ChangeNotifier {
             _currentEventId == checkId) {
           _currentEventFromAlarmLaunch = true;
           _lastKnownAlarmLaunchEventId = nativeId;
-          debugPrint(
+          print(
             'HARMONY_ALARM: async alarm launch verified for $checkId (native=$nativeId)',
           );
         }
@@ -1230,10 +1118,10 @@ class EventService extends ChangeNotifier {
       );
     }
 
-    debugPrint("HARMONY_STRICT_V3: Setting Hard Timer for $finalSeconds seconds");
+    print("HARMONY_STRICT_V3: Setting Hard Timer for $finalSeconds seconds");
 
     _dismissTimer = Timer(Duration(seconds: finalSeconds), () {
-      debugPrint("HARMONY_STRICT_V3: Timer Expired ($finalSeconds s). Dismissing.");
+      print("HARMONY_STRICT_V3: Timer Expired ($finalSeconds s). Dismissing.");
       dismissEvent();
     });
 
@@ -1241,7 +1129,7 @@ class EventService extends ChangeNotifier {
   }
 
   void dismissEvent() {
-    debugPrint("DEBUG: dismissEvent called for ID: $_currentEventId [restore-v3-sync]");
+    print("DEBUG: dismissEvent called for ID: $_currentEventId [restore-v3-sync]");
     final currentEventId = _currentEventId;
     bool shouldRestoreLockscreen = _currentEventFromAlarmLaunch;
 
@@ -1253,13 +1141,13 @@ class EventService extends ChangeNotifier {
       final lastAlarmEventId = _lastKnownAlarmLaunchEventId;
       if (lastAlarmEventId != null && lastAlarmEventId.isNotEmpty) {
         shouldRestoreLockscreen = lastAlarmEventId == currentEventId;
-        debugPrint(
+        print(
           'HARMONY_ALARM: dismiss cached launch id check lastAlarmId=$lastAlarmEventId current=$currentEventId => restore=$shouldRestoreLockscreen',
         );
       }
     }
 
-    debugPrint(
+    print(
       'HARMONY_ALARM: dismiss restore decision id=$currentEventId fromAlarm=$_currentEventFromAlarmLaunch => restore=$shouldRestoreLockscreen',
     );
     _dismissTimer?.cancel();
@@ -1271,7 +1159,7 @@ class EventService extends ChangeNotifier {
           .toIso8601String();
       // Add to cooldown map
       _recentlyDismissedIds[_currentEventId!] = DateTime.now();
-      debugPrint(
+      print(
         "DEBUG: Marked $_currentEventId as dismissed for time: ${_currentEventStartTime!.toIso8601String()}",
       );
     } else if (_currentEventId != null) {
@@ -1282,11 +1170,11 @@ class EventService extends ChangeNotifier {
             .toIso8601String();
         // Add to cooldown map
         _recentlyDismissedIds[_currentEventId!] = DateTime.now();
-        debugPrint(
+        print(
           "DEBUG: (Fallback) Marked $_currentEventId as dismissed from lookup",
         );
       } catch (e) {
-        debugPrint("DEBUG: Could not mark event dismissed (not found in list): $e");
+        print("DEBUG: Could not mark event dismissed (not found in list): $e");
       }
     }
 
@@ -1304,19 +1192,8 @@ class EventService extends ChangeNotifier {
     }
 
     if (shouldRestoreLockscreen) {
-      debugPrint('HARMONY_ALARM: requesting post-event lockscreen restore (v2)');
+      print('HARMONY_ALARM: requesting post-event lockscreen restore (v2)');
       NotificationService().restoreLockscreenPresentation();
-    } else if (currentEventId != null) {
-      // Native fallback avoids race conditions where Dart-side alarm markers
-      // were missed but Android still knows this event was alarm-launched.
-      NotificationService().shouldRestoreForEvent(currentEventId).then((shouldRestoreNative) {
-        if (shouldRestoreNative) {
-          debugPrint(
-            'HARMONY_ALARM: native authoritative restore accepted for id=$currentEventId',
-          );
-          NotificationService().restoreLockscreenPresentation();
-        }
-      });
     }
 
     notifyListeners();
@@ -1337,7 +1214,9 @@ class EventService extends ChangeNotifier {
       }
       autoPlayVideo = payload['auto_play_video'] == true;
 
-      eventId ??= await NotificationService().consumeLaunchEventId();
+      if (eventId == null) {
+        eventId = await NotificationService().consumeLaunchEventId();
+      }
 
       if (eventId == null || eventId.isEmpty) {
         return;
@@ -1348,13 +1227,13 @@ class EventService extends ChangeNotifier {
       // If event already started by scheduler path, upgrade it so dismiss uses alarm restore.
       if (_isEventActive && _currentEventId == eventId) {
         _currentEventFromAlarmLaunch = true;
-        debugPrint('HARMONY_ALARM: upgraded active event to alarm launch for $eventId');
+        print('HARMONY_ALARM: upgraded active event to alarm launch for $eventId');
         return;
       }
 
       requestImmediateAlarmPlayback(eventId, forceVideo: autoPlayVideo);
     } catch (e) {
-      debugPrint('HARMONY_ALARM: live launch payload consume failed: $e');
+      print('HARMONY_ALARM: live launch payload consume failed: $e');
     } finally {
       _nativeLaunchPayloadCheckInFlight = false;
     }

@@ -186,11 +186,21 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
-    if (ProfanityService().hasProfanity(text)) {
-      final userService = UserService();
-      final senderName = UserService.sanitizePublicDisplayName(
-        userService.userName,
+    final userService = UserService();
+    final senderName = await userService.ensureRecognizedPublicDisplayName();
+    if (senderName == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Your account username is not recognized. Messaging is disabled until your profile name is fixed.',
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
       );
+      return;
+    }
+
+    if (ProfanityService().hasProfanity(text)) {
       // Send to moderation queue instead of blocking silently
       await FirebaseFirestore.instance.collection('moderation_queue').add({
          'content': text,
@@ -224,10 +234,6 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_resolvedGroupId != null) {
       // Send to Firestore
       try {
-        final userService = UserService(); // Use singleton
-        String senderName = UserService.sanitizePublicDisplayName(
-          userService.userName,
-        );
         String senderId = userService.userId;
         
         await FirebaseFirestore.instance

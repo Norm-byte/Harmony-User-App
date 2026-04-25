@@ -7,6 +7,7 @@ class Event {
   final String id;
   final String title;
   final String description;
+  final String? noticeBoardText;
   final DateTime startTime;
   final DateTime endTime;
   final String imageUrl;
@@ -36,6 +37,7 @@ class Event {
     required this.id,
     required this.title,
     required this.description,
+    this.noticeBoardText,
     required this.startTime,
     required this.endTime,
     this.imageUrl = '',
@@ -118,9 +120,8 @@ class Event {
     return Event(
       id: json['id'] ?? '',
       title: json['title'] ?? '',
-      // Map noticeBoardText to description. Default to empty if missing.
-      // We removed learnMoreContent fallback to avoid showing URLs/Markdown in the card.
-      description: json['noticeBoardText'] ?? json['description'] ?? '',
+      description: json['description'] ?? '',
+      noticeBoardText: json['noticeBoardText'],
       startTime: start,
       endTime: end,
       durationSeconds:
@@ -185,6 +186,7 @@ class Event {
       id: id,
       title: title,
       description: description,
+      noticeBoardText: noticeBoardText,
       startTime: startTime ?? this.startTime,
       endTime: endTime ?? this.endTime,
       imageUrl: imageUrl,
@@ -216,6 +218,7 @@ class Event {
       'id': id,
       'title': title,
       'description': description,
+      'noticeBoardText': noticeBoardText,
       'startTime': startTime.toIso8601String(),
       'endTime': endTime.toIso8601String(),
       'durationSeconds': durationSeconds,

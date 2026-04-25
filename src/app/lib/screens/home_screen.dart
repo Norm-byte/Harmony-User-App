@@ -7,7 +7,6 @@ import 'package:video_player/video_player.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:provider/provider.dart';
 import '../services/event_service.dart';
-import '../services/subscription_service.dart';
 import '../models/event.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'events_screen.dart';
@@ -15,7 +14,6 @@ import 'community_feed_screen.dart';
 import 'interesting_topics_screen.dart';
 import 'settings_screen.dart';
 import 'app_settings_screen.dart';
-import 'subscription_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool isSuperAdmin;
@@ -28,44 +26,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
-  SubscriptionService? _subscriptionService;
-  bool _isRedirecting = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _subscriptionService = context.read<SubscriptionService>();
-      _subscriptionService!.addListener(_enforceAccessHardlock);
-      _enforceAccessHardlock();
-    });
-  }
-
-  void _enforceAccessHardlock() {
-    final sub = _subscriptionService;
-    if (!mounted || sub == null || _isRedirecting) return;
-
-    if (!sub.isSubscribed) {
-      _isRedirecting = true;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
-        (_) => false,
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    _subscriptionService?.removeListener(_enforceAccessHardlock);
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
-    final subService = context.watch<SubscriptionService>();
-    final showSuperAdminBadge = widget.isSuperAdmin || subService.isVip;
-
     return GradientScaffold(
       appBar: AppBar(
         title: const Text('Harmony by Intent'),
@@ -78,18 +41,18 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: const Icon(Icons.settings),
               onPressed: () {
                 Navigator.push(
-                  context, 
-                  MaterialPageRoute(builder: (_) => const AppSettingsScreen())
+                  context,
+                  MaterialPageRoute(builder: (_) => const AppSettingsScreen()),
                 );
               },
             ),
 
-          if (showSuperAdminBadge)
+          if (widget.isSuperAdmin)
             Container(
               margin: const EdgeInsets.only(right: 16),
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.08),
+                color: Colors.white.withOpacity(0.08),
                 border: Border.all(color: Colors.white24),
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -128,23 +91,18 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: (index) => setState(() => _selectedIndex = index),
-        selectedItemColor: Colors.amber, // Changed to Amber for better contrast on dark
+        selectedItemColor:
+            Colors.amber, // Changed to Amber for better contrast on dark
         unselectedItemColor: Colors.white70,
-        backgroundColor: Colors.black.withValues(alpha: 0.3), // Semi-transparent nav bar
-        type: BottomNavigationBarType.fixed, // Added to support 4 items properly
+        backgroundColor: Colors.black.withOpacity(
+          0.3,
+        ), // Semi-transparent nav bar
+        type:
+            BottomNavigationBarType.fixed, // Added to support 4 items properly
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.event),
-            label: 'Events',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.chat),
-            label: 'Community',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.event), label: 'Events'),
+          BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Community'),
           BottomNavigationBarItem(
             icon: Icon(Icons.lightbulb_outline),
             label: 'Topics',
@@ -161,63 +119,76 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHomeTab({bool isVisible = true}) {
     return Consumer<EventService>(
       builder: (context, eventService, _) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('app_config').doc('home_screen').snapshots(),
-      builder: (context, configSnapshot) {
-        if (configSnapshot.hasError) {
-          return Center(child: Text('Error: ${configSnapshot.error}', style: const TextStyle(color: Colors.white)));
-        }
+        return StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('app_config')
+              .doc('home_screen')
+              .snapshots(),
+          builder: (context, configSnapshot) {
+            if (configSnapshot.hasError) {
+              return Center(
+                child: Text(
+                  'Error: ${configSnapshot.error}',
+                  style: const TextStyle(color: Colors.white),
+                ),
+              );
+            }
 
-        if (!configSnapshot.hasData) {
-          return const Center(child: CircularProgressIndicator(color: Colors.white));
-        }
+            if (!configSnapshot.hasData) {
+              return const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              );
+            }
 
-        final data = configSnapshot.data!.data() as Map<String, dynamic>? ?? {};
-        final title = data['title'] as String? ?? 'Welcome to Harmony';
-        final message = data['message'] as String? ?? 'Your journey begins here.';
-        final backgroundImageUrl = data['backgroundImageUrl'] as String?;
-        bool showBulletin = false;
-        String bulletinText = '';
-        final showFeatured = data['showFeatured'] as bool? ?? false;
-        final featuredType = data['featuredType'] as String? ?? 'youtube';
-        final featuredUrl = data['featuredUrl'] as String? ?? '';
-        final featuredTitle = data['featuredTitle'] as String? ?? '';
-        final featuredBody = data['featuredBody'] as String? ?? '';
-        String? noticeBgImage;
+            final data =
+                configSnapshot.data!.data() as Map<String, dynamic>? ?? {};
+            final title = data['title'] as String? ?? 'Welcome to Harmony';
+            final message =
+                data['message'] as String? ?? 'Your journey begins here.';
+            final backgroundImageUrl = data['backgroundImageUrl'] as String?;
+            bool showBulletin = false;
+            String bulletinText = '';
+            final showLiveStats = data['showLiveStats'] as bool? ?? false;
+            final showFeatured = data['showFeatured'] as bool? ?? false;
+            final featuredType = data['featuredType'] as String? ?? 'youtube';
+            final featuredUrl = data['featuredUrl'] as String? ?? '';
+            final featuredTitle = data['featuredTitle'] as String? ?? '';
+            final featuredBody = data['featuredBody'] as String? ?? '';
+            String? noticeBgImage;
 
-        String buildNoticeText(Event e) {
-          final description = e.description.trim();
-          if (description.isNotEmpty) return description;
+            String _buildNoticeText(Event e) {
+              final description = e.description.trim();
+              if (description.isNotEmpty) return description;
 
-          final eventTitle = e.title.trim();
-          final intent = (e.mostPopularIntent ?? '').trim();
-          final localStart = e.startTime.toLocal();
-          final hh = localStart.hour.toString().padLeft(2, '0');
-          final mm = localStart.minute.toString().padLeft(2, '0');
+              final eventTitle = e.title.trim();
+              final intent = (e.mostPopularIntent ?? '').trim();
+              final localStart = e.startTime.toLocal();
+              final hh = localStart.hour.toString().padLeft(2, '0');
+              final mm = localStart.minute.toString().padLeft(2, '0');
 
-          if (intent.isNotEmpty) {
-            return 'Pure Tone Focus: $intent at $hh:$mm';
-          }
-          if (eventTitle.isNotEmpty) {
-            return '$eventTitle at $hh:$mm';
-          }
-          return 'A Harmony tone session is available in My Harmony at $hh:$mm.';
-        }
+              if (intent.isNotEmpty) {
+                return 'Pure Tone Focus: $intent at $hh:$mm';
+              }
+              if (eventTitle.isNotEmpty) {
+                return '$eventTitle at $hh:$mm';
+              }
+              return 'A Harmony tone session is available in My Harmony at $hh:$mm.';
+            }
 
-        final noticeEvent = eventService.activeNoticeboardEvent;
-        if (noticeEvent != null) {
-          showBulletin = true;
-          bulletinText = buildNoticeText(noticeEvent);
-          if (noticeEvent.noticeBoardBgImage != null &&
-              noticeEvent.noticeBoardBgImage!.isNotEmpty) {
-            noticeBgImage = noticeEvent.noticeBoardBgImage;
-          }
-        } else if (!eventService.hasLoadedEventSources) {
-          showBulletin = data['showBulletin'] as bool? ?? false;
-          bulletinText = data['bulletinText'] as String? ?? '';
-        }
+            final noticeEvent = eventService.activeNoticeboardEvent;
+            if (noticeEvent != null) {
+              showBulletin = true;
+              bulletinText = _buildNoticeText(noticeEvent);
+              if (noticeEvent.noticeBoardBgImage != null &&
+                  noticeEvent.noticeBoardBgImage!.isNotEmpty) {
+                noticeBgImage = noticeEvent.noticeBoardBgImage;
+              }
+            } else {
+              showBulletin = data['showBulletin'] as bool? ?? false;
+              bulletinText = data['bulletinText'] as String? ?? '';
+            }
 
-        return Stack(
+            return Stack(
               children: [
                 // Background Image/Video Overlay (if present)
                 if (backgroundImageUrl != null)
@@ -241,128 +212,155 @@ class _HomeScreenState extends State<HomeScreen> {
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      message,
-                      style: const TextStyle(color: Colors.white70),
-                      textAlign: TextAlign.center,
-                    ),
-
-                    const SizedBox(height: 32),
-
-                    // Bulletin Board
-                    if (showBulletin)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        margin: const EdgeInsets.only(bottom: 24),
-                        decoration: BoxDecoration(
-                          color: noticeBgImage != null ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.15),
-                          image: noticeBgImage != null ? DecorationImage(
-                             image: NetworkImage(noticeBgImage),
-                             fit: BoxFit.cover,
-                             colorFilter: ColorFilter.mode(Colors.black.withValues(alpha: 0.4), BlendMode.darken),
-                          ) : null,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white30),
+                          textAlign: TextAlign.center,
                         ),
-                        child: Column(
-                          children: [
-                            const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                        const SizedBox(height: 8),
+                        Text(
+                          message,
+                          style: const TextStyle(color: Colors.white70),
+                          textAlign: TextAlign.center,
+                        ),
+
+                        const SizedBox(height: 32),
+
+                        // Bulletin Board
+                        if (showBulletin)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            margin: const EdgeInsets.only(bottom: 24),
+                            decoration: BoxDecoration(
+                              color: noticeBgImage != null
+                                  ? Colors.black.withOpacity(0.5)
+                                  : Colors.white.withOpacity(0.15),
+                              image: noticeBgImage != null
+                                  ? DecorationImage(
+                                      image: NetworkImage(noticeBgImage),
+                                      fit: BoxFit.cover,
+                                      colorFilter: ColorFilter.mode(
+                                        Colors.black.withOpacity(0.4),
+                                        BlendMode.darken,
+                                      ),
+                                    )
+                                  : null,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white30),
+                            ),
+                            child: Column(
                               children: [
-                                Icon(Icons.push_pin, color: Colors.amber, size: 16),
-                                SizedBox(width: 8),
-                                Text('NOTICE BOARD', style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12)),
+                                const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.push_pin,
+                                      color: Colors.amber,
+                                      size: 16,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'NOTICE BOARD',
+                                      style: TextStyle(
+                                        color: Colors.amber,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  bulletinText,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: noticeBgImage != null
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                    shadows: noticeBgImage != null
+                                        ? [
+                                            const Shadow(
+                                              color: Colors.black,
+                                              blurRadius: 4,
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              bulletinText,
-                              style: TextStyle(
-                                color: Colors.white, 
-                                fontWeight: noticeBgImage != null ? FontWeight.w600 : FontWeight.normal,
-                                shadows: noticeBgImage != null ? [const Shadow(color: Colors.black, blurRadius: 4)] : null,
-                              ),
-                              textAlign: TextAlign.center,
+                          ),
+
+                        // Featured Content
+                        if (showFeatured)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            margin: const EdgeInsets.only(bottom: 24),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white24),
                             ),
-                          ],
-                        ),
-                      ),
-
-                    // Featured Content
-                    if (showFeatured)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        margin: const EdgeInsets.only(bottom: 24),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white24),
-                        ),
-                        child: Column(
-                          children: [
-                            if (featuredTitle.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Text(
-                                  featuredTitle,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
+                            child: Column(
+                              children: [
+                                if (featuredTitle.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Text(
+                                      featuredTitle,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
                                   ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            if (featuredBody.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Text(
-                                  featuredBody,
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 14,
+                                if (featuredBody.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: Text(
+                                      featuredBody,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 14,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
                                   ),
-                                  textAlign: TextAlign.center,
+                                _FeaturedContentWidget(
+                                  type: featuredType,
+                                  url: featuredUrl,
+                                  isVisible: isVisible,
                                 ),
-                              ),
-                            _FeaturedContentWidget(
-                              type: featuredType,
-                              url: featuredUrl,
-                              isVisible: isVisible,
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
+                          ),
 
-                    // Live Stats
-                    const _ActiveUsersChip(),
+                        // Live Stats
+                        const _ActiveUsersChip(),
 
-                    if (widget.isSuperAdmin) ...[
-                      const SizedBox(height: 18),
-                      Text(
-                        'Super Admin access enabled',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.55),
-                          fontSize: 11,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ],
-                  ],
+                        if (widget.isSuperAdmin) ...[
+                          const SizedBox(height: 18),
+                          Text(
+                            'Super Admin access enabled',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.55),
+                              fontSize: 11,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         );
       },
     );
-    },
-  );
   }
 }
 
@@ -417,9 +415,9 @@ class _ActiveUsersChipState extends State<_ActiveUsersChip> {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.green.withValues(alpha: 0.2),
+            color: Colors.green.withOpacity(0.2),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.green.withValues(alpha: 0.5)),
+            border: Border.all(color: Colors.green.withOpacity(0.5)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -446,7 +444,11 @@ class _FeaturedContentWidget extends StatefulWidget {
   final String url;
   final bool isVisible;
 
-  const _FeaturedContentWidget({required this.type, required this.url, this.isVisible = true});
+  const _FeaturedContentWidget({
+    required this.type,
+    required this.url,
+    this.isVisible = true,
+  });
 
   @override
   State<_FeaturedContentWidget> createState() => _FeaturedContentWidgetState();
@@ -522,8 +524,10 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
 
   Future<void> _initializeVideo() async {
     try {
-      _videoController = VideoPlayerController.networkUrl(Uri.parse(widget.url));
-      
+      _videoController = VideoPlayerController.networkUrl(
+        Uri.parse(widget.url),
+      );
+
       // Add timeout to initialization
       await _videoController!.initialize().timeout(
         const Duration(seconds: 10),
@@ -531,11 +535,11 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
           throw Exception('Video initialization timed out');
         },
       );
-      
+
       _videoController!.setLooping(true);
       // Auto-play for shorts style feel, but muted to be polite? Or let user tap?
       // Let's auto-play muted for "Shorts" feel.
-      await _videoController!.setVolume(0.0); 
+      await _videoController!.setVolume(0.0);
       await _videoController!.play();
       if (mounted) setState(() => _isInitialized = true);
     } catch (e) {
@@ -571,18 +575,21 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
     switch (effectiveType) {
       case 'youtube':
         if (_hasError) {
-           return Container(
+          return Container(
             height: 200,
             width: double.infinity,
             margin: const EdgeInsets.only(bottom: 24),
             color: Colors.black,
             alignment: Alignment.center,
-            child: const Text('Error loading YouTube video', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Error loading YouTube video',
+              style: TextStyle(color: Colors.white),
+            ),
           );
         }
-        
+
         if (_youtubeController == null) {
-           return Container(
+          return Container(
             height: 200,
             width: double.infinity,
             margin: const EdgeInsets.only(bottom: 24),
@@ -640,7 +647,10 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
               children: [
                 Icon(Icons.error_outline, color: Colors.red, size: 48),
                 SizedBox(height: 8),
-                Text('Unable to load video', style: TextStyle(color: Colors.white)),
+                Text(
+                  'Unable to load video',
+                  style: TextStyle(color: Colors.white),
+                ),
               ],
             ),
           );
@@ -656,7 +666,7 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
             child: const CircularProgressIndicator(color: Colors.white),
           );
         }
-        
+
         final isMuted = controller.value.volume == 0;
         final isPlaying = controller.value.isPlaying;
 
@@ -680,17 +690,21 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
                   alignment: Alignment.bottomRight,
                   children: [
                     VideoPlayer(controller),
-                    
+
                     // Play/Pause Overlay
                     if (!isPlaying)
                       Center(
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.4),
+                            color: Colors.black.withOpacity(0.4),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.play_arrow, size: 40, color: Colors.white),
+                          child: const Icon(
+                            Icons.play_arrow,
+                            size: 40,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
 
@@ -720,13 +734,17 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
             padding: const EdgeInsets.all(24),
             margin: const EdgeInsets.only(bottom: 24),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: Colors.white.withOpacity(0.1),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white30),
             ),
             child: Row(
               children: [
-                const Icon(Icons.picture_as_pdf, color: Colors.redAccent, size: 40),
+                const Icon(
+                  Icons.picture_as_pdf,
+                  color: Colors.redAccent,
+                  size: 40,
+                ),
                 const SizedBox(width: 16),
                 const Expanded(
                   child: Column(
@@ -734,7 +752,11 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
                     children: [
                       Text(
                         'Featured Document',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                       Text(
                         'Tap to view PDF',
@@ -798,7 +820,9 @@ class _BackgroundWidgetState extends State<_BackgroundWidget> {
 
   bool _isVideo(String url) {
     final lower = url.toLowerCase();
-    return lower.contains('.mp4') || lower.contains('.mov') || lower.contains('video');
+    return lower.contains('.mp4') ||
+        lower.contains('.mov') ||
+        lower.contains('video');
   }
 
   @override
@@ -821,7 +845,7 @@ class _BackgroundWidgetState extends State<_BackgroundWidget> {
               child: VideoPlayer(_controller!),
             ),
           ),
-          Container(color: Colors.black.withValues(alpha: 0.4)), // Dark overlay
+          Container(color: Colors.black.withOpacity(0.4)), // Dark overlay
         ],
       );
     }
@@ -829,7 +853,7 @@ class _BackgroundWidgetState extends State<_BackgroundWidget> {
     return Image.network(
       widget.url,
       fit: BoxFit.cover,
-      color: Colors.black.withValues(alpha: 0.4),
+      color: Colors.black.withOpacity(0.4),
       colorBlendMode: BlendMode.darken,
       errorBuilder: (c, e, s) => Container(color: Colors.black),
     );

@@ -52,12 +52,51 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final user = credential.user!;
       debugPrint('HARMONY_LOGIN_AUTH_OK: uid=${user.uid} email=${user.email}');
-      final displayName = UserService.sanitizePublicDisplayName(
-        (user.displayName != null && user.displayName!.trim().isNotEmpty)
-        ? user.displayName
-        : 'Member',
-      );
-      await UserService().setUser(user.uid, displayName);
+      DocumentSnapshot<Map<String, dynamic>>? userDoc;
+      try {
+        userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+      } catch (e) {
+        debugPrint('HARMONY_LOGIN_USERDOC_ERROR: $e');
+      }
+
+      final userDocData = userDoc?.data();
+
+      // Resolve the best available public display name from every available source.
+      // Authentication (Firebase Auth) is the gate — name presence is not.
+      // Any authenticated user is allowed in; name enforcement happens at send-time.
+      final emailPrefix = user.email?.contains('@') == true
+          ? user.email!.split('@').first.trim()
+          : null;
+      // Use UID suffix as the absolute last resort so we never produce an empty name.
+      final uidSuffix = 'User${user.uid.length >= 6 ? user.uid.substring(user.uid.length - 6) : user.uid}';
+
+      final candidates = <String?>[
+        userDocData?['username'] as String?,
+        userDocData?['userName'] as String?,
+        userDocData?['name'] as String?,
+        userDocData?['displayName'] as String?,
+        (user.displayName?.trim().isNotEmpty == true ? user.displayName : null),
+        emailPrefix,
+      ];
+
+      String? effectiveName;
+      for (final candidate in candidates) {
+        final sanitized = UserService.sanitizePublicDisplayName(candidate);
+        if (UserService.isRecognizedPublicDisplayName(sanitized)) {
+          effectiveName = sanitized;
+          break;
+        }
+      }
+      if (effectiveName == null && userDocData?['isSuperAdmin'] == true) {
+        effectiveName = 'Admin 1';
+      }
+      effectiveName ??= uidSuffix;
+      final recognizedName = effectiveName;
+
+      await UserService().setUser(user.uid, effectiveName);
 
       if (!mounted) return;
 
@@ -74,15 +113,11 @@ class _LoginScreenState extends State<LoginScreen> {
       // Read isSuperAdmin from the user document (written during sign-up/redeem).
       bool isSuperAdmin = false;
       try {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-        isSuperAdmin = userDoc.data()?['isSuperAdmin'] == true;
+        isSuperAdmin = userDocData?['isSuperAdmin'] == true;
         if (isSuperAdmin && !subService.isVip) {
           await subService.setVipStatus(true);
         }
-        debugPrint('HARMONY_LOGIN_USERDOC: isVip=${userDoc.data()?['isVip']} isSuperAdmin=$isSuperAdmin');
+        debugPrint('HARMONY_LOGIN_USERDOC: isVip=${userDocData?['isVip']} isSuperAdmin=$isSuperAdmin username=$recognizedName');
       } catch (e) {
         debugPrint('HARMONY_LOGIN_USERDOC_ERROR: $e');
       }

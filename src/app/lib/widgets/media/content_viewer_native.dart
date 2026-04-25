@@ -243,14 +243,64 @@ class _NativeVideoPlayer extends StatefulWidget {
   State<_NativeVideoPlayer> createState() => _NativeVideoPlayerState();
 }
 
-class _NativeVideoPlayerState extends State<_NativeVideoPlayer> {
+class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
+    with WidgetsBindingObserver {
   VideoPlayerController? _controller;
   bool _initialized = false;
+  bool _initFailed = false;
+  DateTime? _lastAutoResume;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializePlayer();
+  }
+
+  @override
+  void didUpdateWidget(covariant _NativeVideoPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _controller?.dispose();
+      _controller = null;
+      _initialized = false;
+      _initFailed = false;
+      _initializePlayer();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _controller != null &&
+        _initialized &&
+        widget.autoPlay &&
+        !widget.controls &&
+        !_controller!.value.isPlaying) {
+      _controller!.play();
+    }
+  }
+
+  void _attachPlaybackGuard() {
+    _controller?.addListener(() {
+      final controller = _controller;
+      if (controller == null || !_initialized || !widget.autoPlay || widget.controls) {
+        return;
+      }
+
+      final value = controller.value;
+      if (!value.isInitialized || value.hasError) {
+        return;
+      }
+
+      if (!value.isPlaying && !value.isCompleted) {
+        final now = DateTime.now();
+        if (_lastAutoResume == null || now.difference(_lastAutoResume!) > const Duration(milliseconds: 750)) {
+          _lastAutoResume = now;
+          controller.play();
+        }
+      }
+    });
   }
 
   Future<void> _initializePlayer() async {
@@ -282,30 +332,61 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer> {
       _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
     }
 
-    await _controller!.initialize().then((_) {
+    try {
+      await _controller!.initialize().timeout(const Duration(seconds: 10));
       if (mounted) {
         setState(() {
           _initialized = true;
+          _initFailed = false;
         });
         _controller!.setVolume(widget.volume);
         _controller!.setLooping(widget.loop);
+        _attachPlaybackGuard();
         if (widget.autoPlay) {
           _controller!.play();
         }
       }
-    });
+    } catch (e) {
+      debugPrint('Video initialize failed for ${widget.url}: $e');
+      if (mounted) {
+        setState(() {
+          _initFailed = true;
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_initFailed) {
+      return const Center(
+        child: Icon(Icons.broken_image, color: Colors.white54, size: 42),
+      );
+    }
+
     if (!_initialized || _controller == null) {
-      return const Center(child: CircularProgressIndicator(color: Colors.white));
+      return Container(
+        color: Colors.black,
+        alignment: Alignment.center,
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.music_video, color: Colors.white30, size: 44),
+            SizedBox(height: 8),
+            Text(
+              'Preparing media...',
+              style: TextStyle(color: Colors.white54, fontSize: 14),
+            ),
+          ],
+        ),
+      );
     }
 
     return Container(

@@ -121,7 +121,8 @@ class NotificationService {
         debugPrint(
           'Message also contained a notification: ${message.notification}',
         );
-        _showLocalNotification(message);
+        // Do not duplicate a heads-up banner while the app is already open.
+        // Keep foreground delivery silent and let in-app UI state drive visibility.
       }
     });
 
@@ -254,7 +255,7 @@ class NotificationService {
         'get_last_alarm_debug',
       );
       if (response is Map) {
-        return Map<String, dynamic>.from(response);
+        return Map<String, dynamic>.from(response as Map);
       }
       return <String, dynamic>{};
     } catch (e) {
@@ -288,7 +289,7 @@ class NotificationService {
         'consume_launch_payload',
       );
       if (response is Map) {
-        return Map<String, dynamic>.from(response);
+        return Map<String, dynamic>.from(response as Map);
       }
       return const <String, dynamic>{};
     } catch (e) {
@@ -308,36 +309,6 @@ class NotificationService {
       debugPrint('HARMONY_ALARM: native lockscreen restore result=$ok');
     } catch (e) {
       debugPrint('Failed to restore lockscreen presentation: $e');
-    }
-  }
-
-  Future<void> cancelNotificationForEvent(String? eventId) async {
-    if (!Platform.isAndroid) return;
-
-    try {
-      await _dormantAlarmChannel.invokeMethod<dynamic>(
-        'cancel_notification_for_event',
-        <String, dynamic>{'event_id': eventId ?? ''},
-      );
-    } catch (e) {
-      debugPrint('Failed to cancel native event notification: $e');
-    }
-  }
-
-  Future<bool> shouldRestoreForEvent(String? eventId) async {
-    if (!Platform.isAndroid) return false;
-    final trimmed = eventId?.trim() ?? '';
-    if (trimmed.isEmpty) return false;
-
-    try {
-      final value = await _dormantAlarmChannel.invokeMethod<dynamic>(
-        'should_restore_for_event',
-        <String, dynamic>{'event_id': trimmed},
-      );
-      return value == true;
-    } catch (e) {
-      debugPrint('Failed native should-restore check for $trimmed: $e');
-      return false;
     }
   }
 
@@ -372,6 +343,27 @@ class NotificationService {
       );
     } catch (e) {
       debugPrint('Error in native cancel pre-check: $e');
+    }
+  }
+
+  Future<void> cancelNotificationForEvent(String? eventId) async {
+    if (eventId == null || eventId.isEmpty) return;
+
+    try {
+      await _localNotifications.cancel(eventId.hashCode);
+    } catch (e) {
+      debugPrint('Failed to cancel local notification for $eventId: $e');
+    }
+
+    if (!Platform.isAndroid) return;
+
+    try {
+      await _dormantAlarmChannel.invokeMethod<bool>(
+        'cancel_notification_for_event',
+        {'event_id': eventId},
+      );
+    } catch (e) {
+      debugPrint('Failed to cancel native notification for $eventId: $e');
     }
   }
 
@@ -422,10 +414,10 @@ class NotificationService {
           '${startLocal.day.toString().padLeft(2, '0')}_'
           '${startLocal.hour.toString().padLeft(2, '0')}'
           '${startLocal.minute.toString().padLeft(2, '0')}';
-      final notificationTitle = event.title.isEmpty ? 'Harmony by Intent' : event.title;
+        final notificationTitle = 'Harmony by Intent';
       final notificationBody = slotMode == PlaybackMode.video
-          ? 'Harmony event starting now. Opening video playback.'
-          : 'Harmony audio chime is ready for playback.';
+          ? 'Your scheduled event is starting. Tap to view event.'
+          : 'Your scheduled event is starting. Tap to listen.';
 
       // Use multiple close attempts to improve delivery under OEM idle policies.
       final attempts = <DateTime>[
@@ -524,4 +516,30 @@ class NotificationService {
     );
   }
 
+  String? _preferredMediaUrl(Event event, PlaybackMode playbackMode) {
+    if (playbackMode == PlaybackMode.audio) {
+      if (event.soundUrl != null && event.soundUrl!.isNotEmpty) {
+        return event.soundUrl;
+      }
+      if (_isAudioUrl(event.mediaUrl)) {
+        return event.mediaUrl;
+      }
+      return null;
+    }
+
+    if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
+      return event.visualUrl;
+    }
+    return event.mediaUrl ?? event.soundUrl;
+  }
+
+  bool _isAudioUrl(String? url) {
+    if (url == null || url.isEmpty) return false;
+
+    final lower = url.toLowerCase();
+    return lower.contains('.mp3') ||
+        lower.contains('.wav') ||
+        lower.contains('.aac') ||
+        lower.contains('.m4a');
+  }
 }

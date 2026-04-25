@@ -105,7 +105,7 @@ class AppLifecycleManager extends StatelessWidget {
                   description: eventService.currentEventDescription,
                   isWorldwide: eventService.isWorldwide,
                   mediaUrl: eventService.currentEventMediaUrl, // Pass mediaUrl
-                  userIntent: eventService.userIntent, // Pass userIntent
+                  userIntent: null,
                   onDismiss: eventService.dismissEvent,
                 ),
               ),

@@ -141,11 +141,17 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            val showLaunchIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION
+            }
+
             val showIntent = PendingIntent.getActivity(
                 context,
                 alarmId,
-                context.packageManager.getLaunchIntentForPackage(context.packageName)
-                    ?: Intent(context, MainActivity::class.java),
+                showLaunchIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
@@ -262,9 +268,9 @@ class DormantAlarmReceiver : BroadcastReceiver() {
         val deviceLocked = isDeviceLocked(context)
 
         if (appInForeground) {
-            // App is already active. Let Flutter's scheduler trigger playback naturally and
-            // avoid relaunching MainActivity with alarm extras, which can force a restore-to-home path.
-            android.util.Log.d("DormantAlarmReceiver", "App in foreground: skipping notification and relaunch for $eventId")
+            // App is open: launch for auto-play, but skip notification (user doesn't need tap prompt).
+            launchAppForEvent(context, eventId, isFullScreen)
+            android.util.Log.d("DormantAlarmReceiver", "App in foreground: skipping notification, launching auto-play for $eventId")
         } else if (deviceLocked) {
             // Device is locked: post notification so full-screen intent can legitimately wake/launch playback.
             postNotification(context, eventId, eventTitle, eventBody, isFullScreen)
@@ -294,10 +300,11 @@ class DormantAlarmReceiver : BroadcastReceiver() {
             val notificationId = eventId.hashCode()
             
             // Create intent to launch the app
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                ?: Intent(context, MainActivity::class.java)
+            val launchIntent = Intent(context, MainActivity::class.java)
             launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_NO_ANIMATION
             launchIntent.putExtra("event_id", eventId)
             launchIntent.putExtra("auto_play_video", isFullScreen)
 
@@ -319,14 +326,7 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                 .setSound(soundUri)
                 .setVibrate(longArrayOf(0, 500, 250, 500))
                 .setPriority(NotificationCompat.PRIORITY_MAX)
-                // CATEGORY_REMINDER instead of CATEGORY_ALARM: on Samsung One UI, CATEGORY_ALARM
-                // instructs the system to fully dismiss the secure keyguard when the full-screen
-                // intent fires. CATEGORY_REMINDER keeps the keyguard active (app merely shows over
-                // it via FLAG_SHOW_WHEN_LOCKED), so restoreAlarmLockscreenPresentation() can
-                // reliably move the task to back and have the keyguard reappear.
-                // The channel already has setBypassDnd(true) + IMPORTANCE_HIGH, so DND bypass
-                // and screen wake behaviour are unchanged.
-                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
             if (isFullScreen) {
@@ -381,14 +381,20 @@ class DormantAlarmReceiver : BroadcastReceiver() {
 
     private fun launchAppForEvent(context: Context, eventId: String, autoPlayVideo: Boolean) {
         try {
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                ?: Intent(context, MainActivity::class.java)
+            val launchIntent = Intent(context, MainActivity::class.java)
             launchIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                 Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_NO_ANIMATION
             launchIntent.putExtra("event_id", eventId)
             launchIntent.putExtra("auto_play_video", autoPlayVideo)
-            context.startActivity(launchIntent)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                val options = android.app.ActivityOptions.makeCustomAnimation(context, 0, 0).toBundle()
+                context.startActivity(launchIntent, options)
+            } else {
+                context.startActivity(launchIntent)
+            }
             android.util.Log.d("DormantAlarmReceiver", "Launch intent fired for $eventId")
         } catch (e: Exception) {
             android.util.Log.e("DormantAlarmReceiver", "Error launching app for alarm: ${e.message}")

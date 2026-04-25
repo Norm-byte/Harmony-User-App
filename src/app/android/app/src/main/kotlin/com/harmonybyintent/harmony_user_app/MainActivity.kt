@@ -1,7 +1,9 @@
 package com.harmonybyintent.harmony_user_app
 
 import android.os.Build
+import android.os.Bundle
 import android.content.Context
+import android.app.KeyguardManager
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -23,6 +25,17 @@ class MainActivity: FlutterFragmentActivity() {
     private var lastAlarmLaunchedEventId: String? = null
     @Volatile
     private var lastAlarmNotificationId: Int? = null
+    @Volatile
+    private var lockscreenPresentationApplied: Boolean = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        try {
+            window.setWindowAnimations(0)
+            overridePendingTransition(0, 0)
+        } catch (_: Exception) {
+        }
+    }
 
     override fun onStart() {
         super.onStart()
@@ -52,11 +65,7 @@ class MainActivity: FlutterFragmentActivity() {
                 "MainActivity",
                 "captureLaunchEventId: stored eventId=$eventId autoPlay=$pendingLaunchAutoPlayVideo (authoritative alarm source)"
             )
-            // Consume one-shot alarm extras at capture time so repeated lifecycle
-            // callbacks do not keep re-queuing stale alarm launches.
-            intent.removeExtra("event_id")
-            intent.removeExtra("auto_play_video")
-            applyAlarmLockscreenPresentation(enabled = true)
+            applyAlarmLockscreenPresentation(enabled = pendingLaunchAutoPlayVideo)
             notificationTapReceived = true
             invokeNotificationTapConsumption()
         }
@@ -102,6 +111,7 @@ class MainActivity: FlutterFragmentActivity() {
     }
 
     private fun applyAlarmLockscreenPresentation(enabled: Boolean) {
+        lockscreenPresentationApplied = enabled
         if (!enabled) return
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -120,7 +130,10 @@ class MainActivity: FlutterFragmentActivity() {
     }
 
     private fun restoreAlarmLockscreenPresentation() {
-        android.util.Log.d("MainActivity", "restoreAlarmLockscreenPresentation: begin")
+        android.util.Log.d(
+            "MainActivity",
+            "restoreAlarmLockscreenPresentation: begin applied=$lockscreenPresentationApplied"
+        )
 
         // Cancel the alarm notification so it doesn't linger in the shade
         val notifId = lastAlarmNotificationId
@@ -131,24 +144,28 @@ class MainActivity: FlutterFragmentActivity() {
             lastAlarmNotificationId = null
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(false)
-            setTurnScreenOn(false)
+        if (lockscreenPresentationApplied) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(false)
+                setTurnScreenOn(false)
+            }
+
+            @Suppress("DEPRECATION")
+            window.clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+            )
+
+            // Only background the task for lockscreen/fullscreen alarm launches.
+            // This avoids unnecessary app/task transitions on regular notification taps.
+            try {
+                moveTaskToBack(true)
+            } catch (_: Exception) {
+            }
         }
 
-        @Suppress("DEPRECATION")
-        window.clearFlags(
-            android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-        )
-
-        // Alarm launches are one-shot: send this task to background so the
-        // previous foreground app (for example Calculator) becomes visible again.
-        try {
-            moveTaskToBack(true)
-        } catch (_: Exception) {
-        }
+        lockscreenPresentationApplied = false
 
         android.util.Log.d("MainActivity", "restoreAlarmLockscreenPresentation: complete")
     }
@@ -170,6 +187,19 @@ class MainActivity: FlutterFragmentActivity() {
 
         if (eventBasedId == null || eventBasedId == fallbackId) {
             lastAlarmNotificationId = null
+        }
+    }
+
+    private fun isDeviceLockedNow(): Boolean {
+        return try {
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                keyguardManager.isDeviceLocked
+            } else {
+                keyguardManager.isKeyguardLocked
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -346,27 +376,11 @@ class MainActivity: FlutterFragmentActivity() {
                         result.error("GET_LAST_ALARM_ERROR", e.message, null)
                     }
                 }
-                "should_restore_for_event" -> {
+                "is_device_locked" -> {
                     try {
-                        val eventId = call.argument<String>("event_id")?.trim().orEmpty()
-                        if (eventId.isEmpty()) {
-                            result.success(false)
-                        } else {
-                            val pending = pendingLaunchEventId
-                            val stored = peekStoredLaunchEventId()
-                            val lastKnown = lastAlarmLaunchedEventId
-                            val shouldRestore =
-                                eventId == lastKnown ||
-                                    eventId == pending ||
-                                    eventId == stored
-                            android.util.Log.d(
-                                "MainActivity",
-                                "should_restore_for_event: eventId=$eventId lastKnown=$lastKnown pending=$pending stored=$stored => $shouldRestore"
-                            )
-                            result.success(shouldRestore)
-                        }
+                        result.success(isDeviceLockedNow())
                     } catch (e: Exception) {
-                        result.error("SHOULD_RESTORE_ERROR", e.message, null)
+                        result.error("IS_DEVICE_LOCKED_ERROR", e.message, null)
                     }
                 }
                 else -> result.notImplemented()
