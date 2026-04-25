@@ -465,6 +465,8 @@ class EventService extends ChangeNotifier {
   }
 
   void _clearPendingAlarmPlayback({String? reason}) {
+    final shouldRestoreNativePresentation =
+        _pendingAlarmForceVideo || _currentEventFromAlarmLaunch;
     if (reason != null && reason.isNotEmpty) {
       print('HARMONY_ALARM: clearing pending playback ($reason)');
     }
@@ -472,6 +474,9 @@ class EventService extends ChangeNotifier {
     _pendingAlarmEventExpiresAt = null;
     _pendingAlarmForceVideo = false;
     _pendingAlarmVerifiedExists = null;
+    if (shouldRestoreNativePresentation) {
+      NotificationService().restoreLockscreenPresentation();
+    }
   }
 
   Future<void> _verifyPendingAlarmEventStillPublished(String eventId) async {

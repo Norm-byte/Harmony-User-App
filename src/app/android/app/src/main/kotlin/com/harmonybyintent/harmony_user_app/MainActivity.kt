@@ -65,6 +65,9 @@ class MainActivity: FlutterFragmentActivity() {
                 "MainActivity",
                 "captureLaunchEventId: stored eventId=$eventId autoPlay=$pendingLaunchAutoPlayVideo (authoritative alarm source)"
             )
+            cancelAlarmNotificationForEvent(eventId)
+            intent.removeExtra("event_id")
+            intent.removeExtra("auto_play_video")
             applyAlarmLockscreenPresentation(enabled = pendingLaunchAutoPlayVideo)
             notificationTapReceived = true
             invokeNotificationTapConsumption()
@@ -161,6 +164,15 @@ class MainActivity: FlutterFragmentActivity() {
             // This avoids unnecessary app/task transitions on regular notification taps.
             try {
                 moveTaskToBack(true)
+            } catch (_: Exception) {
+            }
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    finishAndRemoveTask()
+                } else {
+                    finish()
+                }
             } catch (_: Exception) {
             }
         }
