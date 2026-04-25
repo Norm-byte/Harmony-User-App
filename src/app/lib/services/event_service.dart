@@ -32,6 +32,7 @@ class EventService extends ChangeNotifier {
   bool _currentEventFromAlarmLaunch = false;
   bool _nativeLaunchPayloadCheckInFlight = false;
   String? _lastKnownAlarmLaunchEventId;
+  String? _lastNoticeboardDebugSignature;
   bool _hasLoadedNationalDocs = false;
   bool _hasLoadedGlobalDocs = false;
 
@@ -42,58 +43,86 @@ class EventService extends ChangeNotifier {
   bool get hasLoadedEventSources =>
       _hasLoadedNationalDocs && _hasLoadedGlobalDocs;
 
-  Event? get activeNoticeboardEvent {
-    final now = DateTime.now();
-    final candidates = _events.where((event) {
-      final hasNoticeText = (event.noticeBoardText ?? '').trim().isNotEmpty;
-      final hasNoticeBg = (event.noticeBoardBgImage ?? '').trim().isNotEmpty;
-      if (!hasNoticeText && !hasNoticeBg) return false;
-
-      final showBefore = Duration(
-        minutes: event.noticeBoardShowBeforeMinutes ?? event.showBeforeMinutes ?? 60,
-      );
-      final visibilityAfter = Duration(
-        minutes:
-            event.noticeBoardVisibilityAfterMinutes ??
-            event.visibilityAfterMinutes ??
-            0,
-      );
-
-      final showTime = event.startTime.toLocal().subtract(showBefore);
-      final hideTime = event.endTime.toLocal().add(visibilityAfter);
-      return !now.isBefore(showTime) && now.isBefore(hideTime);
-    }).toList();
-
-    if (candidates.isEmpty) return null;
-    candidates.sort((a, b) => a.startTime.compareTo(b.startTime));
-    return candidates.first;
-  }
-
   List<Event> get visibleNoticeboardEvents {
     final now = DateTime.now();
-    final items = _events.where((event) {
-      final hasNoticeText = (event.noticeBoardText ?? '').trim().isNotEmpty;
-      final hasNoticeBg = (event.noticeBoardBgImage ?? '').trim().isNotEmpty;
-      if (!hasNoticeText && !hasNoticeBg) return false;
+    final candidates = _dedupeNationalEvents([
+      ..._processDocs(
+        _nationalDocs,
+        overrideType: EventType.national,
+        forDormantScheduling: true,
+      ),
+      ..._processDocs(
+        _globalDocs,
+        overrideType: EventType.global,
+        forDormantScheduling: true,
+      ),
+    ]);
 
+    final visible = candidates.where((event) {
       final showBefore = Duration(
-        minutes:
-            event.noticeBoardShowBeforeMinutes ?? event.showBeforeMinutes ?? 60,
+        minutes: event.noticeBoardShowBeforeMinutes ?? 60,
       );
       final visibilityAfter = Duration(
-        minutes:
-            event.noticeBoardVisibilityAfterMinutes ??
-            event.visibilityAfterMinutes ??
-            0,
+        minutes: event.noticeBoardVisibilityAfterMinutes ?? 0,
       );
-
       final showTime = event.startTime.toLocal().subtract(showBefore);
       final hideTime = event.endTime.toLocal().add(visibilityAfter);
       return !now.isBefore(showTime) && now.isBefore(hideTime);
     }).toList();
 
-    items.sort((a, b) => a.startTime.compareTo(b.startTime));
-    return items;
+    visible.sort((a, b) {
+      final aShowTime = a.startTime.toLocal().subtract(
+        Duration(minutes: a.noticeBoardShowBeforeMinutes ?? 60),
+      );
+      final bShowTime = b.startTime.toLocal().subtract(
+        Duration(minutes: b.noticeBoardShowBeforeMinutes ?? 60),
+      );
+      return aShowTime.compareTo(bShowTime);
+    });
+
+    return visible;
+  }
+
+  Event? get activeNoticeboardEvent {
+    final now = DateTime.now();
+    final active = visibleNoticeboardEvents;
+
+    if (active.isEmpty) {
+      if (_lastNoticeboardDebugSignature != 'none') {
+        _lastNoticeboardDebugSignature = 'none';
+        debugPrint('HARMONY_NOTICEBOARD: none active at ${now.toIso8601String()}');
+      }
+      return null;
+    }
+
+    final selected = active.first;
+    final selectedShowBefore = Duration(
+      minutes: selected.noticeBoardShowBeforeMinutes ?? 60,
+    );
+    final selectedVisibilityAfter = Duration(
+      minutes: selected.noticeBoardVisibilityAfterMinutes ?? 0,
+    );
+    final selectedShowTime = selected.startTime
+        .toLocal()
+        .subtract(selectedShowBefore);
+    final selectedHideTime = selected.endTime
+        .toLocal()
+        .add(selectedVisibilityAfter);
+    final signature =
+        '${selected.id}|${selectedShowTime.toIso8601String()}|${selectedHideTime.toIso8601String()}';
+
+    if (_lastNoticeboardDebugSignature != signature) {
+      _lastNoticeboardDebugSignature = signature;
+      debugPrint(
+        'HARMONY_NOTICEBOARD: selected=${selected.id} '
+        'show=${selectedShowTime.toIso8601String()} '
+        'hide=${selectedHideTime.toIso8601String()} '
+        'nbShowBefore=${selected.noticeBoardShowBeforeMinutes ?? 60} '
+        'nbAfter=${selected.noticeBoardVisibilityAfterMinutes ?? 0}',
+      );
+    }
+
+    return selected;
   }
 
   // My Events (History)
