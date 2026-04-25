@@ -160,19 +160,12 @@ class MainActivity: FlutterFragmentActivity() {
                     android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
             )
 
-            // Only background the task for lockscreen/fullscreen alarm launches.
-            // This avoids unnecessary app/task transitions on regular notification taps.
+            // Move app to background so the lockscreen is restored without destroying the task.
+            // Keeping the task alive means the next notification tap resumes instantly via
+            // onNewIntent() rather than restarting Flutter from scratch (which causes the
+            // loading splash to re-appear).
             try {
                 moveTaskToBack(true)
-            } catch (_: Exception) {
-            }
-
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    finishAndRemoveTask()
-                } else {
-                    finish()
-                }
             } catch (_: Exception) {
             }
         }

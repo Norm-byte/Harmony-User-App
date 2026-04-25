@@ -577,6 +577,34 @@ class EventService extends ChangeNotifier {
       return false;
     }
 
+    // ── MISSED = MISSED enforcement ─────────────────────────────────────────
+    // Compute how much of the event window is still remaining.  The event ends
+    // at endLocal; anything past that is completely missed — no replay ever.
+    final endLocal = target.endTime.toLocal();
+    final remaining = endLocal.difference(DateTime.now());
+
+    if (remaining.inSeconds <= 0) {
+      // Event has already ended — user missed it. Drop silently.
+      print(
+        'HARMONY_ALARM: late tap dropped — event ${target.id} already ended '
+        '(ended ${endLocal.toIso8601String()}, now ${DateTime.now().toIso8601String()})',
+      );
+      NotificationService().cancelNotificationForEvent(target.id);
+      _clearPendingAlarmPlayback(reason: 'event already ended, late tap dropped for ${target.id}');
+      return false;
+    }
+
+    // Cap playback duration to whatever time is left in the event window.
+    // The user sees only what there is still to see — no full replay.
+    final cappedSeconds = remaining.inSeconds.clamp(1, target.durationSeconds ?? 3600);
+    if (cappedSeconds < (target.durationSeconds ?? 3600)) {
+      print(
+        'HARMONY_ALARM: late tap for ${target.id} — capping duration to '
+        '${cappedSeconds}s (${(target.durationSeconds ?? 3600) - cappedSeconds}s missed)',
+      );
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     _dismissedEventStartTimes.remove(target.id);
     _recentlyDismissedIds.remove(target.id);
 
@@ -593,10 +621,8 @@ class EventService extends ChangeNotifier {
       mediaUrl: forcedMedia,
       intent: target.mostPopularIntent,
       fromAlarmLaunch: true,
-      // Use the actual trigger moment so users get full playback duration
-      // even if the app wakes a few seconds after the nominal schedule time.
       startTime: forcedStart,
-      durationSeconds: target.durationSeconds,
+      durationSeconds: cappedSeconds,
     );
 
     _clearPendingAlarmPlayback(reason: 'pending alarm playback consumed');
