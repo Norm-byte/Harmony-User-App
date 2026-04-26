@@ -14,6 +14,7 @@ import 'community_feed_screen.dart';
 import 'interesting_topics_screen.dart';
 import 'settings_screen.dart';
 import 'app_settings_screen.dart';
+import 'video_player_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final bool isSuperAdmin;
@@ -577,17 +578,46 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
           margin: const EdgeInsets.only(bottom: 24),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: YoutubePlayer(
-              controller: _youtubeController!,
-              showVideoProgressIndicator: true,
-              progressIndicatorColor: Colors.amber,
-              progressColors: const ProgressBarColors(
-                playedColor: Colors.amber,
-                handleColor: Colors.amberAccent,
-              ),
-              onReady: () {
-                // _youtubeController!.addListener(listener);
-              },
+            child: Stack(
+              children: [
+                YoutubePlayerBuilder(
+                  player: YoutubePlayer(
+                    controller: _youtubeController!,
+                    showVideoProgressIndicator: true,
+                    progressIndicatorColor: Colors.amber,
+                    progressColors: const ProgressBarColors(
+                      playedColor: Colors.amber,
+                      handleColor: Colors.amberAccent,
+                    ),
+                    onReady: () {
+                      // _youtubeController!.addListener(listener);
+                    },
+                  ),
+                  builder: (context, player) => player,
+                ),
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.45),
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.fullscreen, color: Colors.white),
+                      tooltip: 'Open full screen',
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => VideoPlayerScreen(videoUrl: widget.url),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -658,12 +688,15 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
             margin: const EdgeInsets.only(bottom: 24),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: AspectRatio(
-                aspectRatio: controller.value.aspectRatio,
-                child: Stack(
-                  alignment: Alignment.bottomRight,
-                  children: [
-                    VideoPlayer(controller),
+              child: AnimatedScale(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                scale: isPlaying ? 1.06 : 1.0,
+                child: AspectRatio(
+                  aspectRatio: controller.value.aspectRatio,
+                  child: Stack(
+                    children: [
+                      VideoPlayer(controller),
 
                     // Play/Pause Overlay
                     if (!isPlaying)
@@ -682,18 +715,44 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
                         ),
                       ),
 
-                    IconButton(
-                      icon: Icon(
-                        isMuted ? Icons.volume_off : Icons.volume_up,
-                        color: Colors.white,
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.fullscreen,
+                            color: Colors.white,
+                          ),
+                          tooltip: 'Open full screen',
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    VideoPlayerScreen(videoUrl: widget.url),
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                      onPressed: () {
-                        setState(() {
-                          controller.setVolume(isMuted ? 1.0 : 0.0);
-                        });
-                      },
-                    ),
-                  ],
+
+                      Positioned(
+                        right: 8,
+                        bottom: 8,
+                        child: IconButton(
+                          icon: Icon(
+                            isMuted ? Icons.volume_off : Icons.volume_up,
+                            color: Colors.white,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              controller.setVolume(isMuted ? 1.0 : 0.0);
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
