@@ -556,6 +556,7 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
             onPageChanged: (index) {
               setState(() => _currentPage = index);
             },
+            // No physics override — default scroll physics for swipe.
             itemBuilder: (context, index) {
               final item = activeItems[index];
               final title = (item['title'] as String?)?.trim() ?? '';
@@ -600,6 +601,18 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
             },
           ),
         ),
+        if (activeItems.length > 1)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '${_currentPage + 1} / ${activeItems.length}',
+              style: const TextStyle(
+                color: Colors.white54,
+                fontSize: 12,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
       ],
     );
   }
