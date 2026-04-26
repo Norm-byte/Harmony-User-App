@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,6 +9,7 @@ import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:provider/provider.dart';
 import '../services/event_service.dart';
 import '../models/event.dart';
+import '../widgets/media/content_viewer.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'events_screen.dart';
 import 'community_feed_screen.dart';
@@ -155,6 +157,14 @@ class _HomeScreenState extends State<HomeScreen> {
             final featuredUrl = data['featuredUrl'] as String? ?? '';
             final featuredTitle = data['featuredTitle'] as String? ?? '';
             final featuredBody = data['featuredBody'] as String? ?? '';
+            final showReelCarousel = data['showReelCarousel'] as bool? ?? false;
+            final reelAutoRotateSeconds =
+              (data['reelAutoRotateSeconds'] as num?)?.toInt() ?? 8;
+            final reelItemsRaw = (data['reelItems'] as List?) ?? const [];
+            final reelItems = reelItemsRaw
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
             String? noticeBgImage;
 
             // Hard rule: home bulletin is App Content-only and uses
@@ -264,8 +274,35 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
 
-                        // Featured Content
-                        if (showFeatured)
+                        // Content card: flip card when BOTH carousel + featured active.
+                        // When only one is active it renders as a plain card (existing behaviour).
+                        if (showReelCarousel && showFeatured)
+                          _FlipContentCard(
+                            featuredType: featuredType,
+                            featuredUrl: featuredUrl,
+                            featuredTitle: featuredTitle,
+                            featuredBody: featuredBody,
+                            reelItems: reelItems,
+                            autoRotateSeconds: reelAutoRotateSeconds,
+                            isVisible: isVisible,
+                          )
+                        else if (showReelCarousel)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            margin: const EdgeInsets.only(bottom: 24),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: _HomeReelCarousel(
+                              items: reelItems,
+                              autoRotateSeconds: reelAutoRotateSeconds,
+                              isVisible: isVisible,
+                            ),
+                          )
+                        else if (showFeatured)
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(12),
@@ -334,6 +371,478 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         );
       },
+    );
+  }
+}
+
+class _HomeReelCarousel extends StatefulWidget {
+  final List<Map<String, dynamic>> items;
+  final int autoRotateSeconds;
+  final bool isVisible;
+
+  const _HomeReelCarousel({
+    required this.items,
+    required this.autoRotateSeconds,
+    required this.isVisible,
+  });
+
+  @override
+  State<_HomeReelCarousel> createState() => _HomeReelCarouselState();
+}
+
+class _HomeReelCarouselState extends State<_HomeReelCarousel> {
+  late final PageController _pageController;
+  Timer? _autoRotateTimer;
+  int _currentPage = 0;
+
+  List<Map<String, dynamic>> get _enabledItems => widget.items.where((item) {
+        final enabled = (item['enabled'] as bool?) ?? true;
+        final url = (item['url'] as String?)?.trim() ?? '';
+        return enabled && url.isNotEmpty;
+      }).toList();
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+    _restartAutoRotate();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HomeReelCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items != widget.items ||
+        oldWidget.autoRotateSeconds != widget.autoRotateSeconds ||
+        oldWidget.isVisible != widget.isVisible) {
+      if (_currentPage >= _enabledItems.length) {
+        _currentPage = 0;
+      }
+      _restartAutoRotate();
+    }
+  }
+
+  void _restartAutoRotate() {
+    _autoRotateTimer?.cancel();
+    final active = _enabledItems;
+    if (!widget.isVisible || active.length < 2) return;
+
+    final seconds = widget.autoRotateSeconds.clamp(4, 20);
+    _autoRotateTimer = Timer.periodic(Duration(seconds: seconds), (_) {
+      if (!mounted || !_pageController.hasClients) return;
+      final nextPage = (_currentPage + 1) % active.length;
+      _pageController.animateToPage(
+        nextPage,
+        duration: const Duration(milliseconds: 420),
+        curve: Curves.easeInOut,
+      );
+    });
+  }
+
+  String _resolveType(Map<String, dynamic> item) {
+    final rawType = (item['type'] as String?)?.toLowerCase().trim() ?? '';
+    if (rawType.isNotEmpty) return rawType;
+
+    final url = (item['url'] as String?)?.toLowerCase() ?? '';
+    if (url.contains('youtu')) return 'youtube';
+    if (url.endsWith('.mp4') || url.endsWith('.mov') || url.endsWith('.webm')) {
+      return 'video';
+    }
+    if (url.endsWith('.png') ||
+        url.endsWith('.jpg') ||
+        url.endsWith('.jpeg') ||
+        url.endsWith('.gif') ||
+        url.endsWith('.webp')) {
+      return 'image';
+    }
+    if (url.endsWith('.pdf')) return 'pdf';
+    return 'link';
+  }
+
+  Widget _buildMedia(Map<String, dynamic> item) {
+    final url = (item['url'] as String?)?.trim() ?? '';
+    final type = _resolveType(item);
+    final supportsFullscreen = type == 'video' || type == 'youtube';
+
+    if (type == 'link') {
+      return Container(
+        color: Colors.black38,
+        alignment: Alignment.center,
+        child: ElevatedButton.icon(
+          onPressed: () => launchUrl(Uri.parse(url)),
+          icon: const Icon(Icons.open_in_new),
+          label: const Text('Open Link'),
+        ),
+      );
+    }
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: ContentViewer(
+            url: url,
+            fit: BoxFit.cover,
+            controls: type != 'image',
+            autoPlay: true,
+            loop: true,
+          ),
+        ),
+        if (supportsFullscreen)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.45),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.fullscreen, color: Colors.white),
+                tooltip: 'Open full screen',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => VideoPlayerScreen(videoUrl: url),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _autoRotateTimer?.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeItems = _enabledItems;
+
+    if (activeItems.isEmpty) {
+      return const Text(
+        'Carousel enabled but no active reels.',
+        style: TextStyle(color: Colors.white70),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.slideshow, color: Colors.amber, size: 16),
+            const SizedBox(width: 8),
+            Text(
+              'Reel Carousel (${activeItems.length})',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 250,
+          child: PageView.builder(
+            controller: _pageController,
+            itemCount: activeItems.length,
+            onPageChanged: (index) {
+              setState(() => _currentPage = index);
+            },
+            itemBuilder: (context, index) {
+              final item = activeItems[index];
+              final title = (item['title'] as String?)?.trim() ?? '';
+              final caption = (item['caption'] as String?)?.trim() ?? '';
+
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  color: Colors.black54,
+                  child: Column(
+                    children: [
+                      Expanded(child: _buildMedia(item)),
+                      if (title.isNotEmpty || caption.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (title.isNotEmpty)
+                                Text(
+                                  title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              if (caption.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    caption,
+                                    style: const TextStyle(color: Colors.white70),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Flip card: front = featured content, back = reel carousel.
+// Flip is only available when admin enables BOTH showFeatured + showReelCarousel.
+// Flip triggers (front → back): amber carousel icon (top-right) OR horizontal swipe.
+// Return trigger (back → front): back arrow button (top-left). Tapping the carousel
+// itself is reserved for pause/play/swipe between reel items.
+// ---------------------------------------------------------------------------
+class _FlipContentCard extends StatefulWidget {
+  final String featuredType;
+  final String featuredUrl;
+  final String featuredTitle;
+  final String featuredBody;
+  final List<Map<String, dynamic>> reelItems;
+  final int autoRotateSeconds;
+  final bool isVisible;
+
+  const _FlipContentCard({
+    required this.featuredType,
+    required this.featuredUrl,
+    required this.featuredTitle,
+    required this.featuredBody,
+    required this.reelItems,
+    required this.autoRotateSeconds,
+    required this.isVisible,
+  });
+
+  @override
+  State<_FlipContentCard> createState() => _FlipContentCardState();
+}
+
+class _FlipContentCardState extends State<_FlipContentCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _animation;
+  bool _showBack = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 480),
+    );
+    _animation = Tween<double>(begin: 0.0, end: pi).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+    // Once the reverse animation finishes, mark _showBack = false so the
+    // carousel widget pauses (stops its auto-rotate timer).
+    _animation.addStatusListener((status) {
+      if (status == AnimationStatus.dismissed && mounted) {
+        setState(() => _showBack = false);
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _FlipContentCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If the home tab becomes invisible (user switches tabs), silently flip back.
+    if (!widget.isVisible && oldWidget.isVisible && _showBack) {
+      _controller.value = 0.0;
+      _showBack = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _flipToCarousel() {
+    if (_showBack) return;
+    setState(() => _showBack = true);
+    _controller.forward();
+  }
+
+  void _flipToFront() {
+    if (!_showBack) return;
+    _controller.reverse();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, _) {
+        final angle = _animation.value;
+        final isShowingFront = angle <= pi / 2;
+
+        final Widget face = isShowingFront
+            ? _buildFrontFace()
+            : Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.identity()..rotateY(pi),
+                child: _buildBackFace(),
+              );
+
+        return Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.identity()
+            ..setEntry(3, 2, 0.001)
+            ..rotateY(angle),
+          child: face,
+        );
+      },
+    );
+  }
+
+  Widget _buildFrontFace() {
+    return GestureDetector(
+      // Swipe left or right on the card to flip to the carousel.
+      onHorizontalDragEnd: (details) {
+        if ((details.primaryVelocity ?? 0).abs() > 300) _flipToCarousel();
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 24),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                if (widget.featuredTitle.isNotEmpty)
+                  Padding(
+                    // Extra right padding so text doesn't overlap the flip button.
+                    padding: const EdgeInsets.only(bottom: 8, right: 36),
+                    child: Text(
+                      widget.featuredTitle,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                if (widget.featuredBody.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      widget.featuredBody,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                _FeaturedContentWidget(
+                  type: widget.featuredType,
+                  url: widget.featuredUrl,
+                  // Pause the featured media while the back face is shown.
+                  isVisible: widget.isVisible && !_showBack,
+                ),
+              ],
+            ),
+            // ── Carousel flip trigger ──────────────────────────────────────
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Tooltip(
+                message: 'View Reel Carousel',
+                child: GestureDetector(
+                  onTap: _flipToCarousel,
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.view_carousel_outlined,
+                      color: Colors.amberAccent,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBackFace() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 24),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.amberAccent.withOpacity(0.35)),
+      ),
+      child: Stack(
+        children: [
+          // Offset content below the back button row.
+          Padding(
+            padding: const EdgeInsets.only(top: 34),
+            child: _HomeReelCarousel(
+              items: widget.reelItems,
+              autoRotateSeconds: widget.autoRotateSeconds,
+              // Only active while back face is actually showing.
+              isVisible: widget.isVisible && _showBack,
+            ),
+          ),
+          // ── Return to featured button ──────────────────────────────────
+          Positioned(
+            top: 0,
+            left: 0,
+            child: Tooltip(
+              message: 'Back to featured',
+              child: GestureDetector(
+                onTap: _flipToFront,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.arrow_back,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
