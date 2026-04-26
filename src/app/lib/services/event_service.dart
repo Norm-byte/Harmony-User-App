@@ -831,7 +831,10 @@ class EventService extends ChangeNotifier {
           DateTime baseDate = event.startTime;
           final localNow = DateTime.now();
 
-          if (isDaily) {
+          if (isDaily ||
+              (hasNoRecurrence &&
+                  event.originTime != null &&
+                  event.originTime!.contains(':'))) {
             baseDate = localNow;
           } else if (isWeekly) {
             // Fix: If weekly, we must ensure baseDate has the correct weekday
@@ -879,8 +882,15 @@ class EventService extends ChangeNotifier {
             minutes: event.visibilityAfterMinutes ?? 0,
           );
           if (localEnd.add(visibilityAfter).isBefore(localNow) &&
-              (isDaily || isWeekly)) {
-            if (isDaily) {
+              (isDaily ||
+                  isWeekly ||
+                  (hasNoRecurrence &&
+                      event.originTime != null &&
+                      event.originTime!.contains(':')))) {
+            if (isDaily ||
+                (hasNoRecurrence &&
+                    event.originTime != null &&
+                    event.originTime!.contains(':'))) {
               localStart = localStart.add(const Duration(days: 1));
               localEnd = localStart.add(duration);
             } else if (isWeekly) {
