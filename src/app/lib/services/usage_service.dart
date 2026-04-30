@@ -156,9 +156,9 @@ class UsageService extends ChangeNotifier {
             final data = doc.data();
             final rcOfferingId = data['revenueCatOfferingId'] as String?;
             
-            if (rcOfferingId != null && 
-                rcOfferingId.isNotEmpty && 
-                customerInfo.entitlements.all[rcOfferingId]?.isActive == true) {
+            if (rcOfferingId != null &&
+                rcOfferingId.isNotEmpty &&
+                _matchesAnyConfiguredRevenueCatId(customerInfo, rcOfferingId)) {
               
               limitsToApply = data['limits'] ?? {};
               limitsFound = true;
@@ -184,6 +184,38 @@ class UsageService extends ChangeNotifier {
       debugPrint("Error evaluating usage limits: $e");
       _setDefaults();
     }
+  }
+
+  bool _matchesAnyConfiguredRevenueCatId(CustomerInfo info, String configuredIds) {
+    final candidates = configuredIds
+        .split(RegExp(r'[,|\s]+'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    for (final id in candidates) {
+      if (_matchesRevenueCatId(info, id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _matchesRevenueCatId(CustomerInfo info, String configuredId) {
+    // Entitlement-based match (preferred)
+    if (info.entitlements.all[configuredId]?.isActive == true) {
+      return true;
+    }
+
+    // Product-based match (fallback if admin entered Store Product ID)
+    if (info.activeSubscriptions.contains(configuredId)) {
+      return true;
+    }
+    if (info.allPurchasedProductIdentifiers.contains(configuredId)) {
+      return true;
+    }
+
+    return false;
   }
 
   void _setDefaults() {
