@@ -46,32 +46,116 @@ class EventService extends ChangeNotifier {
   bool get hasLoadedEventSources =>
       _hasLoadedNationalDocs && _hasLoadedGlobalDocs;
 
+  @visibleForTesting
+  static bool isPublishedForUserApp(
+    Map<String, dynamic> data, {
+    required String docId,
+  }) {
+    final isDraftDoc = data['isDraft'] == true || docId.startsWith('draft_slot_');
+    if (isDraftDoc) {
+      return false;
+    }
+
+    final rawPublished = data['isPublished'];
+    final rawPublishedBool = rawPublished == true ||
+        rawPublished == 1 ||
+        (rawPublished is String && rawPublished.toLowerCase() == 'true');
+    return rawPublishedBool;
+  }
+
+  @visibleForTesting
+  static Event resolveNationalDisplayEvent(
+    Event event, {
+    required String docId,
+    required DateTime now,
+  }) {
+    final recurrence = (event.recurrenceType ?? '').trim().toLowerCase();
+    final isDaily = recurrence == 'daily';
+    final isWeekly = recurrence == 'weekly';
+    final localNow = now.toLocal();
+
+    final slotIdMatch = RegExp(
+      r'^(?:draft_)?slot_(\d{2})(\d{2})_\d{8}$',
+    ).firstMatch(docId);
+    int hour = event.startTime.toLocal().hour;
+    int minute = event.startTime.toLocal().minute;
+    if (slotIdMatch != null) {
+      hour = int.tryParse(slotIdMatch.group(1) ?? '') ?? hour;
+      minute = int.tryParse(slotIdMatch.group(2) ?? '') ?? minute;
+    } else if (event.originTime != null && event.originTime!.contains(':')) {
+      final parts = event.originTime!.split(':');
+      if (parts.length == 2) {
+        hour = int.tryParse(parts[0]) ?? hour;
+        minute = int.tryParse(parts[1]) ?? minute;
+      }
+    }
+
+    DateTime baseDate = event.startTime.toLocal();
+    if (isDaily) {
+      baseDate = localNow;
+    }
+
+    DateTime localStart = DateTime(
+      baseDate.year,
+      baseDate.month,
+      baseDate.day,
+      hour,
+      minute,
+    );
+
+    final duration = event.endTime.difference(event.startTime);
+    DateTime localEnd = localStart.add(duration);
+    final visibilityAfter = Duration(minutes: event.visibilityAfterMinutes ?? 0);
+
+    if (localEnd.add(visibilityAfter).isBefore(localNow) &&
+        (isDaily || isWeekly)) {
+      if (isDaily) {
+        localStart = localStart.add(const Duration(days: 1));
+        localEnd = localStart.add(duration);
+      } else if (isWeekly) {
+        while (localEnd.isBefore(localNow)) {
+          localStart = localStart.add(const Duration(days: 7));
+          localEnd = localStart.add(duration);
+        }
+      }
+    }
+
+    return event.copyWith(startTime: localStart, endTime: localEnd);
+  }
+
+  @visibleForTesting
+  static bool isWithinNoticeboardWindow(Event event, DateTime now) {
+    final showBefore = Duration(
+      minutes: event.noticeBoardShowBeforeMinutes ?? 60,
+    );
+    final visibilityAfter = Duration(
+      minutes: event.noticeBoardVisibilityAfterMinutes ?? 0,
+    );
+    final showTime = event.startTime.toLocal().subtract(showBefore);
+    final hideTime = event.endTime.toLocal().add(visibilityAfter);
+    return !now.isBefore(showTime) && now.isBefore(hideTime);
+  }
+
   List<Event> get visibleNoticeboardEvents {
     final now = DateTime.now();
-    final candidates = _dedupeNationalEvents([
-      ..._processDocs(
-        _nationalDocs,
-        overrideType: EventType.national,
-        forDormantScheduling: true,
-      ),
-      ..._processDocs(
-        _globalDocs,
-        overrideType: EventType.global,
-        forDormantScheduling: true,
-      ),
-    ]);
+    final candidates = _dedupeVisibleNoticeboardSlotCollisions(
+      _dedupeNationalEvents([
+        ..._processDocs(
+          _nationalDocs,
+          overrideType: EventType.national,
+          forDormantScheduling: true,
+        ),
+        ..._processDocs(
+          _globalDocs,
+          overrideType: EventType.global,
+          forDormantScheduling: true,
+        ),
+      ]),
+    );
 
-    final visible = candidates.where((event) {
-      final showBefore = Duration(
-        minutes: event.noticeBoardShowBeforeMinutes ?? 60,
-      );
-      final visibilityAfter = Duration(
-        minutes: event.noticeBoardVisibilityAfterMinutes ?? 0,
-      );
-      final showTime = event.startTime.toLocal().subtract(showBefore);
-      final hideTime = event.endTime.toLocal().add(visibilityAfter);
-      return !now.isBefore(showTime) && now.isBefore(hideTime);
-    }).toList();
+    final visible = candidates
+        .where((event) => isWithinNoticeboardWindow(event, now))
+        .toList();
 
     visible.sort((a, b) {
       final aShowTime = a.startTime.toLocal().subtract(
@@ -325,7 +409,7 @@ class EventService extends ChangeNotifier {
     // Listen to National Events
     _eventsSubscription = _firestore
         .collection('events')
-        .where('isPublished', isEqualTo: true)
+      .where('isPublished', isEqualTo: true)
         .snapshots()
         .listen(
           (snapshot) {
@@ -341,7 +425,7 @@ class EventService extends ChangeNotifier {
     // Listen to Global Events
     _globalEventsSubscription = _firestore
         .collection('global_events')
-        .where('isPublished', isEqualTo: true)
+      .where('isPublished', isEqualTo: true)
         .snapshots()
         .listen(
           (snapshot) {
@@ -703,12 +787,30 @@ class EventService extends ChangeNotifier {
       final slotKey = event.originTime != null && event.originTime!.isNotEmpty
           ? event.originTime!
           : '${localStart.hour.toString().padLeft(2, '0')}:${localStart.minute.toString().padLeft(2, '0')}';
-      final titleKey = event.title.trim().toLowerCase();
-      final dedupeKey = 'national:$slotKey:$titleKey';
+        final dateKey =
+          '${localStart.year}-${localStart.month.toString().padLeft(2, '0')}-${localStart.day.toString().padLeft(2, '0')}';
+        final dedupeKey = 'national:$slotKey:$dateKey';
       final existing = deduped[dedupeKey];
 
       if (existing == null) {
         deduped[dedupeKey] = event;
+        continue;
+      }
+
+      final eventUpdatedAt = event.updatedAt;
+      final existingUpdatedAt = existing.updatedAt;
+      if (eventUpdatedAt != null && existingUpdatedAt != null) {
+        if (eventUpdatedAt.isAfter(existingUpdatedAt)) {
+          deduped[dedupeKey] = event;
+          continue;
+        }
+        if (existingUpdatedAt.isAfter(eventUpdatedAt)) {
+          continue;
+        }
+      } else if (eventUpdatedAt != null && existingUpdatedAt == null) {
+        deduped[dedupeKey] = event;
+        continue;
+      } else if (existingUpdatedAt != null && eventUpdatedAt == null) {
         continue;
       }
 
@@ -718,6 +820,19 @@ class EventService extends ChangeNotifier {
       final existingHasVisual =
           (existing.visualUrl != null && existing.visualUrl!.isNotEmpty) ||
           existing.imageUrl.isNotEmpty;
+
+      final eventIsCanonicalSlot = event.id.startsWith('slot_');
+      final existingIsCanonicalSlot = existing.id.startsWith('slot_');
+
+      if (eventIsCanonicalSlot && !existingIsCanonicalSlot) {
+        deduped[dedupeKey] = event;
+        continue;
+      }
+
+      if (event.durationSeconds != null && existing.durationSeconds == null) {
+        deduped[dedupeKey] = event;
+        continue;
+      }
 
       if (eventHasVisual && !existingHasVisual) {
         deduped[dedupeKey] = event;
@@ -742,6 +857,74 @@ class EventService extends ChangeNotifier {
     }
 
     return deduped.values.toList();
+  }
+
+  List<Event> _dedupeVisibleNoticeboardSlotCollisions(List<Event> events) {
+    final Map<String, Event> slotWinners = {};
+
+    for (final event in events) {
+      if (event.type != EventType.national) {
+        final key = 'global:${event.id}';
+        final existing = slotWinners[key];
+        if (existing == null || _preferEvent(event, existing)) {
+          slotWinners[key] = event;
+        }
+        continue;
+      }
+
+      final localStart = event.startTime.toLocal();
+      final slotKey = event.originTime != null && event.originTime!.isNotEmpty
+          ? event.originTime!
+          : '${localStart.hour.toString().padLeft(2, '0')}:${localStart.minute.toString().padLeft(2, '0')}';
+      final dateKey =
+          '${localStart.year}-${localStart.month.toString().padLeft(2, '0')}-${localStart.day.toString().padLeft(2, '0')}';
+      final key = 'national:$slotKey:$dateKey';
+
+      final existing = slotWinners[key];
+      if (existing == null || _preferEvent(event, existing)) {
+        slotWinners[key] = event;
+      }
+    }
+
+    return slotWinners.values.toList();
+  }
+
+  bool _preferEvent(Event candidate, Event current) {
+    final candidateUpdatedAt = candidate.updatedAt;
+    final currentUpdatedAt = current.updatedAt;
+    if (candidateUpdatedAt != null && currentUpdatedAt != null) {
+      if (candidateUpdatedAt.isAfter(currentUpdatedAt)) return true;
+      if (currentUpdatedAt.isAfter(candidateUpdatedAt)) return false;
+    } else if (candidateUpdatedAt != null && currentUpdatedAt == null) {
+      return true;
+    } else if (currentUpdatedAt != null && candidateUpdatedAt == null) {
+      return false;
+    }
+
+    final candidateIsCanonicalSlot = candidate.id.startsWith('slot_');
+    final currentIsCanonicalSlot = current.id.startsWith('slot_');
+    if (candidateIsCanonicalSlot != currentIsCanonicalSlot) {
+      return candidateIsCanonicalSlot;
+    }
+
+    final candidateHasVisual =
+        (candidate.visualUrl != null && candidate.visualUrl!.isNotEmpty) ||
+            candidate.imageUrl.isNotEmpty;
+    final currentHasVisual =
+        (current.visualUrl != null && current.visualUrl!.isNotEmpty) ||
+            current.imageUrl.isNotEmpty;
+    if (candidateHasVisual != currentHasVisual) {
+      return candidateHasVisual;
+    }
+
+    if (candidate.durationSeconds != null && current.durationSeconds == null) {
+      return true;
+    }
+    if (current.durationSeconds != null && candidate.durationSeconds == null) {
+      return false;
+    }
+
+    return candidate.startTime.isAfter(current.startTime);
   }
 
   void _scheduleDormantPlaybackSync() {
@@ -801,6 +984,12 @@ class EventService extends ChangeNotifier {
             ? rawEvent.copyWith(type: overrideType)
             : rawEvent;
 
+        // National schedule is slot-based. Ignore legacy/non-slot docs so
+        // stale historical records cannot reappear as noticeboard cards.
+        if (event.type == EventType.national && !doc.id.startsWith('slot_')) {
+          continue;
+        }
+
         if (event.type == EventType.national) {
           print(
             "DEBUG: National Event '${event.title}': DurationSecs(RAW)=${data['durationSeconds']}, Start=${event.startTime}, End=${event.endTime}, Duration=${event.endTime.difference(event.startTime).inSeconds}s",
@@ -811,9 +1000,7 @@ class EventService extends ChangeNotifier {
         // Do not drop these events, otherwise stale titled events can appear to
         // "replace" intended blank slots in the noticeboard UI.
 
-        final isDraftDoc =
-            data['isDraft'] == true || doc.id.startsWith('draft_slot_');
-        if (isDraftDoc || !event.isPublished) {
+        if (!isPublishedForUserApp(data, docId: doc.id)) {
           continue;
         }
 
@@ -827,84 +1014,10 @@ class EventService extends ChangeNotifier {
         Event displayEvent = event;
 
         if (event.type == EventType.national) {
-          // Fix: Use the event's actual date (for standard events) unless it is 'Daily' recurrence
-          DateTime baseDate = event.startTime;
-          final localNow = DateTime.now();
-
-          if (isDaily ||
-              (hasNoRecurrence &&
-                  event.originTime != null &&
-                  event.originTime!.contains(':'))) {
-            baseDate = localNow;
-          } else if (isWeekly) {
-            // Fix: If weekly, we must ensure baseDate has the correct weekday
-            // But be careful not to override standard events
-            // Let's find the most recent occurrence of this weekday
-            // This prevents "5 notice boards" by normalizing to *one* date
-
-            // Find the difference in days to align back to this week
-            // int dayDiff = localNow.weekday - baseDate.weekday;
-            // baseDate = localNow.subtract(Duration(days: dayDiff));
-          }
-
-          int hour = event.startTime.hour;
-          int minute = event.startTime.minute;
-
-          if (event.originTime != null && event.originTime!.contains(':')) {
-            final parts = event.originTime!.split(':');
-            if (parts.length == 2) {
-              hour = int.tryParse(parts[0]) ?? hour;
-              minute = int.tryParse(parts[1]) ?? minute;
-            }
-          }
-
-          DateTime localStart = DateTime(
-            baseDate.year,
-            baseDate.month,
-            baseDate.day,
-            hour,
-            minute,
-          );
-
-          final duration = event.endTime.difference(event.startTime);
-          DateTime localEnd = localStart.add(duration);
-
-          // Fix: Check if event is in the past, accounting for 'showBeforeMinutes'
-          // If the event ended in the past, but we are within the 'Show Before' window of the NEXT occurrence, advance.
-          // But if we are within the 'Show Before' window of THIS occurrence (even if 'isBefore(localNow)' was false), show it.
-
-          // Wait, localEnd.isBefore(localNow) means the event has ENDED.
-          // If it ended, we should look for the NEXT one.
-          // BUT, what if we have visibilityAfterMinutes?
-          // If localEnd is before now, but now < localEnd + visibilityAfter, we should still show THIS one.
-
-          final visibilityAfter = Duration(
-            minutes: event.visibilityAfterMinutes ?? 0,
-          );
-          if (localEnd.add(visibilityAfter).isBefore(localNow) &&
-              (isDaily ||
-                  isWeekly ||
-                  (hasNoRecurrence &&
-                      event.originTime != null &&
-                      event.originTime!.contains(':')))) {
-            if (isDaily ||
-                (hasNoRecurrence &&
-                    event.originTime != null &&
-                    event.originTime!.contains(':'))) {
-              localStart = localStart.add(const Duration(days: 1));
-              localEnd = localStart.add(duration);
-            } else if (isWeekly) {
-              // Keep adding 7 days until we are in the future (or present)
-              while (localEnd.isBefore(localNow)) {
-                localStart = localStart.add(const Duration(days: 7));
-                localEnd = localStart.add(duration);
-              }
-            }
-          }
-
-          displayEvent = event.copyWith(
-            startTime: localStart,
-            endTime: localEnd,
+          displayEvent = resolveNationalDisplayEvent(
+            event,
+            docId: doc.id,
+            now: now,
           );
         } else {
           if (!hasNoRecurrence) {
@@ -924,9 +1037,16 @@ class EventService extends ChangeNotifier {
           }
         }
 
-        // 1. Check Visibility After Event
+        // 1. Check visibility-after window.
+        // For noticeboard/dormant candidate generation we must respect
+        // noticeBoardVisibilityAfterMinutes so cards are not dropped too early.
+        final effectiveVisibilityAfterMinutes = forDormantScheduling
+            ? (displayEvent.noticeBoardVisibilityAfterMinutes ??
+                displayEvent.visibilityAfterMinutes ??
+                0)
+            : (displayEvent.visibilityAfterMinutes ?? 0);
         final visibilityAfter = Duration(
-          minutes: displayEvent.visibilityAfterMinutes ?? 0,
+          minutes: effectiveVisibilityAfterMinutes,
         );
         final localEndTime = displayEvent.endTime.toLocal();
 
@@ -1191,6 +1311,15 @@ class EventService extends ChangeNotifier {
       if (_isEventActive && _currentEventId == bestEventToTrigger.id) {
         print(
           "HARMONY_STRICT_V3: Event ${bestEventToTrigger.id} is already playing. IGNORING.",
+        );
+        return;
+      }
+
+      // While one event is active, do not switch to another event in the same
+      // slot window. This prevents duplicate/retrigger loops from stale docs.
+      if (_isEventActive) {
+        print(
+          "HARMONY_STRICT_V3: event already active ($_currentEventId), skipping retrigger for ${bestEventToTrigger.id}",
         );
         return;
       }

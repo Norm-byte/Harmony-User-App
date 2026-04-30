@@ -61,27 +61,7 @@ class EventLearnMoreScreen extends StatelessWidget {
                 },
                 child: Container(
                   color: Colors.black,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      _buildSecondaryContent(context),
-                      
-                      // Expand Overlay Icon
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Icon(Icons.fullscreen, // Changed icon to indicate expansion
-                              color: Colors.white, size: 20),
-                        ),
-                      ),
-                    ],
-                  ),
+                  child: _buildSecondaryContent(context),
                 ),
               ),
             ),

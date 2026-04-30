@@ -423,7 +423,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
   Widget build(BuildContext context) {
     return GradientScaffold(
       appBar: AppBar(
-        title: const Text('Community Room • 1.0.11'),
+        title: const Text('Community Room'),
         foregroundColor: Colors.white,
       ),
       body: Column(

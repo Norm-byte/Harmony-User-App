@@ -1,5 +1,21 @@
 # Project Context & History
 
+## Checkpoint (April 30, 2026 - Reels Restore, Noticeboard Stable, Commit-All Fallback)
+**Status:** User validated clean home experience after fresh install; reels launch control restored and smooth launch behavior retained.
+
+### Confirmed In-Session Outcome
+1. Fresh device install completed and app launched successfully.
+2. Home featured card reels launcher was restored with clearer affordance (icon + "Reels" label).
+3. Reels launch smoothness improvements remain active (prewarm path retained).
+4. Ghost noticeboard behavior remains resolved; user confirmed no stale noticeboards visible.
+
+### Recordkeeping Decision
+1. User requested a commit-all fallback record of current working state.
+2. Commit scope should preserve the full attempt trail in git history while excluding transient local cache artifacts.
+
+### Operational Note
+1. RevenueCat 401/Invalid API Key logs are environment/configuration concerns and separate from this reels/noticeboard UI and scheduling fix set.
+
 ## Checkpoint (April 25, 2026 - Bulletin Source Fixed)
 **Status:** Home bulletin regression resolved and confirmed by user.
 

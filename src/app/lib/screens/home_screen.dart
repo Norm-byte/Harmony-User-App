@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
@@ -18,6 +19,8 @@ import 'settings_screen.dart';
 import 'app_settings_screen.dart';
 import 'video_player_screen.dart';
 
+const int kMaxActiveReels = 30;
+
 class HomeScreen extends StatefulWidget {
   final bool isSuperAdmin;
 
@@ -29,6 +32,58 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+
+  bool _isYoutubeUrl(String url) {
+    final lower = url.toLowerCase();
+    return lower.contains('youtube.com') || lower.contains('youtu.be');
+  }
+
+  bool _isVideoUrl(String url) {
+    final lower = url.toLowerCase();
+    return lower.endsWith('.mp4') ||
+        lower.endsWith('.mov') ||
+        lower.endsWith('.webm') ||
+        lower.endsWith('.m4v');
+  }
+
+  Future<void> _prewarmReels(List<Map<String, dynamic>> items) async {
+    final firstFew = items.take(3);
+    for (final item in firstFew) {
+      final url = (item['url'] as String?)?.trim() ?? '';
+      if (url.isEmpty) continue;
+
+      if (_isVideoUrl(url)) {
+        DefaultCacheManager().downloadFile(url).catchError((_) {});
+        continue;
+      }
+
+      if (_isYoutubeUrl(url)) {
+        final id = YoutubePlayer.convertUrlToId(url);
+        if (id == null || id.isEmpty) continue;
+        final thumb = 'https://img.youtube.com/vi/$id/hqdefault.jpg';
+        precacheImage(NetworkImage(thumb), context).catchError((_) {});
+      }
+    }
+  }
+
+  void _openReelsFullscreen(List<Map<String, dynamic>> reelItems) {
+    final enabled = reelItems.where((item) {
+      final isEnabled = (item['enabled'] as bool?) ?? true;
+      final url = (item['url'] as String?)?.trim() ?? '';
+      return isEnabled && url.isNotEmpty;
+    }).take(kMaxActiveReels).toList();
+
+    if (enabled.isEmpty) return;
+
+    unawaited(_prewarmReels(enabled));
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ReelsFullscreenScreen(items: enabled),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -274,17 +329,87 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
 
-                        // Content card: flip card when BOTH carousel + featured active.
-                        // When only one is active it renders as a plain card (existing behaviour).
-                        if (showReelCarousel && showFeatured)
-                          _FlipContentCard(
-                            featuredType: featuredType,
-                            featuredUrl: featuredUrl,
-                            featuredTitle: featuredTitle,
-                            featuredBody: featuredBody,
-                            reelItems: reelItems,
-                            autoRotateSeconds: reelAutoRotateSeconds,
-                            isVisible: isVisible,
+                        if (showFeatured)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            margin: const EdgeInsets.only(bottom: 24),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: Stack(
+                              children: [
+                                Column(
+                                  children: [
+                                    if (featuredTitle.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                            bottom: 8, right: 72),
+                                        child: Text(
+                                          featuredTitle,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    if (featuredBody.isNotEmpty)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 12),
+                                        child: Text(
+                                          featuredBody,
+                                          style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 14,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    _FeaturedContentWidget(
+                                      type: featuredType,
+                                      url: featuredUrl,
+                                      isVisible: isVisible,
+                                    ),
+                                  ],
+                                ),
+                                if (reelItems.isNotEmpty)
+                                  Positioned(
+                                    top: 0,
+                                    right: 0,
+                                    child: Tooltip(
+                                      message: 'Open Reels',
+                                      child: GestureDetector(
+                                        onTap: () =>
+                                            _openReelsFullscreen(reelItems),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.play_circle_fill_rounded,
+                                              color: Colors.white70,
+                                              size: 26,
+                                            ),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'Reels',
+                                              style: TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           )
                         else if (showReelCarousel)
                           Container(
@@ -296,55 +421,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(color: Colors.white24),
                             ),
-                            child: _HomeReelCarousel(
-                              items: reelItems,
-                              autoRotateSeconds: reelAutoRotateSeconds,
-                              isVisible: isVisible,
-                            ),
-                          )
-                        else if (showFeatured)
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            margin: const EdgeInsets.only(bottom: 24),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.white24),
-                            ),
-                            child: Column(
-                              children: [
-                                if (featuredTitle.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Text(
-                                      featuredTitle,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                                if (featuredBody.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 12),
-                                    child: Text(
-                                      featuredBody,
-                                      style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 14,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  ),
-                                _FeaturedContentWidget(
-                                  type: featuredType,
-                                  url: featuredUrl,
-                                  isVisible: isVisible,
-                                ),
-                              ],
+                            child: _ReelsLaunchCard(
+                              reelItems: reelItems,
+                              onOpen: () => _openReelsFullscreen(reelItems),
                             ),
                           ),
 
@@ -375,6 +454,425 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+class _ReelsLaunchCard extends StatelessWidget {
+  final List<Map<String, dynamic>> reelItems;
+  final VoidCallback onOpen;
+  final bool compact;
+
+  const _ReelsLaunchCard({
+    required this.reelItems,
+    required this.onOpen,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final activeCount = reelItems.where((item) {
+      final enabled = (item['enabled'] as bool?) ?? true;
+      final url = (item['url'] as String?)?.trim() ?? '';
+      return enabled && url.isNotEmpty;
+    }).take(kMaxActiveReels).length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.slideshow, color: Colors.amber, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              compact
+                  ? 'Reels'
+                  : 'Reel Carousel${activeCount > 0 ? ' ($activeCount)' : ''}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: activeCount > 0 ? onOpen : null,
+            icon: const Icon(Icons.play_circle_fill_rounded),
+            label: const Text('Open Reels Full Screen'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReelsFullscreenScreen extends StatefulWidget {
+  final List<Map<String, dynamic>> items;
+
+  const _ReelsFullscreenScreen({required this.items});
+
+  @override
+  State<_ReelsFullscreenScreen> createState() => _ReelsFullscreenScreenState();
+}
+
+class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
+  late final PageController _pageController;
+  int _currentPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _goToNext() {
+    if (!_pageController.hasClients || widget.items.isEmpty) return;
+    final next = (_currentPage + 1) % widget.items.length;
+    _pageController.animateToPage(
+      next,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOut,
+    );
+  }
+
+  String _resolveType(Map<String, dynamic> item) {
+    final rawType = (item['type'] as String?)?.toLowerCase().trim() ?? '';
+    if (rawType.isNotEmpty) return rawType;
+
+    final url = (item['url'] as String?)?.toLowerCase() ?? '';
+    if (url.contains('youtu')) return 'youtube';
+    if (url.endsWith('.mp4') || url.endsWith('.mov') || url.endsWith('.webm')) {
+      return 'video';
+    }
+    if (url.endsWith('.png') ||
+        url.endsWith('.jpg') ||
+        url.endsWith('.jpeg') ||
+        url.endsWith('.gif') ||
+        url.endsWith('.webp')) {
+      return 'image';
+    }
+    if (url.endsWith('.pdf')) return 'pdf';
+    return 'link';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            itemCount: widget.items.length,
+            onPageChanged: (index) => setState(() => _currentPage = index),
+            itemBuilder: (context, index) {
+              final item = widget.items[index];
+              final url = (item['url'] as String?)?.trim() ?? '';
+              final title = (item['title'] as String?)?.trim() ?? '';
+              final caption = (item['caption'] as String?)?.trim() ?? '';
+              final type = _resolveType(item);
+
+              Widget media;
+              if (type == 'video') {
+                media = _FullscreenVideoReel(url: url, onEnded: _goToNext);
+              } else if (type == 'youtube') {
+                media = _FullscreenYoutubeReel(url: url, onEnded: _goToNext);
+              } else {
+                media = ContentViewer(
+                  url: url,
+                  fit: BoxFit.cover,
+                  controls: true,
+                  autoPlay: true,
+                  loop: false,
+                );
+              }
+
+              return Stack(
+                children: [
+                  Positioned.fill(child: media),
+                  if (title.isNotEmpty || caption.isNotEmpty)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(16, 26, 16, 22),
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black87],
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (title.isNotEmpty)
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            if (caption.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  caption,
+                                  style: const TextStyle(color: Colors.white70),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          Positioned(
+            top: 12,
+            left: 12,
+            child: CircleAvatar(
+              backgroundColor: Colors.black.withOpacity(0.45),
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 16,
+            right: 14,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '${_currentPage + 1} / ${widget.items.length}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FullscreenVideoReel extends StatefulWidget {
+  final String url;
+  final VoidCallback onEnded;
+
+  const _FullscreenVideoReel({required this.url, required this.onEnded});
+
+  @override
+  State<_FullscreenVideoReel> createState() => _FullscreenVideoReelState();
+}
+
+class _FullscreenVideoReelState extends State<_FullscreenVideoReel> {
+  VideoPlayerController? _controller;
+  bool _endedNotified = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    try {
+      VideoPlayerController controller;
+      final cached = await DefaultCacheManager().getFileFromCache(widget.url);
+      if (cached != null && await cached.file.exists()) {
+        controller = VideoPlayerController.file(cached.file);
+      } else {
+        controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+        DefaultCacheManager().downloadFile(widget.url).catchError((_) {});
+      }
+      await controller.initialize();
+      controller.addListener(_listen);
+      await controller.play();
+      if (!mounted) return;
+      setState(() => _controller = controller);
+    } catch (_) {}
+  }
+
+  void _listen() {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || _endedNotified) return;
+    final duration = c.value.duration;
+    if (duration.inMilliseconds <= 0) return;
+    final remaining = duration - c.value.position;
+    if (remaining.inMilliseconds <= 250) {
+      _endedNotified = true;
+      widget.onEnded();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _FullscreenVideoReel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _controller?.removeListener(_listen);
+      _controller?.dispose();
+      _controller = null;
+      _endedNotified = false;
+      _init();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeListener(_listen);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized) {
+      return Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF111111), Color(0xFF050505)],
+          ),
+        ),
+        alignment: Alignment.center,
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.slideshow_rounded, color: Colors.white54, size: 44),
+            SizedBox(height: 10),
+            Text('Loading reel...', style: TextStyle(color: Colors.white54)),
+          ],
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () {
+        if (c.value.isPlaying) {
+          c.pause();
+        } else {
+          c.play();
+        }
+        setState(() {});
+      },
+      child: ClipRect(
+        child: SizedBox.expand(
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: c.value.size.width,
+              height: c.value.size.height,
+              child: VideoPlayer(c),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FullscreenYoutubeReel extends StatefulWidget {
+  final String url;
+  final VoidCallback onEnded;
+
+  const _FullscreenYoutubeReel({required this.url, required this.onEnded});
+
+  @override
+  State<_FullscreenYoutubeReel> createState() => _FullscreenYoutubeReelState();
+}
+
+class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
+  YoutubePlayerController? _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  void _init() {
+    final id = YoutubePlayer.convertUrlToId(widget.url);
+    if (id == null) return;
+    _controller = YoutubePlayerController(
+      initialVideoId: id,
+      flags: const YoutubePlayerFlags(
+        autoPlay: true,
+        mute: false,
+        disableDragSeek: true,
+        hideControls: true,
+        controlsVisibleAtStart: false,
+      ),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _FullscreenYoutubeReel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _controller?.dispose();
+      _controller = null;
+      _init();
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_controller == null) {
+      return const Center(
+        child: Text(
+          'Unable to load this YouTube reel',
+          style: TextStyle(color: Colors.white70),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () {
+        final c = _controller!;
+        if (c.value.isPlaying) {
+          c.pause();
+        } else {
+          c.play();
+        }
+      },
+      child: SizedBox.expand(
+        child: YoutubePlayerBuilder(
+          player: YoutubePlayer(
+            controller: _controller!,
+            showVideoProgressIndicator: false,
+            onEnded: (_) => widget.onEnded(),
+          ),
+          builder: (context, player) => player,
+        ),
+      ),
+    );
+  }
+}
+
 class _HomeReelCarousel extends StatefulWidget {
   final List<Map<String, dynamic>> items;
   final int autoRotateSeconds;
@@ -399,13 +897,13 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
         final enabled = (item['enabled'] as bool?) ?? true;
         final url = (item['url'] as String?)?.trim() ?? '';
         return enabled && url.isNotEmpty;
-      }).toList();
+    }).take(kMaxActiveReels).toList();
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
-    _restartAutoRotate();
+    _scheduleNextAutoRotate();
   }
 
   @override
@@ -417,17 +915,23 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
       if (_currentPage >= _enabledItems.length) {
         _currentPage = 0;
       }
-      _restartAutoRotate();
+      _scheduleNextAutoRotate();
     }
   }
 
-  void _restartAutoRotate() {
+  void _scheduleNextAutoRotate() {
     _autoRotateTimer?.cancel();
     final active = _enabledItems;
     if (!widget.isVisible || active.length < 2) return;
 
+    final safePage = _currentPage.clamp(0, active.length - 1);
+    final currentType = _resolveType(active[safePage]);
+
+    // Never auto-skip a playing video reel.
+    if (currentType == 'video' || currentType == 'youtube') return;
+
     final seconds = widget.autoRotateSeconds.clamp(4, 20);
-    _autoRotateTimer = Timer.periodic(Duration(seconds: seconds), (_) {
+    _autoRotateTimer = Timer(Duration(seconds: seconds), () {
       if (!mounted || !_pageController.hasClients) return;
       final nextPage = (_currentPage + 1) % active.length;
       _pageController.animateToPage(
@@ -436,6 +940,38 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
         curve: Curves.easeInOut,
       );
     });
+  }
+
+  Future<void> _openFullscreen(String url) async {
+    _autoRotateTimer?.cancel();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VideoPlayerScreen(videoUrl: url),
+      ),
+    );
+    if (!mounted) return;
+    _scheduleNextAutoRotate();
+  }
+
+  void _goToPreviousPage(int totalItems) {
+    if (!_pageController.hasClients || totalItems < 2) return;
+    final prevPage = (_currentPage - 1 + totalItems) % totalItems;
+    _pageController.animateToPage(
+      prevPage,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  }
+
+  void _goToNextPage(int totalItems) {
+    if (!_pageController.hasClients || totalItems < 2) return;
+    final nextPage = (_currentPage + 1) % totalItems;
+    _pageController.animateToPage(
+      nextPage,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
   }
 
   String _resolveType(Map<String, dynamic> item) {
@@ -461,7 +997,6 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
   Widget _buildMedia(Map<String, dynamic> item) {
     final url = (item['url'] as String?)?.trim() ?? '';
     final type = _resolveType(item);
-    final supportsFullscreen = type == 'video' || type == 'youtube';
 
     if (type == 'link') {
       return Container(
@@ -483,32 +1018,9 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
             fit: BoxFit.cover,
             controls: type != 'image',
             autoPlay: true,
-            loop: true,
+            loop: type != 'video' && type != 'youtube',
           ),
         ),
-        if (supportsFullscreen)
-          Positioned(
-            top: 8,
-            right: 8,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.45),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.fullscreen, color: Colors.white),
-                tooltip: 'Open full screen',
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => VideoPlayerScreen(videoUrl: url),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
       ],
     );
   }
@@ -550,55 +1062,108 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
         const SizedBox(height: 10),
         SizedBox(
           height: 250,
-          child: PageView.builder(
-            controller: _pageController,
-            itemCount: activeItems.length,
-            onPageChanged: (index) {
-              setState(() => _currentPage = index);
-            },
-            // No physics override — default scroll physics for swipe.
-            itemBuilder: (context, index) {
-              final item = activeItems[index];
-              final title = (item['title'] as String?)?.trim() ?? '';
-              final caption = (item['caption'] as String?)?.trim() ?? '';
+          child: Stack(
+            children: [
+              PageView.builder(
+                controller: _pageController,
+                itemCount: activeItems.length,
+                onPageChanged: (index) {
+                  setState(() => _currentPage = index);
+                  _scheduleNextAutoRotate();
+                },
+                // No physics override — default scroll physics for swipe.
+                itemBuilder: (context, index) {
+                  final item = activeItems[index];
+                  final title = (item['title'] as String?)?.trim() ?? '';
+                  final caption = (item['caption'] as String?)?.trim() ?? '';
 
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  color: Colors.black54,
-                  child: Column(
-                    children: [
-                      Expanded(child: _buildMedia(item)),
-                      if (title.isNotEmpty || caption.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (title.isNotEmpty)
-                                Text(
-                                  title,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              if (caption.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    caption,
-                                    style: const TextStyle(color: Colors.white70),
-                                  ),
-                                ),
-                            ],
-                          ),
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      color: Colors.black54,
+                      child: Column(
+                        children: [
+                          Expanded(child: _buildMedia(item)),
+                          if (title.isNotEmpty || caption.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (title.isNotEmpty)
+                                    Text(
+                                      title,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  if (caption.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        caption,
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+              if (activeItems.length > 1)
+                Positioned(
+                  left: 8,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.4),
+                        shape: BoxShape.circle,
+                      ),
+                      child: IconButton(
+                        icon: const Icon(
+                          Icons.arrow_back_ios_new,
+                          color: Colors.white,
+                          size: 18,
                         ),
-                    ],
+                        tooltip: 'Previous reel',
+                        onPressed: () => _goToPreviousPage(activeItems.length),
+                      ),
+                    ),
                   ),
                 ),
-              );
-            },
+              if (activeItems.length > 1)
+                Positioned(
+                  right: 8,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.4),
+                        shape: BoxShape.circle,
+                      ),
+                      child: IconButton(
+                        icon: const Icon(
+                          Icons.arrow_forward_ios,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                        tooltip: 'Next reel',
+                        onPressed: () => _goToNextPage(activeItems.length),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
         if (activeItems.length > 1)
@@ -1117,28 +1682,6 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
                   ),
                   builder: (context, player) => player,
                 ),
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.45),
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.fullscreen, color: Colors.white),
-                      tooltip: 'Open full screen',
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => VideoPlayerScreen(videoUrl: widget.url),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -1234,27 +1777,6 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
                             size: 40,
                             color: Colors.white,
                           ),
-                        ),
-                      ),
-
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: IconButton(
-                          icon: const Icon(
-                            Icons.fullscreen,
-                            color: Colors.white,
-                          ),
-                          tooltip: 'Open full screen',
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    VideoPlayerScreen(videoUrl: widget.url),
-                              ),
-                            );
-                          },
                         ),
                       ),
 

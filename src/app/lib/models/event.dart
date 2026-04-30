@@ -30,6 +30,7 @@ class Event {
   final String? noticeBoardBgImage; // Specific background for notice board
   final String?
   noticeBoardBgColor; // Specific background color for notice board
+  final DateTime? updatedAt;
   final bool isPublished; // Added to filter drafts
   final int? durationSeconds; // Added for guaranteed playback duration
 
@@ -59,6 +60,7 @@ class Event {
     this.mediaUrl,
     this.noticeBoardBgImage,
     this.noticeBoardBgColor,
+    this.updatedAt,
     this.isPublished = true,
     this.durationSeconds,
   });
@@ -154,6 +156,7 @@ class Event {
       mediaUrl: json['mediaUrl'] ?? json['audioUrl'] ?? json['visualUrl'],
       noticeBoardBgImage: json['noticeBoardBgImage'],
       noticeBoardBgColor: json['noticeBoardBgColor'],
+      updatedAt: _asDateTime(json['updatedAt']),
       // Strict published gate: only explicit published=true docs should be
       // eligible in the user app. Missing/legacy values are treated as false.
       isPublished: _asBool(json['isPublished'], defaultValue: false),
@@ -177,6 +180,14 @@ class Event {
     if (value is int) return value;
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value.trim());
+    return null;
+  }
+
+  static DateTime? _asDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    if (value is Timestamp) return value.toDate();
+    if (value is String) return DateTime.tryParse(value);
     return null;
   }
 
@@ -208,6 +219,7 @@ class Event {
       mediaUrl: mediaUrl,
       noticeBoardBgImage: noticeBoardBgImage,
       noticeBoardBgColor: noticeBoardBgColor,
+      updatedAt: updatedAt,
       isPublished: isPublished,
       durationSeconds: durationSeconds,
     );
@@ -238,6 +250,7 @@ class Event {
       'recurrenceType': recurrenceType,
       'noticeBoardBgImage': noticeBoardBgImage,
       'noticeBoardBgColor': noticeBoardBgColor,
+      'updatedAt': updatedAt?.toIso8601String(),
       'soundUrl': soundUrl,
       'visualUrl': visualUrl,
       'mediaUrl': mediaUrl,
