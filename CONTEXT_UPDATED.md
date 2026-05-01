@@ -1,5 +1,29 @@
 # Project Context & History
 
+## Pause Log (April 30, 2026 - Mid-Flow Hold Before Final RevenueCat Validation and Next Bundle)
+**Status at pause:** User requested a break and asked to keep everything exactly as-is. Work is stable and intentionally paused mid-flow.
+
+### Locked State To Preserve
+1. Noticeboard ghost-event fix remains active and user-verified.
+2. Home reels launcher restored with clearer icon + text affordance and smooth open behavior retained.
+3. RevenueCat/deals mapping hardening is committed:
+    - App now accepts entitlement IDs or product IDs for deal matching.
+    - Multiple IDs per deal are supported (comma/pipe/space separated).
+4. Working tree is clean at pause point.
+
+### Resume-First Checklist (Next Session)
+1. Validate RevenueCat dashboard API key/project alignment to clear 401 Invalid API Key.
+2. Confirm the two live tiers map correctly:
+    - Starter: 10 messages/day
+    - Harmony 100: 100 messages/day
+3. Run fresh install smoke check and verify Common Room daily counter reset behavior.
+4. Build release bundle with required flag:
+    - flutter build appbundle --no-tree-shake-icons
+
+### Intent
+1. Do not alter unrelated behavior before RevenueCat validation and final bundle completion.
+2. Continue directly from this checkpoint on return.
+
 ## Checkpoint (April 30, 2026 - Reels Restore, Noticeboard Stable, Commit-All Fallback)
 **Status:** User validated clean home experience after fresh install; reels launch control restored and smooth launch behavior retained.
 
