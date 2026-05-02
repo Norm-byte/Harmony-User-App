@@ -82,3 +82,71 @@ Move this project safely from the current Windows workspace to a new MacBook Pro
 3. Push to remote.
 4. Start Mac setup and clone from remote.
 5. Run smoke tests on Android and iOS.
+
+## Phase 7: Release Handoff Checklist (Android Now, TestFlight Next)
+
+### A) Android Upload Checklist (Google Play Console)
+1. Confirm the latest bundle exists:
+   - Path: src/app/build/app/outputs/bundle/release/app-release.aab
+2. Confirm repository is clean before upload notes are finalized:
+   - git status --short
+3. In Play Console (Internal Testing first):
+   - Create or select the target release track.
+   - Upload the new app-release.aab.
+   - Verify version code is higher than previous published/internal build.
+4. Complete release metadata checks:
+   - App name, short description, full description
+   - Screenshots (if changed)
+   - Data safety and content declarations still valid
+5. Save and roll out to internal testers.
+6. Record release handoff note in project context:
+   - Version name/code uploaded
+   - Track used (Internal/Closed/Open)
+   - Date/time and operator initials
+
+### B) Post-Upload Smoke Checks (Android)
+1. Fresh install from internal track (or local install for quick parity).
+2. Validate core paths:
+   - Login
+   - Home screen loads without ghost noticeboard events
+   - Reels launcher visible and opens smoothly
+   - Community chat rooms visible only when enabled
+3. Validate admin-linked controls:
+   - Chat room publish/unpublish states reflected in user app
+   - System toggle show_niche_chat_rooms reflected in My Harmony
+
+### C) RevenueCat Sanity Pass (Before iOS Submission)
+1. Verify correct project API keys in app builds (Android/iOS).
+2. Verify entitlements and/or product IDs used by deals are valid.
+3. Verify current offering contains expected packages.
+4. Verify tiers map as expected:
+   - Starter: 10 messages/day
+   - Harmony 100: 100 messages/day
+
+### D) iOS / TestFlight Prep Checklist
+1. Open src/app/ios/Runner.xcworkspace in Xcode.
+2. Signing:
+   - Select correct Team
+   - Confirm Bundle Identifier
+   - Confirm automatic signing/profiles resolve cleanly
+3. Build settings:
+   - Increment build number (CFBundleVersion)
+   - Keep version string aligned with release notes
+4. Archive and validate in Xcode Organizer.
+5. Upload to App Store Connect.
+6. In TestFlight:
+   - Add internal testers
+   - Add concise test notes focused on reels, noticeboard, and chat controls
+7. Run one iPhone smoke test from TestFlight build before wider rollout.
+
+### E) Release Log Template (Use for Each Upload)
+1. Platform: Android / iOS
+2. Build identifier: versionName + versionCode (Android) or version + build (iOS)
+3. Commit hash: root + any nested admin commit
+4. Primary changes shipped:
+5. Validation completed:
+6. Known follow-ups (if any):
+storePassword=<your_keystore_password>
+keyPassword=<your_key_password>
+keyAlias=<your_key_alias>
+storeFile=/Users/normansmith/keys/harmony_release.jks
