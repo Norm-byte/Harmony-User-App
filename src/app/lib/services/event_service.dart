@@ -75,13 +75,23 @@ class EventService extends ChangeNotifier {
     final localNow = now.toLocal();
 
     final slotIdMatch = RegExp(
-      r'^(?:draft_)?slot_(\d{2})(\d{2})_\d{8}$',
+      r'^(?:draft_)?slot_(\d{2})(\d{2})_(\d{8})$',
     ).firstMatch(docId);
     int hour = event.startTime.toLocal().hour;
     int minute = event.startTime.toLocal().minute;
+    DateTime? slotDocDateLocal;
     if (slotIdMatch != null) {
       hour = int.tryParse(slotIdMatch.group(1) ?? '') ?? hour;
       minute = int.tryParse(slotIdMatch.group(2) ?? '') ?? minute;
+      final dateToken = slotIdMatch.group(3);
+      if (dateToken != null && dateToken.length == 8) {
+        final year = int.tryParse(dateToken.substring(0, 4));
+        final month = int.tryParse(dateToken.substring(4, 6));
+        final day = int.tryParse(dateToken.substring(6, 8));
+        if (year != null && month != null && day != null) {
+          slotDocDateLocal = DateTime(year, month, day);
+        }
+      }
     } else if (event.originTime != null && event.originTime!.contains(':')) {
       final parts = event.originTime!.split(':');
       if (parts.length == 2) {
@@ -93,6 +103,19 @@ class EventService extends ChangeNotifier {
     DateTime baseDate = event.startTime.toLocal();
     if (isDaily) {
       baseDate = localNow;
+    } else if (slotDocDateLocal != null) {
+      // Slot docs without recurrence are valid for each day in their own
+      // Monday-Sunday week only, then expire. This preserves week-card
+      // behavior without reintroducing cross-week ghost events.
+      final weekStart = slotDocDateLocal.subtract(
+        Duration(days: slotDocDateLocal.weekday - DateTime.monday),
+      );
+      final weekEndExclusive = weekStart.add(const Duration(days: 7));
+      final inSlotWeek =
+          !localNow.isBefore(weekStart) && localNow.isBefore(weekEndExclusive);
+      if (inSlotWeek) {
+        baseDate = localNow;
+      }
     }
 
     DateTime localStart = DateTime(

@@ -71,6 +71,44 @@ void main() {
       expect(resolved.endTime, DateTime(2026, 4, 20, 18, 30));
     });
 
+    test('slot doc with no recurrence projects to today inside same Monday-Sunday week', () {
+      final now = DateTime(2026, 5, 3, 17, 20); // Sunday
+      final originalStart = DateTime(2026, 5, 2, 9, 0); // Saturday same week
+      final event = buildNationalEvent(
+        startTime: originalStart,
+        duration: const Duration(minutes: 15),
+        originTime: '18:00',
+      );
+
+      final resolved = EventService.resolveNationalDisplayEvent(
+        event,
+        docId: 'slot_1800_20260502',
+        now: now,
+      );
+
+      expect(resolved.startTime, DateTime(2026, 5, 3, 18, 0));
+      expect(resolved.endTime, DateTime(2026, 5, 3, 18, 15));
+    });
+
+    test('slot doc with no recurrence expires after its week ends', () {
+      final now = DateTime(2026, 5, 4, 9, 0); // Monday next week
+      final originalStart = DateTime(2026, 5, 2, 9, 0); // Prior week Saturday
+      final event = buildNationalEvent(
+        startTime: originalStart,
+        duration: const Duration(minutes: 15),
+        originTime: '18:00',
+      );
+
+      final resolved = EventService.resolveNationalDisplayEvent(
+        event,
+        docId: 'slot_1800_20260502',
+        now: now,
+      );
+
+      expect(resolved.startTime, DateTime(2026, 5, 2, 18, 0));
+      expect(resolved.endTime, DateTime(2026, 5, 2, 18, 15));
+    });
+
     test('non-slot national doc with no recurrence does not become implicit daily', () {
       final now = DateTime(2026, 4, 29, 17, 20);
       final originalStart = DateTime(2026, 4, 20, 9, 0);
