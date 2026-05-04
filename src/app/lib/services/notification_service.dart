@@ -79,6 +79,10 @@ class NotificationService {
       onDidReceiveNotificationResponse: (NotificationResponse response) {
         // Handle notification tap
         debugPrint('Notification tapped: ${response.payload}');
+        final eventId = _eventIdFromDormantPayload(response.payload);
+        if (eventId != null) {
+          cancelNotificationForEvent(eventId);
+        }
       },
     );
 
@@ -350,6 +354,16 @@ class NotificationService {
     if (eventId == null || eventId.isEmpty) return;
 
     try {
+      final pending = await _localNotifications.pendingNotificationRequests();
+      for (final notification in pending) {
+        if (notification.payload == _dormantPayloadForEvent(eventId) ||
+            notification.payload?.startsWith(_dormantPayloadPrefix(eventId)) ==
+                true) {
+          await _localNotifications.cancel(notification.id);
+        }
+      }
+
+      // Legacy cleanup for older single-id scheduling.
       await _localNotifications.cancel(eventId.hashCode);
     } catch (e) {
       debugPrint('Failed to cancel local notification for $eventId: $e');
@@ -413,6 +427,45 @@ class NotificationService {
       final notificationBody = slotMode == PlaybackMode.video
           ? 'Your scheduled event is starting. Tap to view event.'
           : 'Your scheduled event is starting. Tap to listen.';
+
+      // iOS-only: 30-second pre-alert so the user can unlock before the event starts.
+      if (!Platform.isAndroid) {
+        final preAlertTime = startLocal.subtract(const Duration(seconds: 30));
+        final preAlertSchedule = preAlertTime.isBefore(now)
+            ? null // already past — skip
+            : preAlertTime;
+        if (preAlertSchedule != null) {
+          final preAlertId =
+              ((event.id.hashCode ^ startLocal.millisecondsSinceEpoch ^ 31337) &
+                  0x7fffffff);
+          final preAlertBody = slotMode == PlaybackMode.video
+              ? 'Your Harmony event starts in 30 seconds. Tap to open now.'
+              : 'Your Harmony event starts in 30 seconds. Tap to listen.';
+          try {
+            await _localNotifications.zonedSchedule(
+              preAlertId,
+              notificationTitle,
+              preAlertBody,
+              tz.TZDateTime.from(preAlertSchedule.toUtc(), tz.UTC),
+              const NotificationDetails(
+                iOS: DarwinNotificationDetails(),
+              ),
+              androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+              uiLocalNotificationDateInterpretation:
+                  UILocalNotificationDateInterpretation.absoluteTime,
+              payload: 'harmony_dormant:${event.id}:',
+            );
+            fallbackCount++;
+            debugPrint(
+              'iOS pre-alert scheduled for ${event.id} at $preAlertSchedule (alarm_id=$preAlertId)',
+            );
+          } catch (e) {
+            debugPrint(
+              'iOS pre-alert schedule failed for ${event.id} at $preAlertSchedule: $e',
+            );
+          }
+        }
+      }
 
       // Use multiple close attempts to improve delivery under OEM idle policies.
       final attempts = <DateTime>[
@@ -565,5 +618,22 @@ class NotificationService {
         lower.contains('.wav') ||
         lower.contains('.aac') ||
         lower.contains('.m4a');
+  }
+
+  String _dormantPayloadForEvent(String eventId) => 'harmony_dormant:$eventId:';
+
+  String _dormantPayloadPrefix(String eventId) => 'harmony_dormant:$eventId';
+
+  String? _eventIdFromDormantPayload(String? payload) {
+    if (payload == null || !payload.startsWith('harmony_dormant:')) {
+      return null;
+    }
+
+    final parts = payload.split(':');
+    if (parts.length < 2 || parts[1].trim().isEmpty) {
+      return null;
+    }
+
+    return parts[1].trim();
   }
 }

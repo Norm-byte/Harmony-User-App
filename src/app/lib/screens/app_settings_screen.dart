@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/user_service.dart';
@@ -103,88 +104,6 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
               inactiveColor: Colors.white24,
             ),
           ),
-          const SizedBox(height: 8),
-          Card(
-            elevation: 2,
-            color: Colors.white.withValues(alpha: 0.1),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SwitchListTile(
-                    title: const Text(
-                      'Dormant Device Override',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    subtitle: const Text(
-                      'Keep Harmony Chimes active whilst your phone is idle.',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                    value: userService.dormantPlaybackEnabled,
-                    onChanged: (value) async {
-                      await userService.setDormantPlaybackEnabled(value);
-
-                      if (value) {
-                        var probeArmed = false;
-
-                        try {
-                          await NotificationService().syncDormantPlaybackReminders(
-                            events: EventService().events,
-                            userService: userService,
-                          );
-                        } catch (e) {
-                          debugPrint('Dormant sync on toggle failed: $e');
-                        }
-
-                        try {
-                          probeArmed = await NotificationService()
-                              .scheduleNativeDebugProbe(delaySeconds: 15);
-                        } catch (e) {
-                          debugPrint('Dormant debug probe on toggle failed: $e');
-                        }
-
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                probeArmed
-                                    ? 'Dormant probe armed. Lock now and wait 20 seconds.'
-                                    : 'Dormant enabled. Probe arm failed; scheduling still attempted.',
-                              ),
-                              duration: const Duration(seconds: 3),
-                            ),
-                          );
-                        }
-                      } else {
-                        await NotificationService().cancelDormantPlaybackReminders();
-                      }
-
-                      if (!context.mounted) return;
-                      if (value) {
-                        _showDormantPlaybackSetup(context, userService);
-                      }
-                    },
-                    activeThumbColor: Colors.amber,
-                    contentPadding: EdgeInsets.zero,
-                    secondary: const Icon(
-                      Icons.bedtime_outlined,
-                      color: Colors.white70,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Build marker: 28 Mar 00:05',
-                    style: TextStyle(color: Colors.white38, fontSize: 11),
-                  ),
-
-                ],
-              ),
-            ),
-          ),
           const SizedBox(height: 16),
           const Text(
             'Hourly Chime Slots',
@@ -212,6 +131,89 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             },
           ),
 
+          if (Platform.isAndroid) ...[  
+            const SizedBox(height: 16),
+            Card(
+              elevation: 2,
+              color: Colors.white.withValues(alpha: 0.1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SwitchListTile(
+                      title: const Text(
+                        'Dormant Device Override',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      subtitle: const Text(
+                        'Keep Harmony Chimes active whilst your phone is idle.',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                      value: userService.dormantPlaybackEnabled,
+                      onChanged: (value) async {
+                        await userService.setDormantPlaybackEnabled(value);
+
+                        if (value) {
+                          var probeArmed = false;
+
+                          try {
+                            await NotificationService().syncDormantPlaybackReminders(
+                              events: EventService().events,
+                              userService: userService,
+                            );
+                          } catch (e) {
+                            debugPrint('Dormant sync on toggle failed: $e');
+                          }
+
+                          try {
+                            probeArmed = await NotificationService()
+                                .scheduleNativeDebugProbe(delaySeconds: 15);
+                          } catch (e) {
+                            debugPrint('Dormant debug probe on toggle failed: $e');
+                          }
+
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  probeArmed
+                                      ? 'Dormant probe armed. Lock now and wait 20 seconds.'
+                                      : 'Dormant enabled. Probe arm failed; scheduling still attempted.',
+                                ),
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          }
+                        } else {
+                          await NotificationService().cancelDormantPlaybackReminders();
+                        }
+
+                        if (!context.mounted) return;
+                        if (value) {
+                          _showDormantPlaybackSetup(context, userService);
+                        }
+                      },
+                      activeThumbColor: Colors.amber,
+                      contentPadding: EdgeInsets.zero,
+                      secondary: const Icon(
+                        Icons.bedtime_outlined,
+                        color: Colors.white70,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Build marker: 28 Mar 00:05',
+                      style: TextStyle(color: Colors.white38, fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 32),
         ],
       ),
