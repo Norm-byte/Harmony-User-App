@@ -373,11 +373,6 @@ class NotificationService {
   }) async {
     await cancelDormantPlaybackReminders();
 
-    if (!Platform.isAndroid) {
-      debugPrint('Dormant playback reminders skipped: Android-only feature.');
-      return;
-    }
-
     final notificationsGranted = await requestNotificationPermission();
     if (!notificationsGranted) {
       debugPrint(
@@ -442,6 +437,53 @@ class NotificationService {
                     ((i + 1) * 9973)) &
                 0x7fffffff);
 
+        Future<void> schedulePluginReminder({required String reason}) async {
+          await _localNotifications.zonedSchedule(
+            alarmId,
+            notificationTitle,
+            notificationBody,
+            tz.TZDateTime.from(scheduleLocal.toUtc(), tz.UTC),
+            NotificationDetails(
+              android: AndroidNotificationDetails(
+                _dormantPlaybackChannelId,
+                'Dormant Playback Reminders',
+                channelDescription:
+                    'Timed reminders for Harmony events while your device is idle.',
+                importance: Importance.max,
+                priority: Priority.high,
+                icon: '@mipmap/ic_launcher',
+                category: AndroidNotificationCategory.alarm,
+                visibility: NotificationVisibility.public,
+                fullScreenIntent: slotMode == PlaybackMode.video,
+                playSound: true,
+              ),
+              iOS: const DarwinNotificationDetails(),
+            ),
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
+            payload: 'harmony_dormant:${event.id}:',
+          );
+          fallbackCount++;
+          debugPrint(
+            '$reason for ${event.id} attempt=$i at $scheduleLocal (alarm_id=$alarmId)',
+          );
+        }
+
+        if (!Platform.isAndroid) {
+          attemptCount++;
+          try {
+            await schedulePluginReminder(
+              reason: 'iOS plugin reminder scheduled',
+            );
+          } catch (e) {
+            debugPrint(
+              'iOS plugin reminder schedule failed for ${event.id} attempt=$i at $scheduleLocal: $e',
+            );
+          }
+          continue;
+        }
+
         try {
           // Clear any existing native alarm for this ID before scheduling.
           await _dormantAlarmChannel.invokeMethod<bool>(
@@ -472,41 +514,23 @@ class NotificationService {
               'Native alarm scheduled for ${event.id} attempt=$i at $scheduleLocal (alarm_id=$alarmId)',
             );
           } else {
-            await _localNotifications.zonedSchedule(
-              alarmId,
-              notificationTitle,
-              notificationBody,
-              tz.TZDateTime.from(scheduleLocal.toUtc(), tz.UTC),
-              NotificationDetails(
-                android: AndroidNotificationDetails(
-                  _dormantPlaybackChannelId,
-                  'Dormant Playback Reminders',
-                  channelDescription:
-                      'Timed reminders for Harmony events while your device is idle.',
-                  importance: Importance.max,
-                  priority: Priority.high,
-                  icon: '@mipmap/ic_launcher',
-                  category: AndroidNotificationCategory.alarm,
-                  visibility: NotificationVisibility.public,
-                  fullScreenIntent: slotMode == PlaybackMode.video,
-                  playSound: true,
-                ),
-                iOS: const DarwinNotificationDetails(),
-              ),
-              androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-              uiLocalNotificationDateInterpretation:
-                  UILocalNotificationDateInterpretation.absoluteTime,
-              payload: 'harmony_dormant:${event.id}:',
-            );
-            fallbackCount++;
-            debugPrint(
-              'Native alarm rejected; plugin fallback scheduled for ${event.id} attempt=$i at $scheduleLocal (alarm_id=$alarmId)',
+            await schedulePluginReminder(
+              reason: 'Native alarm rejected; plugin fallback scheduled',
             );
           }
         } catch (e) {
           debugPrint(
             'Native alarm schedule failed for ${event.id} attempt=$i at $scheduleLocal: $e',
           );
+          try {
+            await schedulePluginReminder(
+              reason: 'Native alarm failed; plugin fallback scheduled',
+            );
+          } catch (fallbackError) {
+            debugPrint(
+              'Plugin fallback also failed for ${event.id} attempt=$i at $scheduleLocal: $fallbackError',
+            );
+          }
         }
       }
     }
