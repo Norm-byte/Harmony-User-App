@@ -369,6 +369,27 @@ class NotificationService {
       debugPrint('Failed to cancel local notification for $eventId: $e');
     }
 
+    // iOS: also remove already-delivered notifications for this event from the
+    // notification centre so they don't linger after the event time has passed.
+    if (!Platform.isAndroid) {
+      try {
+        final active = await _localNotifications.getActiveNotifications();
+        for (final notification in active) {
+          if (notification.payload == _dormantPayloadForEvent(eventId) ||
+              notification.payload?.startsWith(
+                    _dormantPayloadPrefix(eventId),
+                  ) ==
+                  true) {
+            await _localNotifications.cancel(notification.id);
+          }
+        }
+      } catch (e) {
+        debugPrint(
+          'Failed to clear delivered notifications for $eventId: $e',
+        );
+      }
+    }
+
     if (!Platform.isAndroid) return;
 
     try {
@@ -524,6 +545,9 @@ class NotificationService {
         }
 
         if (!Platform.isAndroid) {
+          // iOS does not need multiple attempts — delivery is reliable.
+          // Only schedule the first attempt (i=0) to avoid duplicate notifications.
+          if (i > 0) continue;
           attemptCount++;
           try {
             await schedulePluginReminder(
