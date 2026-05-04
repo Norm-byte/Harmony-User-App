@@ -317,12 +317,18 @@ class NotificationService {
   }
 
   Future<void> cancelDormantPlaybackReminders() async {
-    if (!Platform.isAndroid) return;
-
     try {
-      // Cancel any plugin-scheduled notifications (legacy fallback)
+      // Cancel plugin-scheduled dormant reminders on all platforms.
       final pending = await _localNotifications.pendingNotificationRequests();
       for (final notification in pending) {
+        if (notification.payload?.startsWith('harmony_dormant:') ?? false) {
+          await _localNotifications.cancel(notification.id);
+        }
+      }
+
+      // iOS keeps delivered notifications in Notification Center until cleared.
+      final active = await _localNotifications.getActiveNotifications();
+      for (final notification in active) {
         if (notification.payload?.startsWith('harmony_dormant:') ?? false) {
           await _localNotifications.cancel(notification.id);
         }
@@ -330,6 +336,8 @@ class NotificationService {
     } catch (e) {
       debugPrint('Error cancelling plugin notifications: $e');
     }
+
+    if (!Platform.isAndroid) return;
 
     try {
       final purged = await _dormantAlarmChannel.invokeMethod<int>(
