@@ -446,6 +446,14 @@ class NotificationService {
         continue;
       }
 
+      // Skip events whose chime slot the user has set to Off in My Harmony.
+      if (!userService.isChimeEnabledFor(startLocal)) {
+        debugPrint(
+          'Dormant reminder skipped (slot off): ${event.id} at $startLocal',
+        );
+        continue;
+      }
+
       final slotMode = userService.playbackModeFor(startLocal);
         final slotKey = '${startLocal.year.toString().padLeft(4, '0')}'
           '${startLocal.month.toString().padLeft(2, '0')}'
