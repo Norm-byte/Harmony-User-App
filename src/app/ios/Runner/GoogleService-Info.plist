@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyBFBuYcAAx3ohunxtGhEHPSiL0weiHEg5M</string>
+	<key>GCM_SENDER_ID</key>
+	<string>466313513653</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.harmonybyintent.harmonyUserApp</string>
+	<key>PROJECT_ID</key>
+	<string>harmony-by-intent</string>
+	<key>STORAGE_BUCKET</key>
+	<string>harmony-by-intent.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:466313513653:ios:eead42dcce87f08c5b0cfc</string>
+</dict>
+</plist>

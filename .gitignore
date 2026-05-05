@@ -43,3 +43,6 @@ Thumbs.db
 # Misc
 *.swp
 *~
+
+# Local packaged release drops
+release/
