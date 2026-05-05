@@ -330,7 +330,10 @@ class NotificationService {
       final active = await _localNotifications.getActiveNotifications();
       for (final notification in active) {
         if (notification.payload?.startsWith('harmony_dormant:') ?? false) {
-          await _localNotifications.cancel(notification.id);
+          final activeId = notification.id;
+          if (activeId != null) {
+            await _localNotifications.cancel(activeId);
+          }
         }
       }
     } catch (e) {
@@ -388,7 +391,10 @@ class NotificationService {
                     _dormantPayloadPrefix(eventId),
                   ) ==
                   true) {
-            await _localNotifications.cancel(notification.id);
+            final activeId = notification.id;
+            if (activeId != null) {
+              await _localNotifications.cancel(activeId);
+            }
           }
         }
       } catch (e) {

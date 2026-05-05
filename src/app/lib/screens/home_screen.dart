@@ -639,7 +639,7 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
             },
           ),
           Positioned(
-            top: 12,
+            top: MediaQuery.of(context).padding.top + 8,
             left: 12,
             child: CircleAvatar(
               backgroundColor: Colors.black.withOpacity(0.45),
@@ -650,7 +650,7 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
             ),
           ),
           Positioned(
-            top: 16,
+            top: MediaQuery.of(context).padding.top + 8,
             right: 14,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

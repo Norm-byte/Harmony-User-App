@@ -80,6 +80,20 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
               );
             },
           ),
+          const SizedBox(height: 12),
+          _buildSettingsTile(
+            icon: Icons.info_outline,
+            title: 'About',
+            subtitle: 'Learn more about Harmony by Intent',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const LegalDocumentScreen(title: 'About', docId: 'about'),
+                ),
+              );
+            },
+          ),
           const SizedBox(height: 32),
           
           // Delete Account Button (Required for Compliance)
