@@ -519,9 +519,9 @@ class NotificationService {
           ? 'Your scheduled event is starting. Tap to view event.'
           : 'Your scheduled event is starting. Tap to listen.';
 
-      // iOS-only: schedule multiple lead reminders for better locked-device reliability.
+      // iOS-only: schedule two lead reminders (20s then 5s) for locked-device delivery.
       if (!Platform.isAndroid) {
-        final iosOffsets = <int>[120, 60, 20, 5];
+        final iosOffsets = <int>[20, 5];
         for (final secondsBefore in iosOffsets) {
           final alertTime = startLocal.subtract(Duration(seconds: secondsBefore));
           if (alertTime.isBefore(now)) {
