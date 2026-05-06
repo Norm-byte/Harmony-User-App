@@ -78,6 +78,8 @@ Future<void> _initializeServicesInBackground() async {
 class HarmonyUserApp extends StatelessWidget {
   const HarmonyUserApp({super.key});
 
+  static const bool _safeBootBypassSplash = true;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -101,9 +103,12 @@ class HarmonyUserApp extends StatelessWidget {
         ),
       ),
       builder: (context, child) {
+        if (_safeBootBypassSplash) {
+          return child!;
+        }
         return AppLifecycleManager(child: child!);
       },
-      home: const SplashScreen(),
+      home: _safeBootBypassSplash ? const WelcomeScreen() : const SplashScreen(),
     );
   }
 }
