@@ -261,8 +261,10 @@ class _SplashScreenState extends State<SplashScreen> {
       if (firebaseUser != null) {
         // Already authenticated: require VIP or active subscription before Home.
         final subscriptionService = context.read<SubscriptionService>();
-        await subscriptionService.refreshVipFromAuthUser();
-        await subscriptionService.refreshSubscriptionStatus();
+        await subscriptionService.refreshVipFromAuthUser()
+            .timeout(const Duration(seconds: 3), onTimeout: () {});
+        await subscriptionService.refreshSubscriptionStatus()
+            .timeout(const Duration(seconds: 3), onTimeout: () {});
 
         if (!mounted) return;
 
