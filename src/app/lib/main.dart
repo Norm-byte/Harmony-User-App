@@ -26,13 +26,8 @@ void main() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
-    );
+    ).timeout(const Duration(seconds: 5));
     debugPrint("HARMONY_APP_FIREBASE: Initialized successfully");
-
-    // Initialize Services
-    await SubscriptionService().init();
-    await NotificationService().init();
-    await ProfanityService().init();
   } catch (e) {
     debugPrint("HARMONY_APP_FIREBASE_ERROR: $e");
   }
@@ -55,6 +50,29 @@ void main() async {
       child: const HarmonyUserApp(),
     ),
   );
+
+  // Keep startup responsive: service initialization should never block first UI.
+  unawaited(_initializeServicesInBackground());
+}
+
+Future<void> _initializeServicesInBackground() async {
+  try {
+    await SubscriptionService().init().timeout(const Duration(seconds: 5));
+  } catch (e) {
+    debugPrint('HARMONY_STARTUP: Subscription init timed out or failed: $e');
+  }
+
+  try {
+    await NotificationService().init().timeout(const Duration(seconds: 5));
+  } catch (e) {
+    debugPrint('HARMONY_STARTUP: Notification init timed out or failed: $e');
+  }
+
+  try {
+    await ProfanityService().init().timeout(const Duration(seconds: 5));
+  } catch (e) {
+    debugPrint('HARMONY_STARTUP: Profanity init timed out or failed: $e');
+  }
 }
 
 class HarmonyUserApp extends StatelessWidget {
@@ -264,13 +282,18 @@ class _SplashScreenState extends State<SplashScreen> {
     }
 
     if (mounted) {
-      final firebaseUser = await FirebaseAuth.instance
-          .authStateChanges()
-          .first
-          .timeout(
-            const Duration(seconds: 2),
-            onTimeout: () => FirebaseAuth.instance.currentUser,
-          );
+      User? firebaseUser;
+      try {
+        firebaseUser = await FirebaseAuth.instance
+            .authStateChanges()
+            .first
+            .timeout(
+              const Duration(seconds: 2),
+              onTimeout: () => FirebaseAuth.instance.currentUser,
+            );
+      } catch (e) {
+        debugPrint('HARMONY_STARTUP: auth lookup failed, falling back to Welcome: $e');
+      }
       if (firebaseUser != null) {
         // Already authenticated: require VIP or active subscription before Home.
         final subscriptionService = context.read<SubscriptionService>();
