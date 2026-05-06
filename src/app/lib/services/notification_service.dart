@@ -209,14 +209,15 @@ class NotificationService {
           .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin
           >();
-      final granted = await iosNotifications?.requestPermissions(
+      final iosGranted = await iosNotifications?.requestPermissions(
         alert: true,
         badge: true,
         sound: true,
       );
-      if (granted != null) {
-        return granted;
+      if (iosGranted != null) {
+        return iosGranted;
       }
+
       return fcmGranted;
     }
 
@@ -490,9 +491,9 @@ class NotificationService {
           ? 'Your scheduled event is starting. Tap to view event.'
           : 'Your scheduled event is starting. Tap to listen.';
 
-      // iOS-only: schedule two lock-screen reminders at 20s and 5s.
+      // iOS-only: schedule multiple lead reminders for better locked-device reliability.
       if (!Platform.isAndroid) {
-        final iosOffsets = <int>[20, 5];
+        final iosOffsets = <int>[120, 60, 20, 5];
         for (final secondsBefore in iosOffsets) {
           final alertTime = startLocal.subtract(Duration(seconds: secondsBefore));
           if (alertTime.isBefore(now)) {
@@ -514,9 +515,14 @@ class NotificationService {
               alertId,
               notificationTitle,
               alertBody,
-              tz.TZDateTime.from(alertTime.toUtc(), tz.UTC),
+              tz.TZDateTime.from(alertTime, tz.local),
               const NotificationDetails(
-                iOS: DarwinNotificationDetails(),
+                iOS: DarwinNotificationDetails(
+                  presentAlert: true,
+                  presentBadge: true,
+                  presentSound: true,
+                  interruptionLevel: InterruptionLevel.timeSensitive,
+                ),
               ),
               androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
               uiLocalNotificationDateInterpretation:
