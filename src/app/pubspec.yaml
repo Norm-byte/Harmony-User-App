@@ -54,6 +54,11 @@ dependencies:
   timezone: ^0.9.4
   # youtube_player_iframe: ^5.2.2
 
+dependency_overrides:
+  flutter_inappwebview: 6.2.0-beta.3
+  flutter_inappwebview_ios: 1.2.0-beta.3
+  flutter_inappwebview_platform_interface: 1.4.0-beta.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
