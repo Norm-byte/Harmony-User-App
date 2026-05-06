@@ -238,32 +238,32 @@ class SubscriptionService extends ChangeNotifier {
          debugPrint("HARMONY_RC: Offerings missing, fetching now...");
          await _fetchOfferings();
       }
-      
+
       if (_offerings?.current == null) {
         throw PlatformException(
-          code: 'NO_OFFERINGS', 
-          message: 'No subscription offerings found. Please check configuration.'
+          code: 'NO_OFFERINGS',
+          message: 'No subscription offerings found. Please check configuration.',
         );
       }
 
       if (_offerings!.current!.availablePackages.isEmpty) {
-         throw PlatformException(
-          code: 'NO_PACKAGES', 
-          message: 'Offering has no packages available.'
+        throw PlatformException(
+          code: 'NO_PACKAGES',
+          message: 'Offering has no packages available.',
         );
       }
-      
+
       final paywallResult = await RevenueCatUI.presentPaywall(
-        offering: _offerings!.current
+        offering: _offerings!.current,
       );
-      
-      if (paywallResult == PaywallResult.purchased || paywallResult == PaywallResult.restored) {
-        await _checkSubscriptionStatus(); 
+
+      if (paywallResult == PaywallResult.purchased ||
+          paywallResult == PaywallResult.restored) {
+        await _checkSubscriptionStatus();
         return true;
       }
-      
+
       return _isSubscribed;
-      
     } catch (e) {
       debugPrint("Error displaying paywall: $e");
       rethrow;

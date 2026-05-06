@@ -1280,10 +1280,10 @@ PODS:
   - flutter_inappwebview_ios (0.0.1):
     - Flutter
     - flutter_inappwebview_ios/Core (= 0.0.1)
-    - swift-collections (~> 1.1.1)
+    - OrderedSet (~> 6.0.3)
   - flutter_inappwebview_ios/Core (0.0.1):
     - Flutter
-    - swift-collections (~> 1.1.1)
+    - OrderedSet (~> 6.0.3)
   - flutter_local_notifications (0.0.1):
     - Flutter
   - GoogleDataTransport (10.1.0):
@@ -1406,32 +1406,32 @@ PODS:
   - gRPC-Core/Interface (1.69.0)
   - gRPC-Core/Privacy (1.69.0)
   - GTMSessionFetcher/Core (4.5.0)
-  - InternalCollectionsUtilities (1.1.1)
   - leveldb-library (1.22.6)
   - nanopb (3.30910.0):
     - nanopb/decode (= 3.30910.0)
     - nanopb/encode (= 3.30910.0)
   - nanopb/decode (3.30910.0)
   - nanopb/encode (3.30910.0)
+  - OrderedSet (6.0.3)
   - path_provider_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
   - PromisesObjC (2.4.0)
-  - purchases_flutter (9.10.3):
+  - purchases_flutter (9.16.1):
     - Flutter
-    - PurchasesHybridCommon (= 17.26.0)
-  - purchases_ui_flutter (9.10.3):
+    - PurchasesHybridCommon (= 17.55.1)
+  - purchases_ui_flutter (9.16.1):
     - Flutter
-    - PurchasesHybridCommonUI (= 17.26.0)
-  - PurchasesHybridCommon (17.26.0):
-    - RevenueCat (= 5.52.0)
-  - PurchasesHybridCommonUI (17.26.0):
-    - PurchasesHybridCommon (= 17.26.0)
-    - RevenueCatUI (= 5.52.0)
+    - PurchasesHybridCommonUI (= 17.55.1)
+  - PurchasesHybridCommon (17.55.1):
+    - RevenueCat (= 5.67.1)
+  - PurchasesHybridCommonUI (17.55.1):
+    - PurchasesHybridCommon (= 17.55.1)
+    - RevenueCatUI (= 5.67.1)
   - RecaptchaInterop (101.0.0)
-  - RevenueCat (5.52.0)
-  - RevenueCatUI (5.52.0):
-    - RevenueCat (= 5.52.0)
+  - RevenueCat (5.67.1)
+  - RevenueCatUI (5.67.1):
+    - RevenueCat (= 5.67.1)
   - share_plus (0.0.1):
     - Flutter
   - shared_preferences_foundation (0.0.1):
@@ -1440,22 +1440,6 @@ PODS:
   - sqflite_darwin (0.0.4):
     - Flutter
     - FlutterMacOS
-  - swift-collections (1.1.1):
-    - swift-collections/BitCollections (= 1.1.1)
-    - swift-collections/DequeModule (= 1.1.1)
-    - swift-collections/HashTreeCollections (= 1.1.1)
-    - swift-collections/HeapModule (= 1.1.1)
-    - swift-collections/OrderedCollections (= 1.1.1)
-  - swift-collections/BitCollections (1.1.1):
-    - InternalCollectionsUtilities (= 1.1.1)
-  - swift-collections/DequeModule (1.1.1):
-    - InternalCollectionsUtilities (= 1.1.1)
-  - swift-collections/HashTreeCollections (1.1.1):
-    - InternalCollectionsUtilities (= 1.1.1)
-  - swift-collections/HeapModule (1.1.1):
-    - InternalCollectionsUtilities (= 1.1.1)
-  - swift-collections/OrderedCollections (1.1.1):
-    - InternalCollectionsUtilities (= 1.1.1)
   - syncfusion_flutter_pdfviewer (0.0.1):
     - Flutter
   - url_launcher_ios (0.0.1):
@@ -1504,16 +1488,15 @@ SPEC REPOS:
     - "gRPC-C++"
     - gRPC-Core
     - GTMSessionFetcher
-    - InternalCollectionsUtilities
     - leveldb-library
     - nanopb
+    - OrderedSet
     - PromisesObjC
     - PurchasesHybridCommon
     - PurchasesHybridCommonUI
     - RecaptchaInterop
     - RevenueCat
     - RevenueCatUI
-    - swift-collections
 
 EXTERNAL SOURCES:
   cloud_firestore:
@@ -1572,29 +1555,28 @@ SPEC CHECKSUMS:
   FirebaseMessaging: 3b26e2cee503815e01c3701236b020aa9b576f09
   FirebaseSharedSwift: e17c654ef1f1a616b0b33054e663ad1035c8fd40
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  flutter_inappwebview_ios: 9cde7869829d54b4110df350f3eedd192c5a4aea
+  flutter_inappwebview_ios: b89ba3482b96fb25e00c967aae065701b66e9b99
   flutter_local_notifications: 395056b3175ba4f08480a7c5de30cd36d69827e4
   GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   "gRPC-C++": cc207623316fb041a7a3e774c252cf68a058b9e8
   gRPC-Core: 860978b7db482de8b4f5e10677216309b5ff6330
   GTMSessionFetcher: fc75fc972958dceedee61cb662ae1da7a83a91cf
-  InternalCollectionsUtilities: af3f471602c4a67cbcb0bee0a80f6f55a33ae453
   leveldb-library: cc8b8f8e013647a295ad3f8cd2ddf49a6f19be19
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
+  OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
   path_provider_foundation: bb55f6dbba17d0dccd6737fe6f7f34fbd0376880
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
-  purchases_flutter: 5727d7312e3a565aee127fe69af0b1d9b5544f2d
-  purchases_ui_flutter: 8413f7693193409b65cb79d4f58437aaee09252c
-  PurchasesHybridCommon: 93399cb2ba29164dbab79d6398e79f7723b41653
-  PurchasesHybridCommonUI: ebbb750fc4592418a15a16c88061dd8734a509db
+  purchases_flutter: b44fcb4ff5e68a4dfe53fd0c339683803b04dd2c
+  purchases_ui_flutter: 64afab2a2adc79a73ed5ca77f416c8d360a12734
+  PurchasesHybridCommon: ecd9d7c586287625f1225b8de5e24c1021502270
+  PurchasesHybridCommonUI: 3056a3d261529f6adb8f74ecc3ab7f1cc0d3fab4
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
-  RevenueCat: 946aceaf97c1eee083dd7fad65a0e0d0c64c837e
-  RevenueCatUI: 9e4a7e2ccff6b4fc9becd72b7efc9476c458e936
+  RevenueCat: 9357239a9f0978285e68983637b8a602e65c94f0
+  RevenueCatUI: 6f9291da540f98baf405b5bdfc46b2d5547b704a
   share_plus: 50da8cb520a8f0f65671c6c6a99b3617ed10a58a
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
-  swift-collections: ba248ecaf44ef500b27d5cf94d304218c89892ff
   syncfusion_flutter_pdfviewer: 90dc48305d2e33d4aa20681d1e98ddeda891bc14
   url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
   video_player_avfoundation: dd410b52df6d2466a42d28550e33e4146928280a
