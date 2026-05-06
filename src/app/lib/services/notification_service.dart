@@ -479,11 +479,16 @@ class NotificationService {
     int scheduledCount = 0;
     int fallbackCount = 0;
     int attemptCount = 0;
+    int iosQueuedAlerts = 0;
+    const int iosMaxQueuedAlerts = 40;
+
+    final sortedEvents = [...events]
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
     final beforeDebug = await getNotificationDebugState();
     debugPrint('HARMONY_DORMANT_IOS_DEBUG: before=$beforeDebug');
 
-    for (final event in events) {
+    for (final event in sortedEvents) {
       final startLocal = event.startTime.toLocal();
       if (startLocal.isAfter(windowEnd)) continue;
       if (startLocal.isBefore(now.subtract(const Duration(seconds: 15)))) {
@@ -521,8 +526,19 @@ class NotificationService {
 
       // iOS-only: schedule two lead reminders (20s then 5s) for locked-device delivery.
       if (!Platform.isAndroid) {
+        if (iosQueuedAlerts >= iosMaxQueuedAlerts) {
+          debugPrint(
+            'iOS reminder cap reached ($iosMaxQueuedAlerts alerts); remaining future events skipped.',
+          );
+          break;
+        }
+
         final iosOffsets = <int>[20, 5];
         for (final secondsBefore in iosOffsets) {
+          if (iosQueuedAlerts >= iosMaxQueuedAlerts) {
+            break;
+          }
+
           final alertTime = startLocal.subtract(Duration(seconds: secondsBefore));
           if (alertTime.isBefore(now)) {
             continue;
@@ -557,6 +573,7 @@ class NotificationService {
               payload: 'harmony_dormant:${event.id}:',
             );
             fallbackCount++;
+            iosQueuedAlerts++;
             debugPrint(
               'iOS reminder scheduled for ${event.id} at $alertTime (${secondsBefore}s before, alarm_id=$alertId)',
             );
@@ -678,7 +695,7 @@ class NotificationService {
     }
 
     debugPrint(
-      'Dormant reminder sync complete: attempts=$attemptCount, native=$scheduledCount, fallback=$fallbackCount',
+      'Dormant reminder sync complete: attempts=$attemptCount, native=$scheduledCount, fallback=$fallbackCount, iosQueuedAlerts=$iosQueuedAlerts',
     );
     final afterDebug = await getNotificationDebugState();
     debugPrint('HARMONY_DORMANT_IOS_DEBUG: after=$afterDebug');
