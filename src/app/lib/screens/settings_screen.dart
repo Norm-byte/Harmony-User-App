@@ -93,8 +93,19 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                                   children: [
                                     _buildStatItem('Events Joined', '${eventService.myEvents.length}'), 
-                                    _buildStatItem('Streak', '3 Days'),
-                                    _buildStatItem('Total Users', '152'),
+                                    _buildStatItem(
+                                      'Streak',
+                                      _formatStreakLabel(
+                                        _calculateJoinStreakDays(eventService.myEvents),
+                                      ),
+                                    ),
+                                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                      stream: FirebaseFirestore.instance.collection('users').snapshots(),
+                                      builder: (context, snapshot) {
+                                        final totalUsers = snapshot.hasData ? snapshot.data!.docs.length : 0;
+                                        return _buildStatItem('Total Users', '$totalUsers');
+                                      },
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 16),
@@ -116,7 +127,21 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                         return _buildStatItem('Likes Recv.', '$total', icon: Icons.thumb_up, color: Colors.greenAccent);
                                       }
                                     ),
-                                    _buildStatItem('Comments', '15', icon: Icons.chat_bubble_outline, color: Colors.amberAccent),
+                                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                      stream: FirebaseFirestore.instance
+                                          .collection('community_posts')
+                                          .where('userId', isEqualTo: UserService().userId)
+                                          .snapshots(),
+                                      builder: (context, snapshot) {
+                                        final comments = snapshot.hasData ? snapshot.data!.docs.length : 0;
+                                        return _buildStatItem(
+                                          'Comments',
+                                          '$comments',
+                                          icon: Icons.chat_bubble_outline,
+                                          color: Colors.amberAccent,
+                                        );
+                                      },
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 16),
@@ -904,5 +929,45 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         ),
       ],
     );
+  }
+
+  int _calculateJoinStreakDays(List<Map<String, dynamic>> events) {
+    final joinedDays = <DateTime>{};
+
+    for (final event in events) {
+      final timestamp = event['timestamp'] ?? event['startTime'];
+      DateTime? date;
+
+      if (timestamp is Timestamp) {
+        date = timestamp.toDate();
+      } else if (timestamp is DateTime) {
+        date = timestamp;
+      } else if (timestamp is String) {
+        date = DateTime.tryParse(timestamp);
+      }
+
+      if (date != null) {
+        final local = date.toLocal();
+        joinedDays.add(DateTime(local.year, local.month, local.day));
+      }
+    }
+
+    if (joinedDays.isEmpty) return 0;
+
+    final now = DateTime.now();
+    var cursor = DateTime(now.year, now.month, now.day);
+    var streak = 0;
+
+    while (joinedDays.contains(cursor)) {
+      streak++;
+      cursor = cursor.subtract(const Duration(days: 1));
+    }
+
+    return streak;
+  }
+
+  String _formatStreakLabel(int streakDays) {
+    if (streakDays == 1) return '1 Day';
+    return '$streakDays Days';
   }
 }
