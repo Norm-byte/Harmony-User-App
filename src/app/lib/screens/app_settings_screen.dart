@@ -130,38 +130,6 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
               );
             },
           ),
-          _buildSettingsTile(
-            icon: Icons.notifications_active,
-            title: 'Notification Health Check',
-            subtitle: 'Verify permission and queued reminders',
-            onTap: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              final notificationService = NotificationService();
-              final granted = await notificationService
-                  .requestNotificationPermission();
-
-              await notificationService.syncDormantPlaybackReminders(
-                events: EventService().events,
-                userService: userService,
-              );
-
-              final debug = await notificationService.getNotificationDebugState();
-              if (!mounted) return;
-
-              final status = debug['authorizationStatus'] ?? 'unknown';
-              final pendingDormant = debug['pendingDormant'] ?? 0;
-
-              messenger.showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Notifications: ${granted ? 'granted' : 'not granted'} '
-                    '(status=$status), dormant pending=$pendingDormant',
-                  ),
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-            },
-          ),
 
           if (Platform.isAndroid) ...[  
             const SizedBox(height: 16),
