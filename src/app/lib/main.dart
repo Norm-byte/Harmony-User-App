@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -26,8 +24,13 @@ void main() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
-    ).timeout(const Duration(seconds: 5));
+    );
     debugPrint("HARMONY_APP_FIREBASE: Initialized successfully");
+
+    // Initialize Services
+    await SubscriptionService().init();
+    await NotificationService().init();
+    await ProfanityService().init();
   } catch (e) {
     debugPrint("HARMONY_APP_FIREBASE_ERROR: $e");
   }
@@ -50,35 +53,10 @@ void main() async {
       child: const HarmonyUserApp(),
     ),
   );
-
-  // Keep startup responsive: service initialization should never block first UI.
-  unawaited(_initializeServicesInBackground());
-}
-
-Future<void> _initializeServicesInBackground() async {
-  try {
-    await SubscriptionService().init().timeout(const Duration(seconds: 5));
-  } catch (e) {
-    debugPrint('HARMONY_STARTUP: Subscription init timed out or failed: $e');
-  }
-
-  try {
-    await NotificationService().init().timeout(const Duration(seconds: 5));
-  } catch (e) {
-    debugPrint('HARMONY_STARTUP: Notification init timed out or failed: $e');
-  }
-
-  try {
-    await ProfanityService().init().timeout(const Duration(seconds: 5));
-  } catch (e) {
-    debugPrint('HARMONY_STARTUP: Profanity init timed out or failed: $e');
-  }
 }
 
 class HarmonyUserApp extends StatelessWidget {
   const HarmonyUserApp({super.key});
-
-  static const bool _safeBootBypassSplash = true;
 
   @override
   Widget build(BuildContext context) {
@@ -103,12 +81,9 @@ class HarmonyUserApp extends StatelessWidget {
         ),
       ),
       builder: (context, child) {
-        if (_safeBootBypassSplash) {
-          return child!;
-        }
         return AppLifecycleManager(child: child!);
       },
-      home: _safeBootBypassSplash ? const WelcomeScreen() : const SplashScreen(),
+      home: const SplashScreen(),
     );
   }
 }
@@ -182,22 +157,10 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> {
   bool _launchCheckResolved = false;
   bool _suppressSplashVisuals = false;
-  bool _navigationCompleted = false;
 
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 8), () {
-      if (!mounted || _navigationCompleted) return;
-      debugPrint(
-        'HARMONY_STARTUP: splash watchdog fired, forcing Welcome navigation',
-      );
-      _navigationCompleted = true;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-      );
-    });
     _navigateToWelcome();
   }
 
@@ -249,14 +212,12 @@ class _SplashScreenState extends State<SplashScreen> {
       final doc = await FirebaseFirestore.instance
           .collection('settings')
           .doc('global')
-          .get()
-          .timeout(const Duration(seconds: 3));
+          .get();
       if (doc.exists) {
         final data = doc.data()!;
         final isMaintenance = data['maintenanceMode'] ?? false;
         if (isMaintenance) {
           if (mounted) {
-            _navigationCompleted = true;
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
@@ -272,7 +233,6 @@ class _SplashScreenState extends State<SplashScreen> {
       }
     } catch (e) {
       debugPrint("Error checking maintenance mode: $e");
-      // Continue startup if maintenance lookup stalls or fails.
     }
 
     await Future.delayed(
@@ -287,30 +247,22 @@ class _SplashScreenState extends State<SplashScreen> {
     }
 
     if (mounted) {
-      User? firebaseUser;
-      try {
-        firebaseUser = await FirebaseAuth.instance
-            .authStateChanges()
-            .first
-            .timeout(
-              const Duration(seconds: 2),
-              onTimeout: () => FirebaseAuth.instance.currentUser,
-            );
-      } catch (e) {
-        debugPrint('HARMONY_STARTUP: auth lookup failed, falling back to Welcome: $e');
-      }
+      final firebaseUser = await FirebaseAuth.instance
+          .authStateChanges()
+          .first
+          .timeout(
+            const Duration(seconds: 2),
+            onTimeout: () => FirebaseAuth.instance.currentUser,
+          );
       if (firebaseUser != null) {
         // Already authenticated: require VIP or active subscription before Home.
         final subscriptionService = context.read<SubscriptionService>();
-        await subscriptionService.refreshVipFromAuthUser()
-            .timeout(const Duration(seconds: 3), onTimeout: () {});
-        await subscriptionService.refreshSubscriptionStatus()
-            .timeout(const Duration(seconds: 3), onTimeout: () {});
+        await subscriptionService.refreshVipFromAuthUser();
+        await subscriptionService.refreshSubscriptionStatus();
 
         if (!mounted) return;
 
         if (subscriptionService.isSubscribed) {
-          _navigationCompleted = true;
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -319,14 +271,12 @@ class _SplashScreenState extends State<SplashScreen> {
             ),
           );
         } else {
-          _navigationCompleted = true;
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
           );
         }
       } else {
-        _navigationCompleted = true;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const WelcomeScreen()),
