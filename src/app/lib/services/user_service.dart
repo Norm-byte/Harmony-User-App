@@ -228,11 +228,19 @@ class UserService extends ChangeNotifier {
 
   Future<String?> ensureRecognizedPublicDisplayName() async {
     final current = sanitizePublicDisplayName(_userName);
-    if (isRecognizedPublicDisplayName(current)) {
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final emailPrefix = (firebaseUser?.email?.contains('@') == true)
+        ? firebaseUser!.email!.split('@').first.trim()
+        : null;
+    final currentLooksLikeEmailPrefix =
+        emailPrefix != null &&
+        current.toLowerCase() == sanitizePublicDisplayName(emailPrefix).toLowerCase();
+
+    if (isRecognizedPublicDisplayName(current) && !currentLooksLikeEmailPrefix) {
       return current;
     }
 
-    final firebaseUser = FirebaseAuth.instance.currentUser;
     final effectiveUid = _userId.isNotEmpty ? _userId : (firebaseUser?.uid ?? '');
     if (effectiveUid.isEmpty) {
       return null;
@@ -244,11 +252,14 @@ class UserService extends ChangeNotifier {
           .doc(effectiveUid)
           .get();
       final userData = userDoc.data();
-      final emailPrefix = (userData?['email'] as String?)?.contains('@') == true
+      if (userData?['isSuperAdmin'] == true) {
+        const fallbackAdminName = 'Admin 1';
+        await setUser(effectiveUid, fallbackAdminName);
+        return fallbackAdminName;
+      }
+        final docEmailPrefix = (userData?['email'] as String?)?.contains('@') == true
           ? (userData!['email'] as String).split('@').first.trim()
-          : (firebaseUser?.email?.contains('@') == true
-                ? firebaseUser!.email!.split('@').first.trim()
-                : null);
+          : emailPrefix;
 
       final candidates = <String?>[
         userData?['username'] as String?,
@@ -256,7 +267,6 @@ class UserService extends ChangeNotifier {
         userData?['name'] as String?,
         userData?['displayName'] as String?,
         firebaseUser?.displayName,
-        emailPrefix,
       ];
 
       for (final candidate in candidates) {
@@ -267,10 +277,10 @@ class UserService extends ChangeNotifier {
         }
       }
 
-      if (userData?['isSuperAdmin'] == true) {
-        const fallbackAdminName = 'Admin 1';
-        await setUser(effectiveUid, fallbackAdminName);
-        return fallbackAdminName;
+      final sanitizedEmail = sanitizePublicDisplayName(docEmailPrefix);
+      if (isRecognizedPublicDisplayName(sanitizedEmail)) {
+        await setUser(effectiveUid, sanitizedEmail);
+        return sanitizedEmail;
       }
     } catch (e) {
       debugPrint('HARMONY_IDENTITY: failed to recover display name: $e');

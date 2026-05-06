@@ -229,7 +229,6 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
         data?['userName'] as String?,
         data?['name'] as String?,
         data?['displayName'] as String?,
-        emailPrefix,
         fallback,
       ];
 
@@ -244,6 +243,12 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       if (data?['isSuperAdmin'] == true) {
         return 'Admin 1';
       }
+
+      final sanitizedEmail = UserService.sanitizePublicDisplayName(emailPrefix);
+      if (UserService.isRecognizedPublicDisplayName(sanitizedEmail) &&
+          !_looksLikeFallbackName(sanitizedEmail)) {
+        return sanitizedEmail;
+      }
     } catch (_) {}
 
     if (UserService.isRecognizedPublicDisplayName(fallback) &&
@@ -257,15 +262,6 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
     final rawName = UserService.sanitizePublicDisplayName(post['userName']?.toString());
     final userId = (post['userId']?.toString() ?? '').trim();
     final currentUser = UserService();
-
-    // A valid explicit post name should always override any stale cached fallback.
-    if (UserService.isRecognizedPublicDisplayName(rawName) &&
-        !_looksLikeFallbackName(rawName)) {
-      if (userId.isNotEmpty) {
-        _resolvedNameFutureByUserId[userId] = Future.value(rawName);
-      }
-      return Future.value(rawName);
-    }
 
     if (userId.isEmpty) {
       final localName = UserService.sanitizePublicDisplayName(currentUser.userName);

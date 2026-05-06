@@ -79,10 +79,12 @@ class _LoginScreenState extends State<LoginScreen> {
         userDocData?['name'] as String?,
         userDocData?['displayName'] as String?,
         (user.displayName?.trim().isNotEmpty == true ? user.displayName : null),
-        emailPrefix,
       ];
 
       String? effectiveName;
+      if (userDocData?['isSuperAdmin'] == true) {
+        effectiveName = 'Admin 1';
+      }
       for (final candidate in candidates) {
         final sanitized = UserService.sanitizePublicDisplayName(candidate);
         if (UserService.isRecognizedPublicDisplayName(sanitized)) {
@@ -90,9 +92,7 @@ class _LoginScreenState extends State<LoginScreen> {
           break;
         }
       }
-      if (effectiveName == null && userDocData?['isSuperAdmin'] == true) {
-        effectiveName = 'Admin 1';
-      }
+      effectiveName ??= UserService.sanitizePublicDisplayName(emailPrefix);
       effectiveName ??= uidSuffix;
       final recognizedName = effectiveName;
 

@@ -200,6 +200,26 @@ class NotificationService {
       sound: true,
     );
 
+    final fcmGranted =
+        settings.authorizationStatus == AuthorizationStatus.authorized ||
+        settings.authorizationStatus == AuthorizationStatus.provisional;
+
+    if (Platform.isIOS) {
+      final iosNotifications = _localNotifications
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >();
+      final granted = await iosNotifications?.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (granted != null) {
+        return granted;
+      }
+      return fcmGranted;
+    }
+
     if (Platform.isAndroid) {
       final androidNotifications = _localNotifications
           .resolvePlatformSpecificImplementation<
@@ -212,8 +232,7 @@ class NotificationService {
       }
     }
 
-    return settings.authorizationStatus == AuthorizationStatus.authorized ||
-        settings.authorizationStatus == AuthorizationStatus.provisional;
+    return fcmGranted;
   }
 
   Future<void> openExactAlarmSettings() async {
@@ -471,25 +490,31 @@ class NotificationService {
           ? 'Your scheduled event is starting. Tap to view event.'
           : 'Your scheduled event is starting. Tap to listen.';
 
-      // iOS-only: 30-second pre-alert so the user can unlock before the event starts.
+      // iOS-only: schedule two lock-screen reminders at 20s and 5s.
       if (!Platform.isAndroid) {
-        final preAlertTime = startLocal.subtract(const Duration(seconds: 30));
-        final preAlertSchedule = preAlertTime.isBefore(now)
-            ? null // already past — skip
-            : preAlertTime;
-        if (preAlertSchedule != null) {
-          final preAlertId =
-              ((event.id.hashCode ^ startLocal.millisecondsSinceEpoch ^ 31337) &
-                  0x7fffffff);
-          final preAlertBody = slotMode == PlaybackMode.video
-              ? 'Your Harmony event starts in 30 seconds. Tap to open now.'
-              : 'Your Harmony event starts in 30 seconds. Tap to listen.';
+        final iosOffsets = <int>[20, 5];
+        for (final secondsBefore in iosOffsets) {
+          final alertTime = startLocal.subtract(Duration(seconds: secondsBefore));
+          if (alertTime.isBefore(now)) {
+            continue;
+          }
+
+          final alertId =
+              ((event.id.hashCode ^
+                          startLocal.millisecondsSinceEpoch ^
+                          (secondsBefore * 1009)) &
+                      0x7fffffff);
+
+          final alertBody = slotMode == PlaybackMode.video
+              ? 'Your Harmony event starts in $secondsBefore seconds. Tap to view event.'
+              : 'Your Harmony event starts in $secondsBefore seconds. Tap to listen.';
+
           try {
             await _localNotifications.zonedSchedule(
-              preAlertId,
+              alertId,
               notificationTitle,
-              preAlertBody,
-              tz.TZDateTime.from(preAlertSchedule.toUtc(), tz.UTC),
+              alertBody,
+              tz.TZDateTime.from(alertTime.toUtc(), tz.UTC),
               const NotificationDetails(
                 iOS: DarwinNotificationDetails(),
               ),
@@ -500,14 +525,16 @@ class NotificationService {
             );
             fallbackCount++;
             debugPrint(
-              'iOS pre-alert scheduled for ${event.id} at $preAlertSchedule (alarm_id=$preAlertId)',
+              'iOS reminder scheduled for ${event.id} at $alertTime (${secondsBefore}s before, alarm_id=$alertId)',
             );
           } catch (e) {
             debugPrint(
-              'iOS pre-alert schedule failed for ${event.id} at $preAlertSchedule: $e',
+              'iOS reminder schedule failed for ${event.id} at $alertTime (${secondsBefore}s): $e',
             );
           }
         }
+        // iOS path handled above; Android path continues below.
+        continue;
       }
 
       // Use multiple close attempts to improve delivery under OEM idle policies.
@@ -564,23 +591,6 @@ class NotificationService {
           debugPrint(
             '$reason for ${event.id} attempt=$i at $scheduleLocal (alarm_id=$alarmId)',
           );
-        }
-
-        if (!Platform.isAndroid) {
-          // iOS does not need multiple attempts — delivery is reliable.
-          // Only schedule the first attempt (i=0) to avoid duplicate notifications.
-          if (i > 0) continue;
-          attemptCount++;
-          try {
-            await schedulePluginReminder(
-              reason: 'iOS plugin reminder scheduled',
-            );
-          } catch (e) {
-            debugPrint(
-              'iOS plugin reminder schedule failed for ${event.id} attempt=$i at $scheduleLocal: $e',
-            );
-          }
-          continue;
         }
 
         try {
