@@ -1,5 +1,33 @@
 # Project Context & History
 
+## Checkpoint (May 6, 2026 - Build 39 Uploaded, Tester-Ready Hold)
+**Status:** Strong pause point. iOS build 39 upload succeeded and is processing in App Store Connect. Workspace and admin repo are clean and pinned.
+
+### Commit + Branch Lock
+1. Root repo (`Harmony-User-App`) is clean on branch `main` at commit `5eb93aa`.
+2. Admin project (`src/admin`) is clean on branch `main` at commit `b5b97c1`.
+
+### Version Snapshot
+1. User app version is `1.0.14+39` in `src/app/pubspec.yaml`.
+2. iOS and Android build metadata both derive from Flutter build name/number and are aligned to build 39 for this release cycle.
+3. Admin app version in source is `0.1.0` in `src/admin/pubspec.yaml`.
+
+### iOS Delivery State (Current Session)
+1. App Store Connect upload succeeded with no errors.
+2. Delivery UUID: `e38307d4-c244-4a1d-a8ec-f6818173d1b0`.
+3. Build 39 is currently in `Processing`.
+
+### Operational Positioning
+1. Classification now: **tester-ready** (TestFlight + Android testing track), not final production launch state yet.
+2. If post-processing smoke checks pass (auth, events, media, subscriptions, notifications, admin publish flow), project is in a strong pre-production position.
+3. Keep distribution on TestFlight and Android tester channel until final review/sign-off is complete.
+
+### Resume Checklist (When Returning)
+1. Confirm build 39 completes processing in App Store Connect.
+2. Assign build 39 to internal/external TestFlight groups and verify release notes/compliance prompts.
+3. Run focused cross-platform smoke tests (iOS + Android + admin publish path).
+4. If all checks pass, mark formal production-readiness review candidate.
+
 ## Pause Log (April 30, 2026 - Mid-Flow Hold Before Final RevenueCat Validation and Next Bundle)
 **Status at pause:** User requested a break and asked to keep everything exactly as-is. Work is stable and intentionally paused mid-flow.
 
