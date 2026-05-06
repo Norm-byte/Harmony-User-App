@@ -236,6 +236,31 @@ class NotificationService {
     return fcmGranted;
   }
 
+  Future<Map<String, dynamic>> getNotificationDebugState() async {
+    final settings = await _firebaseMessaging.getNotificationSettings();
+    final pending = await _localNotifications.pendingNotificationRequests();
+    final active = await _localNotifications.getActiveNotifications();
+
+    final dormantPending = pending
+        .where((n) => n.payload?.startsWith('harmony_dormant:') ?? false)
+        .length;
+    final dormantActive = active
+        .where((n) => n.payload?.startsWith('harmony_dormant:') ?? false)
+        .length;
+
+    return {
+      'authorizationStatus': settings.authorizationStatus.name,
+      'alertSetting': settings.alert.name,
+      'badgeSetting': settings.badge.name,
+      'soundSetting': settings.sound.name,
+      'pendingTotal': pending.length,
+      'pendingDormant': dormantPending,
+      'activeTotal': active.length,
+      'activeDormant': dormantActive,
+      'isInitialized': _isInitialized,
+    };
+  }
+
   Future<void> openExactAlarmSettings() async {
     if (!Platform.isAndroid) return;
 
@@ -455,6 +480,9 @@ class NotificationService {
     int fallbackCount = 0;
     int attemptCount = 0;
 
+    final beforeDebug = await getNotificationDebugState();
+    debugPrint('HARMONY_DORMANT_IOS_DEBUG: before=$beforeDebug');
+
     for (final event in events) {
       final startLocal = event.startTime.toLocal();
       if (startLocal.isAfter(windowEnd)) continue;
@@ -515,7 +543,7 @@ class NotificationService {
               alertId,
               notificationTitle,
               alertBody,
-              tz.TZDateTime.from(alertTime, tz.local),
+              tz.TZDateTime.from(alertTime.toUtc(), tz.UTC),
               const NotificationDetails(
                 iOS: DarwinNotificationDetails(
                   presentAlert: true,
@@ -653,6 +681,8 @@ class NotificationService {
     debugPrint(
       'Dormant reminder sync complete: attempts=$attemptCount, native=$scheduledCount, fallback=$fallbackCount',
     );
+    final afterDebug = await getNotificationDebugState();
+    debugPrint('HARMONY_DORMANT_IOS_DEBUG: after=$afterDebug');
   }
 
   String? _preferredMediaUrl(Event event, PlaybackMode playbackMode) {
