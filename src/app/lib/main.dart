@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -212,7 +214,8 @@ class _SplashScreenState extends State<SplashScreen> {
       final doc = await FirebaseFirestore.instance
           .collection('settings')
           .doc('global')
-          .get();
+          .get()
+          .timeout(const Duration(seconds: 3));
       if (doc.exists) {
         final data = doc.data()!;
         final isMaintenance = data['maintenanceMode'] ?? false;
@@ -233,6 +236,7 @@ class _SplashScreenState extends State<SplashScreen> {
       }
     } catch (e) {
       debugPrint("Error checking maintenance mode: $e");
+      // Continue startup if maintenance lookup stalls or fails.
     }
 
     await Future.delayed(
