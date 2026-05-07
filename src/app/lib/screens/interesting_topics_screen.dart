@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../services/favorites_service.dart';
 import 'generic_video_player_screen.dart';
 import '../widgets/media/content_viewer.dart';
@@ -267,54 +268,9 @@ class TopicsLandingScreen extends StatelessWidget {
   }
 
   static void _showVideoDialog(BuildContext context, String url) {
-    Navigator.of(context).push(
-      PageRouteBuilder(
-        opaque: false,
-        barrierColor: Colors.black.withValues(alpha: 0.9),
-        barrierDismissible: true,
-        pageBuilder: (context, animation, secondaryAnimation) {
-          return FadeTransition(
-            opacity: animation,
-            child: Scaffold(
-              backgroundColor: Colors.transparent,
-              body: SafeArea(
-                child: Stack(
-                  children: [
-                    GestureDetector(
-                      onTap: () => Navigator.of(context).pop(),
-                      child: Container(color: Colors.transparent),
-                    ),
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: ContentViewer(
-                          url: url,
-                          fit: BoxFit.contain,
-                          controls: true,
-                          autoPlay: true,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: 16,
-                      left: 16,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.5),
-                          shape: BoxShape.circle,
-                        ),
-                        child: IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white),
-                          onPressed: () => Navigator.of(context).pop(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(
+        builder: (_) => _TopicsFullscreenYoutubeScreen(url: url),
       ),
     );
   }
@@ -333,7 +289,7 @@ class TopicsLandingScreen extends StatelessWidget {
             if (topic['type'] == 'youtube') {
               _showVideoDialog(context, topic['youtubeUrl']!);
             } else {
-              Navigator.of(context).push(
+              Navigator.of(context, rootNavigator: true).push(
                 MaterialPageRoute(
                   builder: (context) => GenericVideoPlayerScreen(
                     videoUrl: topic['youtubeUrl']!,
@@ -875,6 +831,182 @@ class _FeaturedTopicViewerState extends State<FeaturedTopicViewer> {
           ],
         );
       },
+    );
+  }
+}
+
+class _TopicsFullscreenYoutubeScreen extends StatelessWidget {
+  final String url;
+
+  const _TopicsFullscreenYoutubeScreen({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: _TopicsFullscreenYoutubePlayer(url: url),
+          ),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 12,
+            child: CircleAvatar(
+              backgroundColor: Colors.black.withOpacity(0.45),
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TopicsFullscreenYoutubePlayer extends StatefulWidget {
+  final String url;
+
+  const _TopicsFullscreenYoutubePlayer({required this.url});
+
+  @override
+  State<_TopicsFullscreenYoutubePlayer> createState() =>
+      _TopicsFullscreenYoutubePlayerState();
+}
+
+class _TopicsFullscreenYoutubePlayerState
+    extends State<_TopicsFullscreenYoutubePlayer> {
+  YoutubePlayerController? _controller;
+  bool _isReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  void _init() {
+    final id = YoutubePlayer.convertUrlToId(widget.url);
+    if (id == null) return;
+    _controller = YoutubePlayerController(
+      initialVideoId: id,
+      flags: const YoutubePlayerFlags(
+        autoPlay: true,
+        mute: false,
+        disableDragSeek: true,
+        hideControls: true,
+        controlsVisibleAtStart: false,
+        hideThumbnail: true,
+      ),
+    );
+    _controller!.addListener(_syncState);
+  }
+
+  void _syncState() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  @override
+  void didUpdateWidget(covariant _TopicsFullscreenYoutubePlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _controller?.removeListener(_syncState);
+      _controller?.dispose();
+      _controller = null;
+      _isReady = false;
+      _init();
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeListener(_syncState);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_controller == null) {
+      return const Center(
+        child: Text(
+          'Unable to load this YouTube content',
+          style: TextStyle(color: Colors.white70),
+        ),
+      );
+    }
+
+    final isPlaying = _controller!.value.isPlaying;
+
+    Widget buildYoutubeSurface(Widget player) {
+      return SizedBox.expand(
+        child: Center(
+          child: FittedBox(
+            fit: BoxFit.contain,
+            child: SizedBox(
+              width: 16 * 100,
+              height: 9 * 100,
+              child: player,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () {
+        final c = _controller!;
+        if (c.value.isPlaying) {
+          c.pause();
+        } else {
+          c.play();
+        }
+        setState(() {});
+      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(color: Colors.black),
+          YoutubePlayerBuilder(
+            player: YoutubePlayer(
+              controller: _controller!,
+              showVideoProgressIndicator: false,
+              onReady: () {
+                if (!mounted) return;
+                setState(() => _isReady = true);
+              },
+            ),
+            builder: (context, player) => AnimatedOpacity(
+              duration: const Duration(milliseconds: 180),
+              opacity: _isReady ? 1 : 0,
+              child: buildYoutubeSurface(player),
+            ),
+          ),
+          if (!_isReady)
+            const Center(
+              child: CircularProgressIndicator(color: Colors.white70),
+            ),
+          if (_isReady && !isPlaying)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.45),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.play_arrow,
+                  color: Colors.white,
+                  size: 40,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

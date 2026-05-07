@@ -65,7 +65,12 @@ class ContentViewer extends StatelessWidget {
     final isYoutube = url.contains('youtube.com') || url.contains('youtu.be');
 
     if (isYoutube) {
-      return _NativeYoutubePlayer(url: url, autoPlay: autoPlay, volume: volume);
+      return _NativeYoutubePlayer(
+        url: url,
+        autoPlay: autoPlay,
+        volume: volume,
+        fit: fit,
+      );
     }
 
     if (isVideo) {
@@ -129,11 +134,13 @@ class _NativeYoutubePlayer extends StatefulWidget {
   final String url;
   final bool autoPlay;
   final double volume;
+  final BoxFit fit;
 
   const _NativeYoutubePlayer({
     required this.url,
     this.autoPlay = false,
     required this.volume,
+    this.fit = BoxFit.contain,
   });
 
   @override
@@ -142,6 +149,7 @@ class _NativeYoutubePlayer extends StatefulWidget {
 
 class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
   late YoutubePlayerController _controller;
+  bool _isReady = false;
 
   String? _extractVideoId(String url) {
     // 1. Try library function first
@@ -181,8 +189,14 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
         enableCaption: false,
         forceHD: false,
         loop: true,
+        hideControls: true,
+        controlsVisibleAtStart: false,
+        disableDragSeek: true,
+        hideThumbnail: true,
       ),
     );
+
+    _controller.addListener(_onControllerUpdate);
 
     // Set volume after init
     // Youtube volume is 0-100
@@ -193,8 +207,14 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
 
   @override
   void dispose() {
+    _controller.removeListener(_onControllerUpdate);
     _controller.dispose();
     super.dispose();
+  }
+
+  void _onControllerUpdate() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   @override
@@ -217,22 +237,71 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
       );
     }
 
-    return YoutubePlayerBuilder(
-      player: YoutubePlayer(
-        controller: _controller,
-        showVideoProgressIndicator: true,
-        progressIndicatorColor: Colors.amber,
-        progressColors: const ProgressBarColors(
-          playedColor: Colors.amber,
-          handleColor: Colors.amberAccent,
+    final isPlaying = _controller.value.isPlaying;
+
+    Widget buildYoutubeSurface(Widget player) {
+      return SizedBox.expand(
+        child: Center(
+          child: FittedBox(
+            fit: widget.fit,
+            child: SizedBox(
+              width: 16 * 100,
+              height: 9 * 100,
+              child: player,
+            ),
+          ),
         ),
-        onReady: () {
-          // _controller.addListener(listener);
-        },
-      ),
-      builder: (context, player) {
-        return Center(child: player);
+      );
+    }
+
+    return GestureDetector(
+      onTap: () {
+        if (_controller.value.isPlaying) {
+          _controller.pause();
+        } else {
+          _controller.play();
+        }
       },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(color: Colors.black),
+          YoutubePlayerBuilder(
+            player: YoutubePlayer(
+              controller: _controller,
+              showVideoProgressIndicator: false,
+              onReady: () {
+                if (!mounted) return;
+                setState(() => _isReady = true);
+              },
+            ),
+            builder: (context, player) => AnimatedOpacity(
+              duration: const Duration(milliseconds: 180),
+              opacity: _isReady ? 1 : 0,
+              child: buildYoutubeSurface(player),
+            ),
+          ),
+          if (!_isReady)
+            const Center(
+              child: CircularProgressIndicator(color: Colors.white70),
+            ),
+          if (_isReady && !isPlaying)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.45),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.play_arrow,
+                  color: Colors.white,
+                  size: 40,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

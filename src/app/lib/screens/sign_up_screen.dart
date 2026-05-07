@@ -17,7 +17,8 @@ class SignUpScreen extends StatefulWidget {
 
 class _SignUpScreenState extends State<SignUpScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
+  final _fullNameController = TextEditingController();
+  final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -47,7 +48,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
               (vipData['vipQuotaTier'] as String?)?.trim().isNotEmpty == true
                   ? (vipData['vipQuotaTier'] as String).trim()
                   : 'tier_beta';
-          final fullName = _nameController.text.trim();
+          final fullName = _fullNameController.text.trim();
+          final username = UserService.sanitizePublicDisplayName(
+            _usernameController.text.trim(),
+          );
           final email = _emailController.text.trim();
 
           if (email.isEmpty) {
@@ -64,7 +68,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
           try {
             final cred = await FirebaseAuth.instance
                 .createUserWithEmailAndPassword(email: email, password: potentialCode);
-            await cred.user?.updateDisplayName(fullName.isNotEmpty ? fullName : 'Member');
+            await cred.user?.updateDisplayName(username);
             uid = cred.user!.uid;
           } on FirebaseAuthException catch (e) {
             if (e.code == 'email-already-in-use') {
@@ -88,7 +92,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
             }
           }
 
-          await UserService().setUser(uid, fullName.isNotEmpty ? fullName : 'Member');
+          await UserService().setUser(uid, username);
 
           // Persist isVip in Firestore under the real Firebase Auth UID so the
           // login path can detect VIP status on future sign-ins.
@@ -100,6 +104,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 'isSuperAdmin': isSuperAdmin,
                 'vipQuotaTier': vipQuotaTier,
                 'email': email,
+                'fullName': fullName,
+                'username': username,
+                'userName': username,
+                'displayName': username,
+                'name': username,
               }, SetOptions(merge: true));
 
           if (!mounted) return;
@@ -129,11 +138,19 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
     setState(() => _isLoading = true);
 
-    final fullName = _nameController.text.trim();
+    final fullName = _fullNameController.text.trim();
+    final username = UserService.sanitizePublicDisplayName(
+      _usernameController.text.trim(),
+    );
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    final credential = await _createFirebaseAccount(email, password, fullName);
+    final credential = await _createFirebaseAccount(
+      email,
+      password,
+      username,
+      fullName,
+    );
     if (credential == null) return;
 
     if (mounted) {
@@ -150,14 +167,26 @@ class _SignUpScreenState extends State<SignUpScreen> {
   Future<UserCredential?> _createFirebaseAccount(
     String email,
     String password,
-    String displayName,
+    String username,
+    String fullName,
   ) async {
     try {
       final credential = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(email: email, password: password);
 
-      await credential.user?.updateDisplayName(displayName);
-      await UserService().setUser(credential.user!.uid, displayName);
+      await credential.user?.updateDisplayName(username);
+      await UserService().setUser(credential.user!.uid, username);
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(credential.user!.uid)
+          .set({
+            'email': email,
+            'fullName': fullName,
+            'username': username,
+            'userName': username,
+            'displayName': username,
+            'name': username,
+          }, SetOptions(merge: true));
       return credential;
     } on FirebaseAuthException catch (e) {
       if (mounted) {
@@ -221,12 +250,33 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
                 // Full Name
                 TextFormField(
-                  controller: _nameController,
+                  controller: _fullNameController,
                   style: const TextStyle(color: Colors.white),
                   textCapitalization: TextCapitalization.words,
                   decoration: _inputDecoration('Full Name', Icons.person_outline),
                   validator: (value) =>
-                      (value == null || value.trim().isEmpty) ? 'Please enter your name' : null,
+                      (value == null || value.trim().isEmpty) ? 'Please enter your full name' : null,
+                ),
+                const SizedBox(height: 16),
+
+                // Username
+                TextFormField(
+                  controller: _usernameController,
+                  style: const TextStyle(color: Colors.white),
+                  textCapitalization: TextCapitalization.none,
+                  decoration: _inputDecoration('Username', Icons.alternate_email),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter a username';
+                    }
+                    final sanitized = UserService.sanitizePublicDisplayName(
+                      value,
+                    );
+                    if (!UserService.isRecognizedPublicDisplayName(sanitized)) {
+                      return 'Please choose a valid username';
+                    }
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 16),
 
@@ -343,7 +393,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   @override
   void dispose() {
-    _nameController.dispose();
+    _fullNameController.dispose();
+    _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();

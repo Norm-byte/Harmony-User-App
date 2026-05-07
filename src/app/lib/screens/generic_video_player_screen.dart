@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 class GenericVideoPlayerScreen extends StatefulWidget {
@@ -18,6 +19,13 @@ class _GenericVideoPlayerScreenState extends State<GenericVideoPlayerScreen> {
   @override
   void initState() {
     super.initState();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     _initializeVideo();
   }
 
@@ -43,6 +51,13 @@ class _GenericVideoPlayerScreenState extends State<GenericVideoPlayerScreen> {
     if (_isInitialized) {
       _controller.dispose();
     }
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
     super.dispose();
   }
 
@@ -53,22 +68,28 @@ class _GenericVideoPlayerScreenState extends State<GenericVideoPlayerScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            Center(
+            Positioned.fill(
               child: _errorMessage != null
                   ? Padding(
                       padding: const EdgeInsets.all(16.0),
-                      child: Text(
-                        _errorMessage!,
-                        style: const TextStyle(color: Colors.white),
-                        textAlign: TextAlign.center,
+                      child: Center(
+                        child: Text(
+                          _errorMessage!,
+                          style: const TextStyle(color: Colors.white),
+                          textAlign: TextAlign.center,
+                        ),
                       ),
                     )
                   : _isInitialized
-                      ? AspectRatio(
-                          aspectRatio: _controller.value.aspectRatio,
-                          child: VideoPlayer(_controller),
+                      ? FittedBox(
+                          fit: BoxFit.contain,
+                          child: SizedBox(
+                            width: _controller.value.size.width,
+                            height: _controller.value.size.height,
+                            child: VideoPlayer(_controller),
+                          ),
                         )
-                      : const CircularProgressIndicator(),
+                      : const Center(child: CircularProgressIndicator()),
             ),
             // Controls overlay
             if (_isInitialized)
