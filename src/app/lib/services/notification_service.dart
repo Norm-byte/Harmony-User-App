@@ -567,9 +567,9 @@ class NotificationService {
               tz.TZDateTime.from(alertTime.toUtc(), tz.UTC),
               const NotificationDetails(
                 iOS: DarwinNotificationDetails(
-                  presentAlert: true,
-                  presentBadge: true,
-                  presentSound: true,
+                  presentAlert: false,
+                  presentBadge: false,
+                  presentSound: false,
                 ),
               ),
               androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
