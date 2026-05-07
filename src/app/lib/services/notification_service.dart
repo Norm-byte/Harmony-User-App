@@ -5,6 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -524,7 +525,9 @@ class NotificationService {
           ? 'Your scheduled event is starting. Tap to view event.'
           : 'Your scheduled event is starting. Tap to listen.';
 
-      // iOS-only: schedule two lead reminders (20s then 5s) for locked-device delivery.
+      // iOS-only: use a foreground-aware schedule.
+      // - App active: one 5-second lead reminder.
+      // - App inactive/background: 20s and 5s lead reminders.
       if (!Platform.isAndroid) {
         if (iosQueuedAlerts >= iosMaxQueuedAlerts) {
           debugPrint(
@@ -533,7 +536,9 @@ class NotificationService {
           break;
         }
 
-        final iosOffsets = <int>[20, 5];
+        final lifecycle = WidgetsBinding.instance.lifecycleState;
+        final appIsActive = lifecycle == AppLifecycleState.resumed;
+        final iosOffsets = appIsActive ? <int>[5] : <int>[20, 5];
         for (final secondsBefore in iosOffsets) {
           if (iosQueuedAlerts >= iosMaxQueuedAlerts) {
             break;
