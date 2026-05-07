@@ -348,6 +348,20 @@ class NotificationService {
     }
   }
 
+  Future<bool?> _isIOSDeviceLockedNow() async {
+    if (!Platform.isIOS) return null;
+
+    try {
+      final locked = await _dormantAlarmChannel.invokeMethod<bool>(
+        'is_device_locked',
+      );
+      return locked;
+    } catch (e) {
+      debugPrint('Failed to query iOS lock state: $e');
+      return null;
+    }
+  }
+
   Future<void> restoreLockscreenPresentation() async {
     if (!Platform.isAndroid) return;
 
@@ -525,9 +539,10 @@ class NotificationService {
           ? 'Your scheduled event is starting. Tap to view event.'
           : 'Your scheduled event is starting. Tap to listen.';
 
-      // iOS-only: use a foreground-aware schedule.
-      // - App active: one 5-second lead reminder.
-      // - App inactive/background: 20s and 5s lead reminders.
+      // iOS-only: use lock-state-aware scheduling where possible.
+      // - App open (resumed): one 5-second lead, suppressed foreground banner.
+      // - App not open + locked now: 20s and 5s.
+      // - App not open + unlocked now: 5s only.
       if (!Platform.isAndroid) {
         if (iosQueuedAlerts >= iosMaxQueuedAlerts) {
           debugPrint(
@@ -538,7 +553,10 @@ class NotificationService {
 
         final lifecycle = WidgetsBinding.instance.lifecycleState;
         final appIsActive = lifecycle == AppLifecycleState.resumed;
-        final iosOffsets = appIsActive ? <int>[5] : <int>[20, 5];
+        final isLockedNow = appIsActive ? false : (await _isIOSDeviceLockedNow());
+        final iosOffsets = appIsActive
+            ? <int>[5]
+            : (isLockedNow == true ? <int>[20, 5] : <int>[5]);
         for (final secondsBefore in iosOffsets) {
           if (iosQueuedAlerts >= iosMaxQueuedAlerts) {
             break;
