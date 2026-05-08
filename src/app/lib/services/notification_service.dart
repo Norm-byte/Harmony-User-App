@@ -578,6 +578,7 @@ class NotificationService {
     int attemptCount = 0;
     int iosQueuedAlerts = 0;
     const int iosMaxQueuedAlerts = 40;
+    final Set<String> iosScheduledSlotKeys = <String>{};
 
     final sortedEvents = [...events]
       ..sort((a, b) => a.startTime.compareTo(b.startTime));
@@ -621,10 +622,9 @@ class NotificationService {
           ? 'Your scheduled event is starting. Tap to view event.'
           : 'Your scheduled event is starting. Tap to listen.';
 
-      // iOS-only: use lock-state-aware scheduling where possible.
-      // - App open (resumed): one 5-second lead, suppressed foreground banner.
-      // - App not open + locked now: 20s and 5s.
-      // - App not open + unlocked now: 5s only.
+      // iOS-only: keep one reminder per slot and use lock-state timing:
+      // - Device locked now: 15-second lead.
+      // - Device unlocked now: 4-second lead.
       if (!Platform.isAndroid) {
         if (iosQueuedAlerts >= iosMaxQueuedAlerts) {
           debugPrint(
@@ -633,15 +633,23 @@ class NotificationService {
           break;
         }
 
-        // Always schedule regardless of current app state.
-        // syncDormantPlaybackReminders often runs while the app is active (foreground)
-        // because it is triggered by Firestore event changes. If we skip scheduling
-        // when the app is active the user locks the phone immediately after and
-        // receives no notification. The event service handles in-app playback for
-        // the active case; the notification is suppressed via presentAlert: false.
-        // Use a fixed 15 s lead time so the notification arrives before the event
-        // regardless of how lock state may change between scheduling and delivery.
-        const iosOffsets = <int>[15];
+        final iosSlotKey =
+            '${startLocal.year.toString().padLeft(4, '0')}'
+            '${startLocal.month.toString().padLeft(2, '0')}'
+            '${startLocal.day.toString().padLeft(2, '0')}_'
+            '${startLocal.hour.toString().padLeft(2, '0')}'
+            '${startLocal.minute.toString().padLeft(2, '0')}';
+
+        if (!iosScheduledSlotKeys.add(iosSlotKey)) {
+          debugPrint(
+            'iOS reminder dedupe: skipping duplicate slot $iosSlotKey for event ${event.id}',
+          );
+          continue;
+        }
+
+        final isLockedNow = await _isIOSDeviceLockedNow();
+        final secondsBefore = isLockedNow == true ? 15 : 4;
+        final iosOffsets = <int>[secondsBefore];
         for (final secondsBefore in iosOffsets) {
           if (iosQueuedAlerts >= iosMaxQueuedAlerts) {
             break;

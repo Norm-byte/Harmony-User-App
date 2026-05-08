@@ -954,7 +954,7 @@ class EventService extends ChangeNotifier {
   void _scheduleDormantPlaybackSync() {
     _notificationSyncTimer?.cancel();
     _notificationSyncTimer = Timer(const Duration(milliseconds: 300), () {
-      final dormantEvents = [
+      final dormantCandidates = [
         ..._processDocs(
           _nationalDocs,
           overrideType: EventType.national,
@@ -966,6 +966,10 @@ class EventService extends ChangeNotifier {
           forDormantScheduling: true,
         ),
       ];
+
+      final dormantEvents = _dedupeVisibleNoticeboardSlotCollisions(
+        _dedupeNationalEvents(dormantCandidates),
+      );
 
       dormantEvents.sort((a, b) => a.startTime.compareTo(b.startTime));
 
