@@ -31,6 +31,7 @@ class EventService extends ChangeNotifier {
   bool _pendingAlarmForceVideo = false;
   bool? _pendingAlarmVerifiedExists;
   bool _currentEventFromAlarmLaunch = false;
+  bool _alarmRestorePending = false;
   bool _isAlarmLaunchTransitionActive = false;
   Timer? _alarmLaunchTransitionTimer;
   bool _nativeLaunchPayloadCheckInFlight = false;
@@ -1423,6 +1424,7 @@ class EventService extends ChangeNotifier {
     _currentEventFromAlarmLaunch = effectiveFromAlarmLaunch;
 
     if (effectiveFromAlarmLaunch && id != null) {
+      _alarmRestorePending = true;
       print('HARMONY_ALARM: trigger marked as alarm launch for id=$id');
     }
 
@@ -1484,7 +1486,8 @@ class EventService extends ChangeNotifier {
       "DEBUG: dismissEvent called for ID: $_currentEventId [restore-v3-sync]",
     );
     final currentEventId = _currentEventId;
-    bool shouldRestoreLockscreen = _currentEventFromAlarmLaunch;
+    bool shouldRestoreLockscreen =
+        _currentEventFromAlarmLaunch || _alarmRestorePending;
 
     // Always attempt to cancel any matching alarm notification on dismiss.
     NotificationService().cancelNotificationForEvent(currentEventId);
@@ -1501,7 +1504,7 @@ class EventService extends ChangeNotifier {
     }
 
     print(
-      'HARMONY_ALARM: dismiss restore decision id=$currentEventId fromAlarm=$_currentEventFromAlarmLaunch => restore=$shouldRestoreLockscreen',
+      'HARMONY_ALARM: dismiss restore decision id=$currentEventId fromAlarm=$_currentEventFromAlarmLaunch pendingRestore=$_alarmRestorePending => restore=$shouldRestoreLockscreen',
     );
     _dismissTimer?.cancel();
     _dismissTimer = null;
@@ -1537,6 +1540,7 @@ class EventService extends ChangeNotifier {
     _currentEventEndTime = null;
     _currentEventStartTime = null;
     _currentEventFromAlarmLaunch = false;
+    _alarmRestorePending = false;
 
     // Alarm launch IDs are one-shot markers. Clear after dismiss when consumed,
     // so foreground/non-alarm playback of later events doesn't inherit restore behavior.

@@ -267,12 +267,19 @@ class DormantAlarmReceiver : BroadcastReceiver() {
         val appInForeground = isAppInForeground(context)
         val deviceLocked = isDeviceLocked(context)
         val screenInteractive = isScreenInteractive(context)
-        val shouldDirectLaunchDormant = deviceLocked || !screenInteractive
+        val shouldDirectLaunchDormant = !deviceLocked && !screenInteractive
 
         if (appInForeground) {
             // App is open: launch for auto-play, but skip notification (user doesn't need tap prompt).
             launchAppForEvent(context, eventId, isFullScreen, fromForegroundAlarm = true)
             android.util.Log.d("DormantAlarmReceiver", "App in foreground: skipping notification, launching auto-play for $eventId")
+        } else if (deviceLocked) {
+            // Locked devices need notification/full-screen intent routing for reliable wake/launch on OEM variants.
+            postNotification(context, eventId, eventTitle, eventBody, isFullScreen)
+            android.util.Log.d(
+                "DormantAlarmReceiver",
+                "Device locked: posting notification for lockscreen playback for $eventId",
+            )
         } else if (shouldDirectLaunchDormant) {
             // Dormant override contract on lock/screen-off: no notification, direct launch.
             launchAppForEvent(context, eventId, isFullScreen, fromForegroundAlarm = false)

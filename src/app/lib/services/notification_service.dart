@@ -253,9 +253,27 @@ class NotificationService {
   }
 
   Future<Map<String, dynamic>> getNotificationDebugState() async {
-    final settings = await _firebaseMessaging.getNotificationSettings();
-    final pending = await _localNotifications.pendingNotificationRequests();
-    final active = await _localNotifications.getActiveNotifications();
+    NotificationSettings? settings;
+    try {
+      settings = await _firebaseMessaging.getNotificationSettings();
+    } catch (e) {
+      debugPrint('Notification debug: failed to read messaging settings: $e');
+    }
+
+    List<PendingNotificationRequest> pending =
+        <PendingNotificationRequest>[];
+    try {
+      pending = await _localNotifications.pendingNotificationRequests();
+    } catch (e) {
+      debugPrint('Notification debug: failed to read pending notifications: $e');
+    }
+
+    List<ActiveNotification> active = <ActiveNotification>[];
+    try {
+      active = await _localNotifications.getActiveNotifications();
+    } catch (e) {
+      debugPrint('Notification debug: failed to read active notifications: $e');
+    }
 
     final dormantPending = pending
         .where((n) => n.payload?.startsWith('harmony_dormant:') ?? false)
@@ -265,10 +283,10 @@ class NotificationService {
         .length;
 
     return {
-      'authorizationStatus': settings.authorizationStatus.name,
-      'alertSetting': settings.alert.name,
-      'badgeSetting': settings.badge.name,
-      'soundSetting': settings.sound.name,
+      'authorizationStatus': settings?.authorizationStatus.name ?? 'unknown',
+      'alertSetting': settings?.alert.name ?? 'unknown',
+      'badgeSetting': settings?.badge.name ?? 'unknown',
+      'soundSetting': settings?.sound.name ?? 'unknown',
       'pendingTotal': pending.length,
       'pendingDormant': dormantPending,
       'activeTotal': active.length,
@@ -521,6 +539,29 @@ class NotificationService {
     required List<Event> events,
     required UserService userService,
   }) async {
+    final probeNow = DateTime.now();
+    final probeWindowEnd = probeNow.add(const Duration(hours: 24));
+
+    if (Platform.isAndroid) {
+      final hasAndroidCandidate = events.any((event) {
+        final startLocal = event.startTime.toLocal();
+        if (startLocal.isAfter(probeWindowEnd)) return false;
+        if (startLocal.isBefore(probeNow.subtract(const Duration(seconds: 15)))) {
+          return false;
+        }
+        return true;
+      });
+
+      if (!hasAndroidCandidate) {
+        // Avoid wiping already-armed native alarms when a transient snapshot
+        // provides no schedulable events (e.g. temporary network stream gap).
+        debugPrint(
+          'Dormant reminder guard: no Android candidates in current snapshot; preserving existing alarms',
+        );
+        return;
+      }
+    }
+
     await cancelDormantPlaybackReminders();
 
     final notificationsGranted = await requestNotificationPermission();
