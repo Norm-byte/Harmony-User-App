@@ -75,7 +75,7 @@ class MainActivity: FlutterFragmentActivity() {
             intent.removeExtra("auto_play_video")
             intent.removeExtra("from_foreground_alarm")
             applyAlarmLockscreenPresentation(
-                enabled = pendingLaunchAutoPlayVideo && !fromForegroundAlarm
+                enabled = !fromForegroundAlarm
             )
             notificationTapReceived = true
             invokeNotificationTapConsumption()

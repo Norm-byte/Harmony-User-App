@@ -217,13 +217,7 @@ class EventsScreen extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: _buildStatCard(
-                        'Participants',
-                        NumberFormat.decimalPattern().format(
-                          event.participantCount,
-                        ),
-                        Icons.people,
-                      ),
+                      child: _TimezoneStatCard(),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -790,6 +784,52 @@ class _NationalUserCount extends StatelessWidget {
                     fontSize: 11,
                   ),
                   overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _TimezoneStatCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final userService = Provider.of<UserService>(context, listen: false);
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .where('timeZone', isEqualTo: userService.timeZone)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.people, color: Colors.white70, size: 18),
+              const SizedBox(height: 6),
+              Text(
+                NumberFormat.decimalPattern().format(count),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                'In Your Region',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 11,
                 ),
               ),
             ],

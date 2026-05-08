@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:android_intent_plus/android_intent.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -16,6 +18,15 @@ import 'user_service.dart';
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   debugPrint("Handling a background message: ${message.messageId}");
+}
+
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse response) {
+  final service = NotificationService();
+  service.queueIosLaunchPayloadFromDormantTap(
+    response.payload,
+    tappedNotificationId: response.id,
+  );
 }
 
 class NotificationService {
@@ -29,6 +40,9 @@ class NotificationService {
   static const String _highImportanceChannelId = 'high_importance_channel';
   static const String _dormantPlaybackChannelId = 'dormant_playback_channel';
   static const String _methodChannelName = 'com.harmonybyintent.harmony_user_app/dormant_alarm';
+  static const String _iosPendingLaunchPayloadKey =
+      'harmony_ios_pending_launch_payload';
+  static Map<String, dynamic>? _pendingIosLaunchPayload;
   final MethodChannel _dormantAlarmChannel = const MethodChannel(
     _methodChannelName,
   );
@@ -77,14 +91,15 @@ class NotificationService {
 
     await _localNotifications.initialize(
       initializationSettings,
-      onDidReceiveNotificationResponse: (NotificationResponse response) {
+      onDidReceiveNotificationResponse: (NotificationResponse response) async {
         // Handle notification tap
         debugPrint('Notification tapped: ${response.payload}');
-        final eventId = _eventIdFromDormantPayload(response.payload);
-        if (eventId != null) {
-          cancelNotificationForEvent(eventId);
-        }
+        await queueIosLaunchPayloadFromDormantTap(
+          response.payload,
+          tappedNotificationId: response.id,
+        );
       },
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
     // Create the channel on the device (Android 8.0+)
@@ -315,6 +330,15 @@ class NotificationService {
   }
 
   Future<String?> consumeLaunchEventId() async {
+    if (Platform.isIOS) {
+      final payload = await consumeLaunchPayload();
+      final eventIdRaw = payload['event_id'];
+      if (eventIdRaw is String && eventIdRaw.trim().isNotEmpty) {
+        return eventIdRaw.trim();
+      }
+      return null;
+    }
+
     if (!Platform.isAndroid) return null;
 
     try {
@@ -332,6 +356,23 @@ class NotificationService {
   }
 
   Future<Map<String, dynamic>> consumeLaunchPayload() async {
+    if (Platform.isIOS) {
+      if (_pendingIosLaunchPayload != null) {
+        final payload = Map<String, dynamic>.from(_pendingIosLaunchPayload!);
+        _pendingIosLaunchPayload = null;
+        await _clearPersistedIosPendingLaunchPayload();
+        return payload;
+      }
+
+      final persisted = await _readPersistedIosPendingLaunchPayload();
+      if (persisted.isNotEmpty) {
+        await _clearPersistedIosPendingLaunchPayload();
+        return persisted;
+      }
+
+      return const <String, dynamic>{};
+    }
+
     if (!Platform.isAndroid) return const <String, dynamic>{};
 
     try {
@@ -551,12 +592,15 @@ class NotificationService {
           break;
         }
 
-        final lifecycle = WidgetsBinding.instance.lifecycleState;
-        final appIsActive = lifecycle == AppLifecycleState.resumed;
-        final isLockedNow = appIsActive ? false : (await _isIOSDeviceLockedNow());
-        final iosOffsets = appIsActive
-            ? <int>[5]
-            : (isLockedNow == true ? <int>[20, 5] : <int>[5]);
+        // Always schedule regardless of current app state.
+        // syncDormantPlaybackReminders often runs while the app is active (foreground)
+        // because it is triggered by Firestore event changes. If we skip scheduling
+        // when the app is active the user locks the phone immediately after and
+        // receives no notification. The event service handles in-app playback for
+        // the active case; the notification is suppressed via presentAlert: false.
+        // Use a fixed 15 s lead time so the notification arrives before the event
+        // regardless of how lock state may change between scheduling and delivery.
+        const iosOffsets = <int>[15];
         for (final secondsBefore in iosOffsets) {
           if (iosQueuedAlerts >= iosMaxQueuedAlerts) {
             break;
@@ -585,15 +629,19 @@ class NotificationService {
               tz.TZDateTime.from(alertTime.toUtc(), tz.UTC),
               const NotificationDetails(
                 iOS: DarwinNotificationDetails(
-                  presentAlert: false,
+                  presentAlert: true,
                   presentBadge: false,
-                  presentSound: false,
+                  presentSound: true,
                 ),
               ),
               androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
               uiLocalNotificationDateInterpretation:
                   UILocalNotificationDateInterpretation.absoluteTime,
-              payload: 'harmony_dormant:${event.id}:',
+              payload: _dormantPayloadForWindow(
+                event.id,
+                startLocal,
+                event.endTime.toLocal(),
+              ),
             );
             fallbackCount++;
             iosQueuedAlerts++;
@@ -754,6 +802,99 @@ class NotificationService {
   String _dormantPayloadForEvent(String eventId) => 'harmony_dormant:$eventId:';
 
   String _dormantPayloadPrefix(String eventId) => 'harmony_dormant:$eventId';
+
+  String _dormantPayloadForWindow(
+    String eventId,
+    DateTime startLocal,
+    DateTime endLocal,
+  ) {
+    return 'harmony_dormant:$eventId:${startLocal.millisecondsSinceEpoch}:${endLocal.millisecondsSinceEpoch}';
+  }
+
+  bool _isDormantPayloadExpired(String? payload) {
+    if (payload == null || !payload.startsWith('harmony_dormant:')) {
+      return false;
+    }
+
+    final parts = payload.split(':');
+    if (parts.length < 4) return false;
+
+    final endMs = int.tryParse(parts[3]);
+    if (endMs == null) return false;
+
+    final endTime = DateTime.fromMillisecondsSinceEpoch(endMs);
+    return !DateTime.now().isBefore(endTime);
+  }
+
+  Future<void> queueIosLaunchPayloadFromDormantTap(
+    String? payload, {
+    int? tappedNotificationId,
+  }) async {
+    if (tappedNotificationId != null) {
+      try {
+        await _localNotifications.cancel(tappedNotificationId);
+      } catch (e) {
+        debugPrint('Failed to clear tapped notification id=$tappedNotificationId: $e');
+      }
+    }
+
+    final eventId = _eventIdFromDormantPayload(payload);
+    if (eventId == null) {
+      return;
+    }
+
+    if (_isDormantPayloadExpired(payload)) {
+      await cancelNotificationForEvent(eventId);
+      await _clearPersistedIosPendingLaunchPayload();
+      return;
+    }
+
+    final mapped = <String, dynamic>{
+      'event_id': eventId,
+      'auto_play_video': false,
+      'source': 'ios_local_notification_tap',
+      'ts': DateTime.now().toIso8601String(),
+    };
+
+    _pendingIosLaunchPayload = mapped;
+    await _persistIosPendingLaunchPayload(mapped);
+    await cancelNotificationForEvent(eventId);
+  }
+
+  Future<void> _persistIosPendingLaunchPayload(Map<String, dynamic> payload) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_iosPendingLaunchPayloadKey, jsonEncode(payload));
+    } catch (e) {
+      debugPrint('Failed to persist iOS pending launch payload: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> _readPersistedIosPendingLaunchPayload() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_iosPendingLaunchPayloadKey);
+      if (raw == null || raw.trim().isEmpty) {
+        return const <String, dynamic>{};
+      }
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (e) {
+      debugPrint('Failed to read iOS pending launch payload: $e');
+    }
+    return const <String, dynamic>{};
+  }
+
+  Future<void> _clearPersistedIosPendingLaunchPayload() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_iosPendingLaunchPayloadKey);
+    } catch (e) {
+      debugPrint('Failed to clear iOS pending launch payload: $e');
+    }
+  }
 
   String? _eventIdFromDormantPayload(String? payload) {
     if (payload == null || !payload.startsWith('harmony_dormant:')) {
