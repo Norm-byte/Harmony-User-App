@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/event_service.dart';
+import '../services/translation_service.dart';
 import '../services/user_service.dart';
 import '../services/profanity_service.dart'; // Added missing import
 import '../widgets/gradient_scaffold.dart';
+import '../widgets/translatable_text.dart';
 
 class ChatScreen extends StatefulWidget {
   final String eventTitle;
@@ -36,6 +38,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _loadDailyLimit();
+    TranslationService.instance.init();
     _resolvedGroupId = widget.groupId;
     
     if (_resolvedGroupId != null) {
@@ -43,6 +46,20 @@ class _ChatScreenState extends State<ChatScreen> {
     } else {
       _resolveGroupByName();
     }
+  }
+
+  Future<void> _toggleTranslation() async {
+    final enabled = !TranslationService.instance.isEnabled;
+    await TranslationService.instance.setEnabled(enabled);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          enabled ? 'Translation is ON for chat.' : 'Translation is OFF for chat.',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   void _initFirestoreStream() {
@@ -326,7 +343,25 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     if (_isMaintenanceMode) {
       return GradientScaffold(
-        appBar: AppBar(title: Text('Chat: ${widget.eventTitle}'), foregroundColor: Colors.white),
+        appBar: AppBar(
+          title: Text('Chat: ${widget.eventTitle}'),
+          foregroundColor: Colors.white,
+          actions: [
+            ValueListenableBuilder<bool>(
+              valueListenable: TranslationService.instance.enabledNotifier,
+              builder: (context, enabled, _) {
+                return IconButton(
+                  tooltip: enabled ? 'Disable Translation' : 'Enable Translation',
+                  onPressed: _toggleTranslation,
+                  icon: Icon(
+                    Icons.translate,
+                    color: enabled ? Colors.greenAccent : Colors.white,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -347,6 +382,21 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Text('Chat: ${widget.eventTitle}'),
         // backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
+        actions: [
+          ValueListenableBuilder<bool>(
+            valueListenable: TranslationService.instance.enabledNotifier,
+            builder: (context, enabled, _) {
+              return IconButton(
+                tooltip: enabled ? 'Disable Translation' : 'Enable Translation',
+                onPressed: _toggleTranslation,
+                icon: Icon(
+                  Icons.translate,
+                  color: enabled ? Colors.greenAccent : Colors.white,
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -412,7 +462,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Text(
+                    TranslatableText(
                       displayMessage,
                       style: const TextStyle(color: Colors.white, fontSize: 15),
                     ),
@@ -514,7 +564,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                    ],
                                  ),
                                if (!isMe) const SizedBox(height: 4),
-                               Text(
+                               TranslatableText(
                                  text,
                                  style: const TextStyle(color: Colors.white),
                                ),
@@ -603,7 +653,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             ],
                           ),
                         if (!isMe) const SizedBox(height: 4),
-                        Text(
+                        TranslatableText(
                           msg['text'],
                           style: const TextStyle(
                             color: Colors.white, // Always white text

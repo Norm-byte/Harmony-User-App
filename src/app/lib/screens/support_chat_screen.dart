@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import '../widgets/gradient_scaffold.dart';
+import '../widgets/translatable_text.dart';
 import '../services/user_service.dart';
 import '../services/profanity_service.dart';
+import '../services/translation_service.dart';
 
 class SupportChatScreen extends StatefulWidget {
   const SupportChatScreen({super.key});
@@ -15,6 +17,28 @@ class SupportChatScreen extends StatefulWidget {
 class _SupportChatScreenState extends State<SupportChatScreen> {
   final _messageController = TextEditingController();
   bool _isSending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    TranslationService.instance.init();
+  }
+
+  Future<void> _toggleTranslation() async {
+    final enabled = !TranslationService.instance.isEnabled;
+    await TranslationService.instance.setEnabled(enabled);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          enabled
+              ? 'Translation is ON for support chat.'
+              : 'Translation is OFF for support chat.',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 
   Future<void> _sendMessage() async {
     final content = _messageController.text.trim();
@@ -121,6 +145,21 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
       appBar: AppBar(
         title: const Text('Contact Support'),
         foregroundColor: Colors.white,
+        actions: [
+          ValueListenableBuilder<bool>(
+            valueListenable: TranslationService.instance.enabledNotifier,
+            builder: (context, enabled, _) {
+              return IconButton(
+                tooltip: enabled ? 'Disable Translation' : 'Enable Translation',
+                onPressed: _toggleTranslation,
+                icon: Icon(
+                  Icons.translate,
+                  color: enabled ? Colors.greenAccent : Colors.white,
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -180,7 +219,7 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
+                            TranslatableText(
                               msg['content'] ?? '',
                               style: const TextStyle(color: Colors.white),
                             ),

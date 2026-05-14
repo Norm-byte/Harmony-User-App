@@ -103,6 +103,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                   ],
                                 ),
                                 const SizedBox(height: 16),
+                                const Divider(color: Colors.white24),
+                                const SizedBox(height: 16),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                  children: [
+                                    _buildLikesReceivedStatItem(),
+                                    _buildMyCommentsCountStatItem(),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                _buildMostLikedCommentCard(),
+                                const SizedBox(height: 16),
                                 // Trending Intent section simplified
                                 Container(
                                   width: double.infinity,
@@ -860,6 +872,174 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         final value = snapshot.hasData ? '${snapshot.data}' : '...';
         return _buildStatItem('Your Time Zone', value);
       },
+    );
+  }
+
+  Widget _buildLikesReceivedStatItem() {
+    final uid = UserService().userId;
+    if (uid.isEmpty) {
+      return _buildStatItem('Likes Recv.', '0', icon: Icons.thumb_up, color: Colors.greenAccent);
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('community_posts')
+          .where('userId', isEqualTo: uid)
+          .snapshots(),
+      builder: (context, postsSnapshot) {
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collectionGroup('messages')
+              .where('userId', isEqualTo: uid)
+              .snapshots(),
+          builder: (context, messagesSnapshot) {
+            var totalLikes = 0;
+
+            if (postsSnapshot.hasData) {
+              for (final doc in postsSnapshot.data!.docs) {
+                final data = doc.data() as Map<String, dynamic>;
+                totalLikes += (data['likes'] as int?) ?? 0;
+              }
+            }
+
+            if (messagesSnapshot.hasData) {
+              for (final doc in messagesSnapshot.data!.docs) {
+                final data = doc.data() as Map<String, dynamic>;
+                totalLikes += (data['likes'] as int?) ?? 0;
+              }
+            }
+
+            return _buildStatItem(
+              'Likes Recv.',
+              '$totalLikes',
+              icon: Icons.thumb_up,
+              color: Colors.greenAccent,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildMyCommentsCountStatItem() {
+    final uid = UserService().userId;
+    if (uid.isEmpty) {
+      return _buildStatItem('Comments', '0', icon: Icons.chat_bubble_outline, color: Colors.amberAccent);
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('community_posts')
+          .where('userId', isEqualTo: uid)
+          .snapshots(),
+      builder: (context, postsSnapshot) {
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collectionGroup('messages')
+              .where('userId', isEqualTo: uid)
+              .snapshots(),
+          builder: (context, messagesSnapshot) {
+            final postCount = postsSnapshot.hasData ? postsSnapshot.data!.docs.length : 0;
+            final messageCount = messagesSnapshot.hasData ? messagesSnapshot.data!.docs.length : 0;
+            final totalComments = postCount + messageCount;
+
+            return _buildStatItem(
+              'Comments',
+              '$totalComments',
+              icon: Icons.chat_bubble_outline,
+              color: Colors.amberAccent,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildMostLikedCommentCard() {
+    final uid = UserService().userId;
+    if (uid.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: const Text(
+          'Your community activity will appear here after you post.',
+          style: TextStyle(color: Colors.white70, fontStyle: FontStyle.italic),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('community_posts')
+            .where('userId', isEqualTo: uid)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const Text(
+              'Most liked comment is temporarily unavailable.',
+              style: TextStyle(color: Colors.white38, fontSize: 11),
+            );
+          }
+
+          String topComment = 'Post your first comment to start your activity.';
+          var likes = 0;
+
+          if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+            final docs = snapshot.data!.docs;
+            docs.sort((a, b) {
+              final aData = a.data() as Map<String, dynamic>;
+              final bData = b.data() as Map<String, dynamic>;
+              final aLikes = (aData['likes'] as int?) ?? 0;
+              final bLikes = (bData['likes'] as int?) ?? 0;
+              return bLikes.compareTo(aLikes);
+            });
+
+            final data = docs.first.data() as Map<String, dynamic>;
+            topComment = (data['content'] as String?)?.trim().isNotEmpty == true
+                ? data['content'] as String
+                : 'Comment text unavailable';
+            likes = (data['likes'] as int?) ?? 0;
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.star, color: Colors.amber, size: 16),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Most Liked Comment',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  const Spacer(),
+                  const Icon(Icons.thumb_up, size: 12, color: Colors.greenAccent),
+                  const SizedBox(width: 4),
+                  Text('$likes', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '"$topComment"',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 

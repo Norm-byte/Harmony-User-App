@@ -6,9 +6,11 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/gradient_scaffold.dart';
+import '../widgets/translatable_text.dart';
 import '../services/user_service.dart';
 import '../services/usage_service.dart';
 import '../services/profanity_service.dart';
+import '../services/translation_service.dart';
 
 class CommunityFeedScreen extends StatelessWidget {
   const CommunityFeedScreen({super.key});
@@ -71,6 +73,23 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    TranslationService.instance.init();
+  }
+
+  Future<void> _toggleTranslation() async {
+    final enabled = !TranslationService.instance.isEnabled;
+    await TranslationService.instance.setEnabled(enabled);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          enabled
+              ? 'Translation is ON for Community Room.'
+              : 'Translation is OFF for Community Room.',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -504,6 +523,21 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       appBar: AppBar(
         title: const Text('Community Room'),
         foregroundColor: Colors.white,
+        actions: [
+          ValueListenableBuilder<bool>(
+            valueListenable: TranslationService.instance.enabledNotifier,
+            builder: (context, enabled, _) {
+              return IconButton(
+                tooltip: enabled ? 'Disable Translation' : 'Enable Translation',
+                onPressed: _toggleTranslation,
+                icon: Icon(
+                  Icons.translate,
+                  color: enabled ? Colors.greenAccent : Colors.white,
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -563,7 +597,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Text(
+                    TranslatableText(
                       adminMessage,
                       style: const TextStyle(color: Colors.white, fontSize: 15),
                     ),
@@ -683,7 +717,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                                 ],
                               ),
                               const SizedBox(height: 4),
-                              Text(
+                              TranslatableText(
                                 post['content'] ?? '',
                                 style: const TextStyle(color: Colors.white, height: 1.22, fontSize: 13),
                               ),
