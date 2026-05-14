@@ -157,10 +157,23 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> {
   bool _launchCheckResolved = false;
   bool _suppressSplashVisuals = false;
+  bool _navigationCompleted = false;
 
   @override
   void initState() {
     super.initState();
+    // Watchdog: force navigation after 8 seconds if it hangs (iOS fix)
+    Future.delayed(const Duration(seconds: 8), () {
+      if (!mounted || _navigationCompleted) return;
+      debugPrint(
+        'HARMONY_STARTUP: splash watchdog fired, forcing Welcome navigation',
+      );
+      _navigationCompleted = true;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+      );
+    });
     _navigateToWelcome();
   }
 
@@ -218,6 +231,7 @@ class _SplashScreenState extends State<SplashScreen> {
         final isMaintenance = data['maintenanceMode'] ?? false;
         if (isMaintenance) {
           if (mounted) {
+            _navigationCompleted = true;
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
@@ -263,6 +277,7 @@ class _SplashScreenState extends State<SplashScreen> {
         if (!mounted) return;
 
         if (subscriptionService.isSubscribed) {
+          _navigationCompleted = true;
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -271,12 +286,14 @@ class _SplashScreenState extends State<SplashScreen> {
             ),
           );
         } else {
+          _navigationCompleted = true;
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
           );
         }
       } else {
+        _navigationCompleted = true;
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const WelcomeScreen()),

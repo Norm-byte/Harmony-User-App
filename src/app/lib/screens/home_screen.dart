@@ -933,6 +933,7 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
       flags: const YoutubePlayerFlags(
         autoPlay: true,
         mute: false,
+        hideThumbnail: true,
         disableDragSeek: true,
         hideControls: true,
         controlsVisibleAtStart: false,

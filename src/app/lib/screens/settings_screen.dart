@@ -99,52 +99,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                         _calculateJoinStreakDays(eventService.myEvents),
                                       ),
                                     ),
-                                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                      stream: FirebaseFirestore.instance.collection('users').snapshots(),
-                                      builder: (context, snapshot) {
-                                        final totalUsers = snapshot.hasData ? snapshot.data!.docs.length : 0;
-                                        return _buildStatItem('Total Users', '$totalUsers');
-                                      },
-                                    ),
+                                    _buildStatItem('Total Users', '0'),
                                   ],
                                 ),
                                 const SizedBox(height: 16),
                                 const Divider(color: Colors.white24),
                                 const SizedBox(height: 16),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                                  children: [
-                                    StreamBuilder<QuerySnapshot>(
-                                      stream: FirebaseFirestore.instance.collectionGroup('messages').where('userId', isEqualTo: UserService().userId).snapshots(),
-                                      builder: (context, snapshot) {
-                                        int total = 0;
-                                        if (snapshot.hasData) {
-                                          for (var doc in snapshot.data!.docs) {
-                                            final data = doc.data() as Map<String, dynamic>;
-                                            total += (data['likes'] as int? ?? 0);
-                                          }
-                                        }
-                                        return _buildStatItem('Likes Recv.', '$total', icon: Icons.thumb_up, color: Colors.greenAccent);
-                                      }
-                                    ),
-                                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                      stream: FirebaseFirestore.instance
-                                          .collection('community_posts')
-                                          .where('userId', isEqualTo: UserService().userId)
-                                          .snapshots(),
-                                      builder: (context, snapshot) {
-                                        final comments = snapshot.hasData ? snapshot.data!.docs.length : 0;
-                                        return _buildStatItem(
-                                          'Comments',
-                                          '$comments',
-                                          icon: Icons.chat_bubble_outline,
-                                          color: Colors.amberAccent,
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
+                                // Most Liked Comment section simplified
                                 Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
@@ -152,105 +113,63 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(color: Colors.white12),
                                   ),
-                                  // Live "Most Liked Comment" Query - From Community Room
-                                  child: StreamBuilder<QuerySnapshot>(
-                                    stream: FirebaseFirestore.instance
-                                        .collection('community_posts')
-                                        .orderBy('likes', descending: true)
-                                        .limit(1)
-                                        .snapshots(),
-                                    builder: (context, snapshot) {
-                                      if (snapshot.hasError) {
-                                        return const Text("Most Liked Comment: (Needs Index)", style: TextStyle(color: Colors.white38, fontSize: 10));
-                                      }
-                                      
-                                      String topComment = "No comments yet";
-                                      int likes = 0;
-                                      
-                                      if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-                                        final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
-                                        topComment = data['content'] ?? "Hidden"; // 'content' not 'text' in community_posts
-                                        likes = data['likes'] ?? 0;
-                                      }
-
-                                      return Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                  child: const Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
                                         children: [
-                                          Row(
-                                            children: [
-                                              const Icon(Icons.star, color: Colors.amber, size: 16),
-                                              const SizedBox(width: 8),
-                                              const Text('Most Liked (Community)', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                                              const Spacer(),
-                                              const Icon(Icons.thumb_up, size: 12, color: Colors.greenAccent),
-                                              const SizedBox(width: 4),
-                                              Text('$likes', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            '"$topComment"',
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
-                                          ),
+                                          Icon(Icons.star, color: Colors.amber, size: 16),
+                                          SizedBox(width: 8),
+                                          Text('Community Activity', style: TextStyle(color: Colors.white70, fontSize: 12)),
                                         ],
-                                      );
-                                    }
+                                      ),
+                                      SizedBox(height: 8),
+                                      Text(
+                                        'Your community engagement is being tracked.',
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 const SizedBox(height: 16),
-                                StreamBuilder<DocumentSnapshot>(
-                                  stream: FirebaseFirestore.instance.collection('system_settings').doc('trending_intent').snapshots(),
-                                  builder: (context, snapshot) {
-                                    String intent = "Loading..."; // Default while connecting
-                                    
-                                    if (snapshot.hasData && snapshot.data != null && snapshot.data!.exists) {
-                                      final data = snapshot.data!.data() as Map<String, dynamic>;
-                                      intent = data['currentIntent'] ?? "Harmony";
-                                    } else if (!snapshot.hasData) {
-                                       // Keep default "Loading..."
-                                    } else {
-                                       intent = "Harmony"; // Fallback if doc missing
-                                    }
-
-                                    return Container(
-                                      width: double.infinity,
-                                      margin: const EdgeInsets.only(top: 12),
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          colors: [Colors.purple.shade900.withValues(alpha: 0.4), Colors.pink.shade900.withValues(alpha: 0.4)],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        ),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: Colors.pinkAccent.withValues(alpha: 0.3)),
-                                        boxShadow: [
-                                          BoxShadow(color: Colors.black26, blurRadius: 4, offset: const Offset(0, 2))
-                                        ],
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.center,
+                                // Trending Intent section simplified
+                                Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(top: 12),
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [Colors.purple.shade900.withValues(alpha: 0.4), Colors.pink.shade900.withValues(alpha: 0.4)],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: Colors.pinkAccent.withValues(alpha: 0.3)),
+                                    boxShadow: [
+                                      BoxShadow(color: Colors.black26, blurRadius: 4, offset: const Offset(0, 2))
+                                    ],
+                                  ),
+                                  child: const Column(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
                                         children: [
-                                          Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: const [
-                                              Icon(Icons.bolt, color: Colors.amber, size: 18),
-                                              SizedBox(width: 8),
-                                              Text('COMMUNITY PULSE', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            intent.toUpperCase(),
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: 1.2, shadows: [Shadow(blurRadius: 2, color: Colors.black)]),
-                                          ),
+                                          Icon(Icons.bolt, color: Colors.amber, size: 18),
+                                          SizedBox(width: 8),
+                                          Text('COMMUNITY PULSE', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                                         ],
                                       ),
-                                    );
-                                  }
+                                      SizedBox(height: 8),
+                                      Text(
+                                        'Harmony',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: 1.2, shadows: [Shadow(blurRadius: 2, color: Colors.black)]),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
