@@ -373,25 +373,43 @@ class UserService extends ChangeNotifier {
     }
   }
 
-  Future<void> reportContent(
+  Future<bool> reportContent(
     String reportedUserId,
     String content,
     String reason,
     String context,
+    {Map<String, dynamic>? metadata}
   ) async {
     try {
-      await FirebaseFirestore.instance.collection('moderation_queue').add({
-        'reporterId': _userId,
+      final reporterId = _userId.isNotEmpty
+          ? _userId
+          : (FirebaseAuth.instance.currentUser?.uid ?? '');
+      if (reporterId.isEmpty) {
+        debugPrint('HARMONY_REPORT_ERROR: Missing reporter id.');
+        return false;
+      }
+
+      final payload = <String, dynamic>{
+        'reporterId': reporterId,
+        'reporterName': sanitizePublicDisplayName(_userName),
         'reportedUserId': reportedUserId,
         'content': content,
         'reason': reason,
         'context': context, // e.g., "Chat Room (Event X)"
+        'source': context,
         'timestamp': FieldValue.serverTimestamp(),
         'status': 'pending',
-      });
+      };
+      if (metadata != null && metadata.isNotEmpty) {
+        payload.addAll(metadata);
+      }
+
+      await FirebaseFirestore.instance.collection('moderation_queue').add(payload);
       debugPrint("HARMONY_REPORT: Report sent successfully.");
+      return true;
     } catch (e) {
       debugPrint("HARMONY_REPORT_ERROR: $e");
+      return false;
     }
   }
 }

@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:provider/provider.dart';
 import '../services/event_service.dart';
+import '../services/user_service.dart';
 import '../models/event.dart';
 import '../widgets/media/content_viewer.dart';
 import '../widgets/gradient_scaffold.dart';
@@ -652,19 +653,136 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
           Positioned(
             top: MediaQuery.of(context).padding.top + 8,
             right: 14,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.5),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                '${_currentPage + 1} / ${widget.items.length}',
-                style: const TextStyle(color: Colors.white70),
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_currentPage + 1} / ${widget.items.length}',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                CircleAvatar(
+                  backgroundColor: Colors.black.withOpacity(0.45),
+                  child: PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: Colors.white),
+                    color: Colors.grey.shade900,
+                    onSelected: (value) {
+                      if (value == 'report') {
+                        _showReportSheet(context, widget.items[_currentPage]);
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'report',
+                        child: Row(
+                          children: [
+                            Icon(Icons.flag_outlined, color: Colors.redAccent, size: 18),
+                            SizedBox(width: 8),
+                            Text('Report', style: TextStyle(color: Colors.white)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showReportSheet(BuildContext context, Map<String, dynamic> item) async {
+    final reasons = [
+      'Inappropriate content',
+      'Misleading or false information',
+      'Harmful or dangerous',
+      'Spam',
+      'Other',
+    ];
+    String? selected;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey.shade900,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Report this Reel',
+                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              const Text('Why are you reporting this content?',
+                  style: TextStyle(color: Colors.white54, fontSize: 13)),
+              const SizedBox(height: 16),
+              ...reasons.map((r) => RadioListTile<String>(
+                    value: r,
+                    groupValue: selected,
+                    title: Text(r, style: const TextStyle(color: Colors.white70)),
+                    activeColor: Colors.redAccent,
+                    onChanged: (v) => setModalState(() => selected = v),
+                  )),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: selected == null
+                      ? null
+                      : () async {
+                          Navigator.pop(ctx);
+                          final title = (item['title'] as String?)?.trim() ?? 'Untitled Reel';
+                          final reelUrl = (item['url'] as String?)?.trim() ?? '';
+                          final reelType = (item['type'] as String?)?.trim() ?? _resolveType(item);
+                          final ok = await UserService().reportContent(
+                            'admin_media',
+                            title,
+                            selected!,
+                            'Reel',
+                            metadata: {
+                              'contentType': 'reel',
+                              'reelTitle': title,
+                              'reelUrl': reelUrl,
+                              'reelType': reelType,
+                              'reelCaption': (item['caption'] as String?)?.trim() ?? '',
+                            },
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  ok
+                                      ? 'Report submitted. Thank you.'
+                                      : 'Could not submit report. Please try again.',
+                                ),
+                                backgroundColor: ok ? Colors.green : Colors.red,
+                              ),
+                            );
+                          }
+                        },
+                  child: const Text('Submit Report'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -800,7 +918,6 @@ class _FullscreenYoutubeReel extends StatefulWidget {
 
 class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
   YoutubePlayerController? _controller;
-  bool _isReady = false;
 
   @override
   void initState() {
@@ -819,25 +936,16 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
         disableDragSeek: true,
         hideControls: true,
         controlsVisibleAtStart: false,
-        hideThumbnail: true,
       ),
     );
-    _controller!.addListener(_syncState);
-  }
-
-  void _syncState() {
-    if (!mounted) return;
-    setState(() {});
   }
 
   @override
   void didUpdateWidget(covariant _FullscreenYoutubeReel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url) {
-      _controller?.removeListener(_syncState);
       _controller?.dispose();
       _controller = null;
-      _isReady = false;
       _init();
       setState(() {});
     }
@@ -845,7 +953,6 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
 
   @override
   void dispose() {
-    _controller?.removeListener(_syncState);
     _controller?.dispose();
     super.dispose();
   }
@@ -861,23 +968,6 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
       );
     }
 
-    final isPlaying = _controller!.value.isPlaying;
-
-    Widget buildYoutubeSurface(Widget player) {
-      return SizedBox.expand(
-        child: Center(
-          child: FittedBox(
-            fit: BoxFit.contain,
-            child: SizedBox(
-              width: 16 * 100,
-              height: 9 * 100,
-              child: player,
-            ),
-          ),
-        ),
-      );
-    }
-
     return GestureDetector(
       onTap: () {
         final c = _controller!;
@@ -886,48 +976,16 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
         } else {
           c.play();
         }
-        setState(() {});
       },
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(color: Colors.black),
-          YoutubePlayerBuilder(
-            player: YoutubePlayer(
-              controller: _controller!,
-              showVideoProgressIndicator: false,
-              onReady: () {
-                if (!mounted) return;
-                setState(() => _isReady = true);
-              },
-              onEnded: (_) => widget.onEnded(),
-            ),
-            builder: (context, player) => AnimatedOpacity(
-              duration: const Duration(milliseconds: 180),
-              opacity: _isReady ? 1 : 0,
-              child: buildYoutubeSurface(player),
-            ),
+      child: SizedBox.expand(
+        child: YoutubePlayerBuilder(
+          player: YoutubePlayer(
+            controller: _controller!,
+            showVideoProgressIndicator: false,
+            onEnded: (_) => widget.onEnded(),
           ),
-          if (!_isReady)
-            const Center(
-              child: CircularProgressIndicator(color: Colors.white70),
-            ),
-          if (_isReady && !isPlaying)
-            Center(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.45),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.play_arrow,
-                  color: Colors.white,
-                  size: 40,
-                ),
-              ),
-            ),
-        ],
+          builder: (context, player) => player,
+        ),
       ),
     );
   }

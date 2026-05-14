@@ -168,6 +168,88 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       );
     });
   }
+  Future<void> _showReportPostSheet(
+    BuildContext context, {
+    required String postId,
+    required String reportedUserId,
+    required String content,
+  }) async {
+    final reasons = [
+      'Inappropriate content',
+      'Harassment or bullying',
+      'Spam',
+      'Misleading information',
+      'Other',
+    ];
+    String? selected;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey.shade900,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Report this post',
+                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              const Text('Why are you reporting this post?',
+                  style: TextStyle(color: Colors.white54, fontSize: 13)),
+              const SizedBox(height: 16),
+              ...reasons.map((r) => RadioListTile<String>(
+                    value: r,
+                    groupValue: selected,
+                    title: Text(r, style: const TextStyle(color: Colors.white70)),
+                    activeColor: Colors.redAccent,
+                    onChanged: (v) => setModalState(() => selected = v),
+                  )),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: selected == null
+                      ? null
+                      : () async {
+                          Navigator.pop(ctx);
+                          final ok = await UserService().reportContent(
+                            reportedUserId,
+                            content,
+                            selected!,
+                            'Community Room',
+                          );
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  ok
+                                      ? 'Report submitted. Thank you.'
+                                      : 'Could not submit report. Please try again.',
+                                ),
+                                backgroundColor: ok ? Colors.green : Colors.red,
+                              ),
+                            );
+                          }
+                        },
+                  child: const Text('Submit Report'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _toggleLike(String docId, List<dynamic> likedBy) async {
     final uid = UserService().userId;
     if (uid.isEmpty) return;
@@ -417,6 +499,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
 
   @override
   Widget build(BuildContext context) {
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
     return GradientScaffold(
       appBar: AppBar(
         title: const Text('Community Room'),
@@ -565,6 +648,38 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                                       DateFormat('MMM d, h:mm a').format(timestamp),
                                       style: TextStyle(fontSize: 10, color: Colors.white54),
                                     ),
+                                  if ((post['userId']?.toString() ?? '') != uid)
+                                    SizedBox(
+                                      width: 28,
+                                      height: 28,
+                                      child: PopupMenuButton<String>(
+                                        padding: EdgeInsets.zero,
+                                        icon: const Icon(Icons.more_vert, color: Colors.white38, size: 16),
+                                        color: Colors.grey.shade900,
+                                        onSelected: (value) {
+                                          if (value == 'report') {
+                                            _showReportPostSheet(
+                                              context,
+                                              postId: posts[index].id,
+                                              reportedUserId: post['userId']?.toString() ?? '',
+                                              content: post['content']?.toString() ?? '',
+                                            );
+                                          }
+                                        },
+                                        itemBuilder: (_) => const [
+                                          PopupMenuItem(
+                                            value: 'report',
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.flag_outlined, color: Colors.redAccent, size: 16),
+                                                SizedBox(width: 8),
+                                                Text('Report post', style: TextStyle(color: Colors.white70)),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                 ],
                               ),
                               const SizedBox(height: 4),
@@ -609,7 +724,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
 
           // Post Input Area (Moved to Bottom)
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(isLandscape ? 10 : 16),
             margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             decoration: _glassPanelDecoration(alpha: 0.06),
             child: Row(
@@ -627,15 +742,21 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                       ),
                       filled: true,
                       fillColor: Colors.white.withValues(alpha: 0.08),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: isLandscape ? 14 : 20,
+                        vertical: isLandscape ? 8 : 10,
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: isLandscape ? 6 : 8),
                 // Daily Limit Counter
                 Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    margin: EdgeInsets.only(right: isLandscape ? 4 : 8),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isLandscape ? 8 : 10,
+                      vertical: isLandscape ? 4 : 6,
+                    ),
                     decoration: BoxDecoration(
                       color: _messagesRemaining <= 3 ? Colors.red.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(16),
@@ -655,7 +776,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                           '$_messagesRemaining/$_dailyLimit',
                           style: TextStyle(
                             color: _messagesRemaining <= 3 ? Colors.redAccent : Colors.white70,
-                            fontSize: 12,
+                            fontSize: isLandscape ? 11 : 12,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -664,6 +785,11 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                   ),
                 IconButton(
                   onPressed: _isPosting ? null : _submitPost,
+                  constraints: BoxConstraints.tightFor(
+                    width: isLandscape ? 40 : 48,
+                    height: isLandscape ? 40 : 48,
+                  ),
+                  padding: EdgeInsets.zero,
                   icon: _isPosting 
                       ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                       : const Icon(Icons.send, color: Colors.amber),
