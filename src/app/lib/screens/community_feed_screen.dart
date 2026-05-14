@@ -274,17 +274,29 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
     if (uid.isEmpty) return;
     
     final docRef = FirebaseFirestore.instance.collection('community_posts').doc(docId);
-    
-    if (likedBy.contains(uid)) {
-      await docRef.update({
-        'likes': FieldValue.increment(-1),
-        'likedBy': FieldValue.arrayRemove([uid])
-      });
-    } else {
-      await docRef.update({
-        'likes': FieldValue.increment(1),
-        'likedBy': FieldValue.arrayUnion([uid])
-      });
+
+    try {
+      if (likedBy.contains(uid)) {
+        await docRef.update({
+          'likes': FieldValue.increment(-1),
+          'likedBy': FieldValue.arrayRemove([uid])
+        });
+      } else {
+        await docRef.update({
+          'likes': FieldValue.increment(1),
+          'likedBy': FieldValue.arrayUnion([uid])
+        });
+      }
+    } catch (e) {
+      debugPrint('Community like toggle failed for $docId: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not update like right now. Please try again.'),
+          backgroundColor: Colors.redAccent,
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
   Future<void> _decrementMessageLimit() async {
