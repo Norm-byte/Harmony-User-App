@@ -290,6 +290,7 @@ class EventService extends ChangeNotifier {
     DateTime startTime,
     DateTime endTime, {
     int visibilityAfterMinutes = 0,
+    String source = 'auto',
   }) async {
     _userIntent = intent;
     notifyListeners();
@@ -327,8 +328,8 @@ class EventService extends ChangeNotifier {
               'timestamp': FieldValue.serverTimestamp(),
               'startTime': startTime,
               'endTime': endTime,
-              'visibilityAfterMinutes':
-                  visibilityAfterMinutes, // Store visibility preference
+              'visibilityAfterMinutes': visibilityAfterMinutes,
+              'source': source,
               'status': 'registered',
             });
 

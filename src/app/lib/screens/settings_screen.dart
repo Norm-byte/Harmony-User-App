@@ -25,10 +25,15 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  late Future<int> _totalUsersFuture;
+  late Future<int> _timeZoneUsersFuture;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
+    _totalUsersFuture = _fetchEstimatedActiveUsers();
+    _timeZoneUsersFuture = UserService().countUsersInSameTimeZone();
   }
 
   @override
@@ -92,46 +97,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                                   children: [
-                                    _buildStatItem('Events Joined', '${eventService.myEvents.length}'), 
-                                    _buildStatItem(
-                                      'Streak',
-                                      _formatStreakLabel(
-                                        _calculateJoinStreakDays(eventService.myEvents),
-                                      ),
-                                    ),
-                                    _buildStatItem('Total Users', '0'),
+                                    _buildStatItem('Intents Added', '${eventService.myEvents.where((e) => e['source'] == 'user').length}'), 
+                                    _buildTimeZoneUsersStatItem(),
+                                    _buildTotalUsersStatItem(),
                                   ],
-                                ),
-                                const SizedBox(height: 16),
-                                const Divider(color: Colors.white24),
-                                const SizedBox(height: 16),
-                                // Most Liked Comment section simplified
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.05),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: Colors.white12),
-                                  ),
-                                  child: const Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Icon(Icons.star, color: Colors.amber, size: 16),
-                                          SizedBox(width: 8),
-                                          Text('Community Activity', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                                        ],
-                                      ),
-                                      SizedBox(height: 8),
-                                      Text(
-                                        'Your community engagement is being tracked.',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
-                                      ),
-                                    ],
-                                  ),
                                 ),
                                 const SizedBox(height: 16),
                                 // Trending Intent section simplified
@@ -847,6 +816,50 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           ),
         ),
       ],
+    );
+  }
+
+  Future<int> _fetchEstimatedActiveUsers() async {
+    try {
+      final usersSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .get()
+          .timeout(const Duration(seconds: 8));
+      if (usersSnap.docs.isNotEmpty) return usersSnap.docs.length;
+
+      // Fallback: count unique userIds from community_posts
+      final postsSnap = await FirebaseFirestore.instance
+          .collection('community_posts')
+          .get()
+          .timeout(const Duration(seconds: 8));
+      final ids = postsSnap.docs
+          .map((d) => (d.data()['userId']?.toString() ?? '').trim())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+      return ids.length;
+    } catch (e) {
+      debugPrint('[TotalUsers] fetch error: $e');
+      return 0;
+    }
+  }
+
+  Widget _buildTotalUsersStatItem() {
+    return FutureBuilder<int>(
+      future: _totalUsersFuture,
+      builder: (context, snapshot) {
+        final value = snapshot.hasData ? '${snapshot.data}' : '...';
+        return _buildStatItem('Total Users', value);
+      },
+    );
+  }
+
+  Widget _buildTimeZoneUsersStatItem() {
+    return FutureBuilder<int>(
+      future: _timeZoneUsersFuture,
+      builder: (context, snapshot) {
+        final value = snapshot.hasData ? '${snapshot.data}' : '...';
+        return _buildStatItem('Your Time Zone', value);
+      },
     );
   }
 

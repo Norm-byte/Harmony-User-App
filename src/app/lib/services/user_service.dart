@@ -412,4 +412,18 @@ class UserService extends ChangeNotifier {
       return false;
     }
   }
+
+  Future<int> countUsersInSameTimeZone() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .where('timeZone', isEqualTo: _timeZone)
+          .get()
+          .timeout(const Duration(seconds: 8));
+      return snapshot.docs.length;
+    } catch (e) {
+      debugPrint('[TimeZoneUsers] fetch error: $e');
+      return 0;
+    }
+  }
 }

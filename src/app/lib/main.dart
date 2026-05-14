@@ -182,7 +182,9 @@ class _SplashScreenState extends State<SplashScreen> {
     bool autoPlayVideo = false;
     bool launchedFromAlarm = false;
     try {
-      final payload = await NotificationService().consumeLaunchPayload();
+      final payload = await NotificationService()
+          .consumeLaunchPayload()
+          .timeout(const Duration(seconds: 1), onTimeout: () => {});
       final eventIdRaw = payload['event_id'];
       if (eventIdRaw is String && eventIdRaw.isNotEmpty) {
         launchEventId = eventIdRaw;
@@ -190,7 +192,9 @@ class _SplashScreenState extends State<SplashScreen> {
       autoPlayVideo = payload['auto_play_video'] == true;
 
       if (launchEventId == null || launchEventId.isEmpty) {
-        launchEventId = await NotificationService().consumeLaunchEventId();
+        launchEventId = await NotificationService()
+            .consumeLaunchEventId()
+            .timeout(const Duration(seconds: 1), onTimeout: () => null);
       }
 
       if (launchEventId != null && launchEventId.isNotEmpty) {
@@ -207,7 +211,9 @@ class _SplashScreenState extends State<SplashScreen> {
       if (mounted) {
         setState(() {
           _launchCheckResolved = true;
-          _suppressSplashVisuals = launchedFromAlarm;
+          // Keep splash visible even for alarm launches to avoid a permanent
+          // blank screen when alarm payload handoff stalls on iOS.
+          _suppressSplashVisuals = false;
         });
       }
     } catch (e) {
