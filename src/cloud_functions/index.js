@@ -2,6 +2,96 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 admin.initializeApp();
 
+async function assertSuperAdmin(context) {
+    if (!context.auth || !context.auth.uid) {
+        throw new functions.https.HttpsError('unauthenticated', 'You must be signed in.');
+    }
+
+    const callerDoc = await admin.firestore().collection('admin_users').doc(context.auth.uid).get();
+    if (!callerDoc.exists) {
+        throw new functions.https.HttpsError('permission-denied', 'Admin profile not found.');
+    }
+
+    const callerData = callerDoc.data() || {};
+    if (callerData.role !== 'super-admin' || callerData.isActive !== true) {
+        throw new functions.https.HttpsError('permission-denied', 'Only active super-admins can provision operators.');
+    }
+
+    return callerData;
+}
+
+exports.provisionAdminOperator = functions.https.onCall(async (data, context) => {
+    const callerData = await assertSuperAdmin(context);
+
+    const email = String(data.email || '').trim().toLowerCase();
+    const displayName = String(data.displayName || '').trim();
+    const initialPassword = String(data.initialPassword || '').trim();
+    const permissions = Array.isArray(data.permissions)
+        ? data.permissions.map((value) => String(value))
+        : [];
+
+    if (!email || !displayName || !initialPassword) {
+        throw new functions.https.HttpsError('invalid-argument', 'Email, display name, and initial password are required.');
+    }
+
+    if (permissions.length === 0) {
+        throw new functions.https.HttpsError('invalid-argument', 'At least one permission is required.');
+    }
+
+    let authUser;
+    let existed = false;
+
+    try {
+        authUser = await admin.auth().getUserByEmail(email);
+        existed = true;
+        authUser = await admin.auth().updateUser(authUser.uid, {
+            password: initialPassword,
+            displayName,
+        });
+    } catch (error) {
+        if (error.code === 'auth/user-not-found') {
+            authUser = await admin.auth().createUser({
+                email,
+                password: initialPassword,
+                displayName,
+            });
+        } else {
+            throw error;
+        }
+    }
+
+    const existingAdminDoc = await admin.firestore().collection('admin_users').doc(authUser.uid).get();
+    const existingAdminData = existingAdminDoc.exists ? existingAdminDoc.data() || {} : {};
+    if (existingAdminData.role === 'super-admin') {
+        throw new functions.https.HttpsError('failed-precondition', 'That email already belongs to a super-admin account.');
+    }
+
+    const payload = {
+        uid: authUser.uid,
+        email,
+        displayName,
+        role: 'admin',
+        isActive: true,
+        permissions,
+        invitedBy: callerData.email || context.auth.token.email || null,
+        initialPassword,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    if (!existingAdminDoc.exists || !existingAdminData.createdAt) {
+        payload.createdAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+
+    await admin.firestore().collection('admin_users').doc(authUser.uid).set(payload, { merge: true });
+
+    return {
+        ok: true,
+        existed,
+        uid: authUser.uid,
+        email,
+    };
+});
+
 exports.sendPushNotification = functions.https.onCall(async (data, context) => {
     // Check authentication (optional but recommended)
     // if (!context.auth) {
