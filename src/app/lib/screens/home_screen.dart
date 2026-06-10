@@ -213,6 +213,8 @@ class _HomeScreenState extends State<HomeScreen> {
             final featuredUrl = data['featuredUrl'] as String? ?? '';
             final featuredTitle = data['featuredTitle'] as String? ?? '';
             final featuredBody = data['featuredBody'] as String? ?? '';
+            final logoUrl = data['logoUrl'] as String?;
+            final logoSize = (data['logoSize'] as num?)?.toDouble() ?? 80.0;
             final showReelCarousel = data['showReelCarousel'] as bool? ?? false;
             final reelAutoRotateSeconds =
               (data['reelAutoRotateSeconds'] as num?)?.toInt() ?? 8;
@@ -243,7 +245,23 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.spa, size: 80, color: Colors.white70),
+                        if (logoUrl != null)
+                          SizedBox(
+                            width: logoSize,
+                            height: logoSize,
+                            child: Image.network(
+                              logoUrl,
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  Icon(
+                                Icons.spa,
+                                size: logoSize,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          )
+                        else
+                          Icon(Icons.spa, size: logoSize, color: Colors.white70),
                         const SizedBox(height: 24),
                         Text(
                           title,
@@ -343,6 +361,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Stack(
                               children: [
                                 Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     if (featuredTitle.isNotEmpty)
                                       Padding(
@@ -355,20 +374,20 @@ class _HomeScreenState extends State<HomeScreen> {
                                             fontWeight: FontWeight.bold,
                                             fontSize: 16,
                                           ),
-                                          textAlign: TextAlign.center,
+                                          textAlign: TextAlign.left,
                                         ),
                                       ),
                                     if (featuredBody.isNotEmpty)
                                       Padding(
-                                        padding:
-                                            const EdgeInsets.only(bottom: 12),
+                                        padding: const EdgeInsets.only(
+                                            bottom: 12, right: 72),
                                         child: Text(
                                           featuredBody,
                                           style: const TextStyle(
                                             color: Colors.white70,
                                             fontSize: 14,
                                           ),
-                                          textAlign: TextAlign.center,
+                                          textAlign: TextAlign.left,
                                         ),
                                       ),
                                     _FeaturedContentWidget(
