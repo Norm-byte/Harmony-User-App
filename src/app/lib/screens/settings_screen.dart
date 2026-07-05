@@ -132,24 +132,41 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                       BoxShadow(color: Colors.black26, blurRadius: 4, offset: const Offset(0, 2))
                                     ],
                                   ),
-                                  child: const Column(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
+                                  child: StreamBuilder<DocumentSnapshot>(
+                                    stream: FirebaseFirestore.instance
+                                        .collection('system_settings')
+                                        .doc('trending_intent')
+                                        .snapshots(),
+                                    builder: (context, pulseSnapshot) {
+                                      String pulseText = 'Harmony';
+                                      if (pulseSnapshot.hasData && pulseSnapshot.data!.exists) {
+                                        final data = pulseSnapshot.data!.data() as Map<String, dynamic>?;
+                                        final configured = (data?['currentIntent'] as String?)?.trim();
+                                        if (configured != null && configured.isNotEmpty) {
+                                          pulseText = configured;
+                                        }
+                                      }
+
+                                      return Column(
+                                        crossAxisAlignment: CrossAxisAlignment.center,
                                         children: [
-                                          Icon(Icons.bolt, color: Colors.amber, size: 18),
-                                          SizedBox(width: 8),
-                                          Text('COMMUNITY PULSE', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                                          const Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Icon(Icons.bolt, color: Colors.amber, size: 18),
+                                              SizedBox(width: 8),
+                                              Text('COMMUNITY PULSE', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            pulseText,
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: 1.2, shadows: [Shadow(blurRadius: 2, color: Colors.black)]),
+                                          ),
                                         ],
-                                      ),
-                                      SizedBox(height: 8),
-                                      Text(
-                                        'Harmony',
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: 1.2, shadows: [Shadow(blurRadius: 2, color: Colors.black)]),
-                                      ),
-                                    ],
+                                      );
+                                    },
                                   ),
                                 ),
                               ],

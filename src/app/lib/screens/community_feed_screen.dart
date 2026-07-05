@@ -464,13 +464,28 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       return;
     }
 
+    final user = UserService();
+    final suspended = await user.isCurrentlySuspended();
+    if (suspended) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Your account is suspended from community posting. Please use Support chat in My Harmony for assistance.',
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
+
     // final content = _postController.text.trim(); // Removed duplicate
     if (content.isEmpty) return;
 
     setState(() => _isPosting = true);
 
     try {
-      final user = UserService();
       final userId = user.userId.isNotEmpty
           ? user.userId
           : (FirebaseAuth.instance.currentUser?.uid ?? '');

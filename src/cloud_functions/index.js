@@ -186,3 +186,176 @@ exports.aggregateTrendingIntent = functions.firestore
             transaction.update(eventRef, updates);
         });
     });
+
+function toUtcDayStart(date) {
+    return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function toUtcWeekMonday(date) {
+    const dayStart = toUtcDayStart(date);
+    const weekday = dayStart.getUTCDay(); // 0=Sun,1=Mon,...
+    const daysSinceMonday = (weekday + 6) % 7;
+    return new Date(dayStart.getTime() - daysSinceMonday * 24 * 60 * 60 * 1000);
+}
+
+function weekKey(date) {
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(date.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+function addDays(date, days) {
+    return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+function isDeterministicDraftSlot(docId) {
+    return typeof docId === 'string' && docId.startsWith('draft_slot_');
+}
+
+function isDeterministicPublishedSlot(docId) {
+    return typeof docId === 'string' && docId.startsWith('slot_');
+}
+
+exports.autoSystemWeeklyRollover = functions.pubsub
+    .schedule('every 5 minutes')
+    .timeZone('UTC')
+    .onRun(async () => {
+        const db = admin.firestore();
+        const settingsRef = db.collection('system_settings').doc('auto_system');
+        const settingsSnap = await settingsRef.get();
+        const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
+
+        if (settings.enabled !== true) {
+            return null;
+        }
+
+        const now = new Date();
+        const thisWeekStart = toUtcWeekMonday(now);
+        const nextWeekStart = addDays(thisWeekStart, 7);
+        const nextNextWeekStart = addDays(nextWeekStart, 7);
+
+        const thisWeekKey = weekKey(thisWeekStart);
+        const nextWeekKey = weekKey(nextWeekStart);
+
+        // Fetch next-week slot docs (both draft and published) once; both operations use these.
+        const nextWeekSnapshot = await db
+            .collection('events')
+            .where('startTimeUTC', '>=', nextWeekStart.toISOString())
+            .where('startTimeUTC', '<', nextNextWeekStart.toISOString())
+            .get();
+
+        const nextWeekDraftDocs = [];
+        let hasNextWeekPublishedSlots = false;
+
+        nextWeekSnapshot.forEach((doc) => {
+            const data = doc.data() || {};
+            const docId = doc.id;
+            if (isDeterministicDraftSlot(docId) && data.isDraft === true) {
+                nextWeekDraftDocs.push({ id: docId, data });
+            }
+            if (
+                isDeterministicPublishedSlot(docId) &&
+                data.isPublished === true &&
+                data.isDraft !== true
+            ) {
+                hasNextWeekPublishedSlots = true;
+            }
+        });
+
+        // Stage 1: Pre-publish next week when we enter the show-before window
+        // for the first 00:00 slot (defaulting to 60 minutes).
+        if (!hasNextWeekPublishedSlots && nextWeekDraftDocs.length > 0) {
+            const maxShowBeforeMinutes = nextWeekDraftDocs.reduce((max, entry) => {
+                const value = Number(entry.data.noticeBoardShowBeforeMinutes);
+                if (Number.isFinite(value) && value > max) return value;
+                return max;
+            }, 60);
+
+            const prePublishAt = new Date(
+                nextWeekStart.getTime() - Math.max(0, maxShowBeforeMinutes) * 60 * 1000,
+            );
+
+            if (
+                now >= prePublishAt &&
+                settings.lastPrepublishWeekKey !== nextWeekKey
+            ) {
+                const batch = db.batch();
+
+                for (const entry of nextWeekDraftDocs) {
+                    const publishedId = entry.id.replace('draft_slot_', 'slot_');
+                    const publishedRef = db.collection('events').doc(publishedId);
+                    const draftRef = db.collection('events').doc(entry.id);
+
+                    const nextData = {
+                        ...entry.data,
+                        id: publishedId,
+                        isPublished: true,
+                        isDraft: false,
+                        updatedAt: new Date().toISOString(),
+                    };
+
+                    batch.set(publishedRef, nextData, { merge: true });
+                    batch.delete(draftRef);
+                }
+
+                batch.set(
+                    settingsRef,
+                    {
+                        lastPrepublishWeekKey: nextWeekKey,
+                        lastPrepublishAt: admin.firestore.FieldValue.serverTimestamp(),
+                    },
+                    { merge: true },
+                );
+
+                await batch.commit();
+            }
+        }
+
+        // Stage 2: Cleanup prior week published slot docs only after a safety buffer.
+        // Buffer avoids clipping late Sunday slot playback windows.
+        const cleanupBufferHours = 3;
+        const cleanupAfter = new Date(
+            thisWeekStart.getTime() + cleanupBufferHours * 60 * 60 * 1000,
+        );
+
+        if (
+            now >= cleanupAfter &&
+            settings.lastCleanupWeekKey !== thisWeekKey
+        ) {
+            const previousWeekStart = addDays(thisWeekStart, -7);
+            const previousWeekSnapshot = await db
+                .collection('events')
+                .where('startTimeUTC', '>=', previousWeekStart.toISOString())
+                .where('startTimeUTC', '<', thisWeekStart.toISOString())
+                .get();
+
+            const batch = db.batch();
+            let deleteCount = 0;
+
+            previousWeekSnapshot.forEach((doc) => {
+                const data = doc.data() || {};
+                if (
+                    isDeterministicPublishedSlot(doc.id) &&
+                    data.isPublished === true
+                ) {
+                    batch.delete(doc.ref);
+                    deleteCount++;
+                }
+            });
+
+            batch.set(
+                settingsRef,
+                {
+                    lastCleanupWeekKey: thisWeekKey,
+                    lastCleanupAt: admin.firestore.FieldValue.serverTimestamp(),
+                    lastCleanupDeletedCount: deleteCount,
+                },
+                { merge: true },
+            );
+
+            await batch.commit();
+        }
+
+        return null;
+    });

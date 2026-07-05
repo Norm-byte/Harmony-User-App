@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:provider/provider.dart';
 import '../widgets/gradient_scaffold.dart';
 import '../services/user_service.dart';
@@ -22,9 +24,225 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _referralCodeController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
+
+  static const String _usernameTakenCode = 'username-taken';
+
+  String? _assignedSellerCode() {
+    final code = _referralCodeController.text.trim();
+    return code.isEmpty ? null : code;
+  }
+
+  Future<void> _applySellerReferral({
+    required String uid,
+    required String sellerCode,
+  }) async {
+    await FirebaseFirestore.instance.collection('users').doc(uid).set({
+      'assignedSellerCode': sellerCode,
+    }, SetOptions(merge: true));
+
+    await FirebaseAnalytics.instance.logEvent(
+      name: 'seller_signup',
+      parameters: {'seller_id': sellerCode},
+    );
+
+    await Purchases.setAttributes({'assignedSellerCode': sellerCode});
+  }
+
+  Future<void> _applySellerReferralIfPresent(String uid) async {
+    final sellerCode = _assignedSellerCode();
+    if (sellerCode == null) return;
+
+    try {
+      await _applySellerReferral(uid: uid, sellerCode: sellerCode);
+    } catch (e) {
+      debugPrint('HARMONY_SELLER_REFERRAL_ERROR: $e');
+    }
+  }
+
+  Future<bool> _isUsernameAvailable(String username, {String? excludeUid}) async {
+    final users = FirebaseFirestore.instance.collection('users');
+    final lower = username.trim().toLowerCase();
+
+    final normalizedSnapshot = await users
+        .where('usernameLower', isEqualTo: lower)
+        .limit(10)
+        .get();
+    for (final doc in normalizedSnapshot.docs) {
+      if (excludeUid == null || doc.id != excludeUid) {
+        return false;
+      }
+    }
+
+    // Legacy fallback for older docs that may not have usernameLower.
+    final legacyFields = ['username', 'userName', 'displayName', 'name'];
+    for (final field in legacyFields) {
+      final legacySnapshot = await users.where(field, isEqualTo: username).limit(10).get();
+      for (final doc in legacySnapshot.docs) {
+        if (excludeUid == null || doc.id != excludeUid) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  Future<List<String>> _generateUsernameSuggestions(String requested) async {
+    final suggestions = <String>[];
+    final base = requested.replaceAll(' ', '').trim();
+    final seed = DateTime.now().millisecondsSinceEpoch % 9000;
+
+    var attempt = 0;
+    while (suggestions.length < 3 && attempt < 60) {
+      final suffix = (seed + (attempt * 17) + 100).toString();
+      final rawCandidate = attempt.isEven ? '${base}_$suffix' : '$base$suffix';
+      final candidate = UserService.sanitizePublicDisplayName(rawCandidate);
+
+      if (candidate.toLowerCase() != requested.toLowerCase() &&
+          UserService.isRecognizedPublicDisplayName(candidate) &&
+          !suggestions.contains(candidate)) {
+        final available = await _isUsernameAvailable(candidate);
+        if (available) {
+          suggestions.add(candidate);
+        }
+      }
+      attempt++;
+    }
+
+    return suggestions;
+  }
+
+  Future<void> _reserveUsernameOrThrow({
+    required String uid,
+    required String username,
+  }) async {
+    final users = FirebaseFirestore.instance.collection('usernames');
+    final normalized = username.trim().toLowerCase();
+
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      final ref = users.doc(normalized);
+      final snapshot = await tx.get(ref);
+
+      if (snapshot.exists) {
+        final ownerUid = (snapshot.data()?['ownerUid'] as String?) ?? '';
+        if (ownerUid.isNotEmpty && ownerUid != uid) {
+          throw FirebaseException(
+            plugin: 'cloud_firestore',
+            code: _usernameTakenCode,
+            message: 'Username is already claimed.',
+          );
+        }
+      }
+
+      tx.set(ref, {
+        'username': username,
+        'usernameLower': normalized,
+        'ownerUid': uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': snapshot.exists
+            ? (snapshot.data()?['createdAt'] ?? FieldValue.serverTimestamp())
+            : FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
+  }
+
+  Future<String?> _resolveAndReserveUsername(String uid) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final candidate = await _ensureAvailableUsername(excludeUid: uid);
+      if (candidate == null) return null;
+
+      try {
+        await _reserveUsernameOrThrow(uid: uid, username: candidate);
+        return candidate;
+      } on FirebaseException catch (e) {
+        if (e.code == _usernameTakenCode) {
+          _showError('That username was just claimed by someone else. Please choose another one.');
+          continue;
+        }
+        rethrow;
+      }
+    }
+
+    _showError('Could not reserve a username right now. Please try again.');
+    return null;
+  }
+
+  Future<String?> _promptUsernameSuggestion(
+    String requested,
+    List<String> suggestions,
+  ) async {
+    if (!mounted) return null;
+
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Username already in use'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('"$requested" is already taken.'),
+              const SizedBox(height: 8),
+              const Text('Try one of these:'),
+              const SizedBox(height: 8),
+              ...suggestions.map(
+                (name) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(name),
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                  onTap: () => Navigator.pop(ctx, name),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<String?> _ensureAvailableUsername({String? excludeUid}) async {
+    final raw = _usernameController.text.trim();
+    if (raw.isEmpty) {
+      _showError('Please enter a username.');
+      return null;
+    }
+
+    final sanitized = UserService.sanitizePublicDisplayName(raw);
+    if (!UserService.isRecognizedPublicDisplayName(sanitized)) {
+      _showError('Please choose a valid username.');
+      return null;
+    }
+
+    final isAvailable = await _isUsernameAvailable(sanitized, excludeUid: excludeUid);
+    if (isAvailable) {
+      return sanitized;
+    }
+
+    final suggestions = await _generateUsernameSuggestions(sanitized);
+    if (suggestions.isEmpty) {
+      _showError('That username is already in use. Please choose another one.');
+      return null;
+    }
+
+    final picked = await _promptUsernameSuggestion(sanitized, suggestions);
+    if (picked == null) {
+      return null;
+    }
+
+    _usernameController.text = picked;
+    return picked;
+  }
 
   Future<void> _handleSignUp() async {
     // Check VIP code FIRST — before any form validation.
@@ -49,9 +267,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   ? (vipData['vipQuotaTier'] as String).trim()
                   : 'tier_beta';
           final fullName = _fullNameController.text.trim();
-          final username = UserService.sanitizePublicDisplayName(
-            _usernameController.text.trim(),
-          );
+          final requestedUsername = await _ensureAvailableUsername();
+          if (requestedUsername == null) {
+            if (mounted) {
+              setState(() => _isLoading = false);
+            }
+            return;
+          }
+          var username = requestedUsername;
           final email = _emailController.text.trim();
 
           if (email.isEmpty) {
@@ -92,6 +315,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
             }
           }
 
+          final confirmedUsername = await _resolveAndReserveUsername(uid);
+          if (confirmedUsername == null) {
+            if (mounted) {
+              setState(() => _isLoading = false);
+            }
+            return;
+          }
+          username = confirmedUsername;
+          await FirebaseAuth.instance.currentUser?.updateDisplayName(username);
+
           await UserService().setUser(uid, username);
 
           // Persist isVip in Firestore under the real Firebase Auth UID so the
@@ -100,16 +333,21 @@ class _SignUpScreenState extends State<SignUpScreen> {
               .collection('users')
               .doc(uid)
               .set({
+                'createdAt': FieldValue.serverTimestamp(),
+                'joinDate': FieldValue.serverTimestamp(),
                 'isVip': true,
                 'isSuperAdmin': isSuperAdmin,
                 'vipQuotaTier': vipQuotaTier,
                 'email': email,
                 'fullName': fullName,
                 'username': username,
+                'usernameLower': username.toLowerCase(),
                 'userName': username,
                 'displayName': username,
                 'name': username,
               }, SetOptions(merge: true));
+
+          await _applySellerReferralIfPresent(uid);
 
           if (!mounted) return;
           Provider.of<SubscriptionService>(context, listen: false).setVipStatus(true);
@@ -139,16 +377,19 @@ class _SignUpScreenState extends State<SignUpScreen> {
     setState(() => _isLoading = true);
 
     final fullName = _fullNameController.text.trim();
-    final username = UserService.sanitizePublicDisplayName(
-      _usernameController.text.trim(),
-    );
+    final username = await _ensureAvailableUsername();
+    if (username == null) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+      return;
+    }
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
     final credential = await _createFirebaseAccount(
       email,
       password,
-      username,
       fullName,
     );
     if (credential == null) return;
@@ -167,26 +408,42 @@ class _SignUpScreenState extends State<SignUpScreen> {
   Future<UserCredential?> _createFirebaseAccount(
     String email,
     String password,
-    String username,
     String fullName,
   ) async {
     try {
       final credential = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(email: email, password: password);
 
+      final uid = credential.user!.uid;
+      final reservedUsername = await _resolveAndReserveUsername(uid);
+      if (reservedUsername == null) {
+        await credential.user?.delete();
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+        return null;
+      }
+
+      final username = reservedUsername;
+
       await credential.user?.updateDisplayName(username);
-      await UserService().setUser(credential.user!.uid, username);
+      await UserService().setUser(uid, username);
       await FirebaseFirestore.instance
           .collection('users')
-          .doc(credential.user!.uid)
+          .doc(uid)
           .set({
+            'createdAt': FieldValue.serverTimestamp(),
+            'joinDate': FieldValue.serverTimestamp(),
             'email': email,
             'fullName': fullName,
             'username': username,
+            'usernameLower': username.toLowerCase(),
             'userName': username,
             'displayName': username,
             'name': username,
           }, SetOptions(merge: true));
+
+      await _applySellerReferralIfPresent(uid);
       return credential;
     } on FirebaseAuthException catch (e) {
       if (mounted) {
@@ -203,6 +460,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
             break;
           default:
             _showError('Sign up failed: ${e.message}');
+        }
+      }
+      return null;
+    } on FirebaseException catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        if (e.code == _usernameTakenCode) {
+          _showError('That username is already in use. Please choose another one.');
+        } else {
+          _showError('Sign up failed: ${e.message ?? 'Unable to reserve username.'}');
         }
       }
       return null;
@@ -291,6 +558,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     if (!value.contains('@') || !value.contains('.')) return 'Please enter a valid email';
                     return null;
                   },
+                ),
+                const SizedBox(height: 16),
+
+                // Promo / Referral Code
+                TextFormField(
+                  controller: _referralCodeController,
+                  style: const TextStyle(color: Colors.white),
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: _inputDecoration('Promo / Referral Code', Icons.sell_outlined),
                 ),
                 const SizedBox(height: 16),
 
@@ -398,6 +674,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _referralCodeController.dispose();
     super.dispose();
   }
 }

@@ -217,6 +217,20 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
+    final suspended = await userService.isCurrentlySuspended();
+    if (suspended) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Your account is suspended from community messaging. Please use Support chat in My Harmony for assistance.',
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
     if (ProfanityService().hasProfanity(text)) {
       // Send to moderation queue instead of blocking silently
       await FirebaseFirestore.instance.collection('moderation_queue').add({

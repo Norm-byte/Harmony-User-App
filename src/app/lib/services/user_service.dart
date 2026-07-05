@@ -298,6 +298,29 @@ class UserService extends ChangeNotifier {
     await prefs.remove('user_name');
   }
 
+  Future<bool> isCurrentlySuspended() async {
+    final firebaseUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final effectiveUid = _userId.isNotEmpty ? _userId : firebaseUid;
+    if (effectiveUid.isEmpty) return false;
+
+    try {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(effectiveUid).get();
+      final data = doc.data();
+      if (data == null) return false;
+
+      final status = (data['status'] as String?)?.trim().toLowerCase();
+      if (status != 'suspended') return false;
+
+      final expiry = (data['suspensionExpiry'] as Timestamp?)?.toDate();
+      if (expiry == null) return true;
+
+      return DateTime.now().isBefore(expiry);
+    } catch (e) {
+      debugPrint('HARMONY_SUSPENSION_CHECK_ERROR: $e');
+      return false;
+    }
+  }
+
   Future<void> setEventVolume(double volume) async {
     _eventVolume = volume;
     notifyListeners();
