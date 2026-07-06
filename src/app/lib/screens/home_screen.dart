@@ -38,7 +38,6 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _activeBackgroundAudioUrl;
   bool _isBackgroundAudioMuted = false;
   bool _speakerButtonPressed = false;
-  double? _preMuteEventVolume;
   bool _audioPreferenceLoaded = false;
   bool _lastAudioShouldPlayHome = true;
   EventService? _eventService;
@@ -97,21 +96,6 @@ class _HomeScreenState extends State<HomeScreen> {
       'HARMONY_HOME_AUDIO_MUTING requested=$muted current=$_isBackgroundAudioMuted selectedIndex=$_selectedIndex controllerInit=${_backgroundAudioController?.value.isInitialized == true}',
     );
     setState(() => _isBackgroundAudioMuted = muted);
-
-    final userService = context.read<UserService>();
-    if (muted) {
-      if (userService.eventVolume > 0) {
-        _preMuteEventVolume = userService.eventVolume;
-      }
-      if (userService.eventVolume != 0) {
-        await userService.setEventVolume(0);
-      }
-    } else {
-      final restoreVolume = (_preMuteEventVolume ?? 1.0).clamp(0.0, 1.0);
-      if (userService.eventVolume == 0 && restoreVolume > 0) {
-        await userService.setEventVolume(restoreVolume);
-      }
-    }
 
     final controller = _backgroundAudioController;
     if (controller != null) {

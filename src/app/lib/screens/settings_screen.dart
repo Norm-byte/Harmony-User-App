@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/event.dart';
 import '../services/favorites_service.dart';
 import '../services/group_service.dart';
@@ -40,9 +41,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             children: [
               Icon(Icons.bolt, color: Colors.amber, size: 18),
               SizedBox(width: 8),
-              Text(
-                'Community Pulse',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              Expanded(
+                child: Text(
+                  'Overall Most Liked Comment',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    height: 1.2,
+                  ),
+                ),
               ),
             ],
           ),
@@ -199,7 +209,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                                 children: [
                                                   Icon(Icons.bolt, color: Colors.amber, size: 18),
                                                   SizedBox(width: 8),
-                                                  Text('COMMUNITY PULSE', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                                                  Text('OVERALL MOST LIKED COMMENT', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                                                 ],
                                               ),
                                               const SizedBox(height: 8),
@@ -748,6 +758,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                              ),
                            );
                            if (confirmed == true && context.mounted) {
+                             final prefs = await SharedPreferences.getInstance();
+                             await prefs.setBool('has_logged_in_before', true);
+                             await prefs.setBool('has_created_account', true);
+                             final currentEmail = FirebaseAuth.instance.currentUser?.email?.trim();
+                             if (currentEmail != null && currentEmail.isNotEmpty) {
+                               await prefs.setString('last_login_email', currentEmail);
+                             }
                              await FirebaseAuth.instance.signOut();
                              await Provider.of<UserService>(context, listen: false).clearUser();
                              if (context.mounted) {
@@ -1061,7 +1078,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return const Text(
-              'Most liked comment is temporarily unavailable.',
+              'My most liked comment is temporarily unavailable.',
               style: TextStyle(color: Colors.white38, fontSize: 11),
             );
           }
@@ -1096,7 +1113,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   const Icon(Icons.star, color: Colors.amber, size: 16),
                   const SizedBox(width: 8),
                   const Text(
-                    'Most Liked Comment',
+                    'My Most Liked Comment',
                     style: TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                   const Spacer(),

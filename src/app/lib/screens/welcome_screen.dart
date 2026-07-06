@@ -212,56 +212,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                                     child: CircularProgressIndicator(color: Colors.white),
                                   ),
                                 )
-                              else if (_showLoginOnly)
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: OutlinedButton(
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (context) => const LoginScreen()),
-                                      );
-                                    },
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.white,
-                                      side: const BorderSide(color: Colors.white54),
-                                      padding: const EdgeInsets.symmetric(vertical: 16),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                    child: const Text(
-                                      'Log In',
-                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                )
-                              else ...[
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton(
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (context) => const SignUpScreen()),
-                                      );
-                                    },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.white,
-                                      foregroundColor: Colors.indigo.shade900,
-                                      padding: const EdgeInsets.symmetric(vertical: 16),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      elevation: 0,
-                                    ),
-                                    child: Text(
-                                      buttonText,
-                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
+                              else
                                 SizedBox(
                                   width: double.infinity,
                                   child: OutlinedButton(
@@ -285,7 +236,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                                     ),
                                   ),
                                 ),
-                              ],
                               const SizedBox(height: 32),
                             ],
                           ),
