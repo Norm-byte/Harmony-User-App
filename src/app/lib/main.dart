@@ -17,6 +17,19 @@ import 'services/group_service.dart';
 import 'services/usage_service.dart';
 import 'services/profanity_service.dart';
 
+void _initNonCriticalServices() {
+  Future<void>(() async {
+    try {
+      await SubscriptionService().init();
+      await NotificationService().init();
+      await ProfanityService().init();
+      debugPrint('HARMONY_APP_SERVICES: Non-critical services initialized');
+    } catch (e) {
+      debugPrint('HARMONY_APP_SERVICES_ERROR: $e');
+    }
+  });
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint("HARMONY_APP_STARTING: This is the correct app!");
@@ -26,11 +39,6 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     debugPrint("HARMONY_APP_FIREBASE: Initialized successfully");
-
-    // Initialize Services
-    await SubscriptionService().init();
-    await NotificationService().init();
-    await ProfanityService().init();
   } catch (e) {
     debugPrint("HARMONY_APP_FIREBASE_ERROR: $e");
   }
@@ -53,6 +61,8 @@ void main() async {
       child: const HarmonyUserApp(),
     ),
   );
+
+  _initNonCriticalServices();
 }
 
 class HarmonyUserApp extends StatelessWidget {
@@ -159,6 +169,15 @@ class _SplashScreenState extends State<SplashScreen> {
   bool _suppressSplashVisuals = false;
   bool _navigationCompleted = false;
 
+  void _navigateOnceTo(Widget destination) {
+    if (!mounted || _navigationCompleted) return;
+    _navigationCompleted = true;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => destination),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -168,11 +187,7 @@ class _SplashScreenState extends State<SplashScreen> {
       debugPrint(
         'HARMONY_STARTUP: splash watchdog fired, forcing Welcome navigation',
       );
-      _navigationCompleted = true;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-      );
+      _navigateOnceTo(const WelcomeScreen());
     });
     _navigateToWelcome();
   }
@@ -236,18 +251,11 @@ class _SplashScreenState extends State<SplashScreen> {
         final data = doc.data()!;
         final isMaintenance = data['maintenanceMode'] ?? false;
         if (isMaintenance) {
-          if (mounted) {
-            _navigationCompleted = true;
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => MaintenanceScreen(
-                  message:
-                      data['maintenanceMessage'] ?? 'System under maintenance.',
-                ),
-              ),
-            );
-          }
+          _navigateOnceTo(
+            MaintenanceScreen(
+              message: data['maintenanceMessage'] ?? 'System under maintenance.',
+            ),
+          );
           return;
         }
       }
@@ -257,13 +265,14 @@ class _SplashScreenState extends State<SplashScreen> {
 
     await Future.delayed(
       launchEventId == null
-          ? const Duration(seconds: 2)
-          : const Duration(milliseconds: 300),
+          ? const Duration(milliseconds: 150)
+          : const Duration(milliseconds: 150),
     );
 
     if (launchedFromAlarm) {
-      debugPrint('HARMONY_ALARM: skipping Welcome navigation for alarm launch');
-      return;
+      debugPrint(
+        'HARMONY_ALARM: launch payload consumed; continuing normal navigation',
+      );
     }
 
     if (mounted) {
@@ -280,57 +289,37 @@ class _SplashScreenState extends State<SplashScreen> {
         await subscriptionService.refreshVipFromAuthUser();
         await subscriptionService.refreshSubscriptionStatus();
 
+        bool isSuperAdmin = false;
+        try {
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(firebaseUser.uid)
+              .get();
+          isSuperAdmin = userDoc.data()?['isSuperAdmin'] == true;
+        } catch (e) {
+          debugPrint('HARMONY_SPLASH_SUPERADMIN_CHECK_ERROR: $e');
+        }
+
         if (!mounted) return;
 
         if (subscriptionService.isSubscribed) {
-          _navigationCompleted = true;
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) =>
-                  HomeScreen(isSuperAdmin: subscriptionService.isVip),
-            ),
+          _navigateOnceTo(
+            HomeScreen(isSuperAdmin: isSuperAdmin),
           );
         } else {
-          _navigationCompleted = true;
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const SubscriptionScreen()),
-          );
+          _navigateOnceTo(const SubscriptionScreen());
         }
       } else {
-        _navigationCompleted = true;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-        );
+        _navigateOnceTo(const WelcomeScreen());
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_launchCheckResolved || _suppressSplashVisuals) {
-      return const Scaffold(
-        backgroundColor: Colors.black,
-        body: SizedBox.expand(),
-      );
-    }
-
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.spa, size: 80, color: Colors.indigo.shade300),
-            const SizedBox(height: 24),
-            const CircularProgressIndicator(color: Colors.indigo),
-            const SizedBox(height: 24),
-            const Text("Loading Harmony...", style: TextStyle(fontSize: 16)),
-          ],
-        ),
-      ),
+      backgroundColor: Colors.black,
+      body: const SizedBox.expand(),
     );
   }
 }

@@ -127,6 +127,170 @@ exports.sendPushNotification = functions.https.onCall(async (data, context) => {
     }
 });
 
+exports.notifyOnCommunityPostLike = functions.firestore
+    .document('community_posts/{postId}')
+    .onUpdate(async (change, context) => {
+        const before = change.before.data() || {};
+        const after = change.after.data() || {};
+
+        const beforeLikedBy = Array.isArray(before.likedBy) ? before.likedBy : [];
+        const afterLikedBy = Array.isArray(after.likedBy) ? after.likedBy : [];
+
+        if (afterLikedBy.length <= beforeLikedBy.length) {
+            return null;
+        }
+
+        const newlyAddedLikerUid = afterLikedBy.find((uid) => !beforeLikedBy.includes(uid));
+        if (!newlyAddedLikerUid) {
+            return null;
+        }
+
+        const ownerUid = String(after.authorUid || after.userId || after.uid || '').trim();
+        if (!ownerUid || ownerUid === newlyAddedLikerUid) {
+            return null;
+        }
+
+        const ownerDoc = await admin.firestore().collection('users').doc(ownerUid).get();
+        if (!ownerDoc.exists) {
+            return null;
+        }
+
+        const ownerData = ownerDoc.data() || {};
+        if (ownerData.notifyOnCommentLikes === false) {
+            return null;
+        }
+
+        const ownerToken = String(ownerData.fcmToken || '').trim();
+        if (!ownerToken) {
+            return null;
+        }
+
+        const likerDoc = await admin.firestore().collection('users').doc(newlyAddedLikerUid).get();
+        const likerData = likerDoc.exists ? likerDoc.data() || {} : {};
+        const likerName = String(likerData.name || likerData.username || 'Someone').trim() || 'Someone';
+
+        const message = {
+            token: ownerToken,
+            notification: {
+                title: 'Your comment got a like',
+                body: `${likerName} liked your comment in Community.`,
+            },
+            data: {
+                type: 'community_comment_like',
+                postId: context.params.postId,
+                likerUid: String(newlyAddedLikerUid),
+            },
+            android: {
+                priority: 'high',
+                notification: {
+                    channelId: 'high_importance_channel',
+                    sound: 'default',
+                },
+            },
+            apns: {
+                headers: {
+                    'apns-priority': '10',
+                },
+                payload: {
+                    aps: {
+                        sound: 'default',
+                    },
+                },
+            },
+        };
+
+        try {
+            await admin.messaging().send(message);
+            return null;
+        } catch (error) {
+            console.error('Error sending community like notification:', error);
+            return null;
+        }
+    });
+
+exports.notifyOnCommunityReply = functions.firestore
+    .document('community_posts/{postId}/replies/{replyId}')
+    .onCreate(async (snap, context) => {
+        const reply = snap.data() || {};
+        const postId = String(context.params.postId || '').trim();
+        if (!postId) {
+            return null;
+        }
+
+        const postDoc = await admin.firestore().collection('community_posts').doc(postId).get();
+        if (!postDoc.exists) {
+            return null;
+        }
+
+        const postData = postDoc.data() || {};
+        const ownerUid = String(postData.authorUid || postData.userId || postData.uid || '').trim();
+        const replierUid = String(reply.authorUid || reply.userId || reply.uid || '').trim();
+
+        if (!ownerUid || !replierUid || ownerUid === replierUid) {
+            return null;
+        }
+
+        const ownerDoc = await admin.firestore().collection('users').doc(ownerUid).get();
+        if (!ownerDoc.exists) {
+            return null;
+        }
+
+        const ownerData = ownerDoc.data() || {};
+        if (ownerData.notifyOnCommentLikes === false) {
+            return null;
+        }
+
+        const ownerToken = String(ownerData.fcmToken || '').trim();
+        if (!ownerToken) {
+            return null;
+        }
+
+        const replierDoc = await admin.firestore().collection('users').doc(replierUid).get();
+        const replierData = replierDoc.exists ? replierDoc.data() || {} : {};
+        const replierName = String(replierData.name || replierData.username || reply.userName || 'Someone').trim() || 'Someone';
+        const replyContent = String(reply.content || reply.text || '').trim();
+        const preview = replyContent.length > 80 ? `${replyContent.slice(0, 77)}...` : replyContent;
+
+        const message = {
+            token: ownerToken,
+            notification: {
+                title: 'New reply to your comment',
+                body: preview ? `${replierName} replied: ${preview}` : `${replierName} replied to your comment in Community.`,
+            },
+            data: {
+                type: 'community_comment_reply',
+                postId,
+                replyId: String(context.params.replyId || ''),
+                replierUid,
+            },
+            android: {
+                priority: 'high',
+                notification: {
+                    channelId: 'high_importance_channel',
+                    sound: 'default',
+                },
+            },
+            apns: {
+                headers: {
+                    'apns-priority': '10',
+                },
+                payload: {
+                    aps: {
+                        sound: 'default',
+                    },
+                },
+            },
+        };
+
+        try {
+            await admin.messaging().send(message);
+            return null;
+        } catch (error) {
+            console.error('Error sending community reply notification:', error);
+            return null;
+        }
+    });
+
 exports.aggregateTrendingIntent = functions.firestore
     .document('users/{userId}/registered_events/{registrationId}')
     .onCreate(async (snap, context) => {

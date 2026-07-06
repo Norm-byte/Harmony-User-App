@@ -1,10 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'sign_up_screen.dart';
 import 'login_screen.dart';
 
-class WelcomeScreen extends StatelessWidget {
+class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
+
+  @override
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends State<WelcomeScreen> {
+  bool _entryModeLoaded = false;
+  bool _showLoginOnly = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEntryMode();
+  }
+
+  Future<void> _loadEntryMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final hasLoggedInBefore = prefs.getBool('has_logged_in_before') ?? false;
+    final hasCreatedAccount = prefs.getBool('has_created_account') ?? false;
+    final lastLoginEmail = (prefs.getString('last_login_email') ?? '').trim();
+    final hasCurrentAuthSession = FirebaseAuth.instance.currentUser != null;
+
+    if (!mounted) return;
+    setState(() {
+      _showLoginOnly =
+          hasLoggedInBefore || hasCreatedAccount || lastLoginEmail.isNotEmpty || hasCurrentAuthSession;
+      _entryModeLoaded = true;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -174,54 +205,87 @@ class WelcomeScreen extends StatelessWidget {
                               const Spacer(),
 
                               // Action Buttons
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => const SignUpScreen()),
-                                    );
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Colors.indigo.shade900,
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
+                              if (!_entryModeLoaded)
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 20),
+                                  child: Center(
+                                    child: CircularProgressIndicator(color: Colors.white),
+                                  ),
+                                )
+                              else if (_showLoginOnly)
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton(
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(builder: (context) => const LoginScreen()),
+                                      );
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      side: const BorderSide(color: Colors.white54),
+                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
                                     ),
-                                    elevation: 0,
-                                  ),
-                                  child: Text(
-                                    buttonText,
-                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              SizedBox(
-                                width: double.infinity,
-                                child: OutlinedButton(
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => const LoginScreen()),
-                                    );
-                                  },
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.white,
-                                    side: const BorderSide(color: Colors.white54),
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
+                                    child: const Text(
+                                      'Log In',
+                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                                     ),
                                   ),
-                                  child: const Text(
-                                    'Log In',
-                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                )
+                              else ...[
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(builder: (context) => const SignUpScreen()),
+                                      );
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.white,
+                                      foregroundColor: Colors.indigo.shade900,
+                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      elevation: 0,
+                                    ),
+                                    child: Text(
+                                      buttonText,
+                                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                    ),
                                   ),
                                 ),
-                              ),
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton(
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(builder: (context) => const LoginScreen()),
+                                      );
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                      side: const BorderSide(color: Colors.white54),
+                                      padding: const EdgeInsets.symmetric(vertical: 16),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      'Log In',
+                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 32),
                             ],
                           ),

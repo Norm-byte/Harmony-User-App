@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'home_screen.dart';
@@ -19,18 +21,33 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   void initState() {
     super.initState();
     // Check if already subscribed
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final subscriptionService = Provider.of<SubscriptionService>(context, listen: false);
       if (subscriptionService.isSubscribed) {
-        _navigateToHome();
+        await _navigateToHome();
       }
     });
   }
 
-  void _navigateToHome() {
-    final subscriptionService = Provider.of<SubscriptionService>(context, listen: false);
+  Future<void> _navigateToHome() async {
+    bool isSuperAdmin = false;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null && uid.isNotEmpty) {
+      try {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .get();
+        isSuperAdmin = userDoc.data()?['isSuperAdmin'] == true;
+      } catch (e) {
+        debugPrint('HARMONY_SUBSCRIPTION_SUPERADMIN_CHECK_ERROR: $e');
+      }
+    }
+
+    if (!mounted) return;
+
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => HomeScreen(isSuperAdmin: subscriptionService.isVip)),
+      MaterialPageRoute(builder: (_) => HomeScreen(isSuperAdmin: isSuperAdmin)),
     );
   }
 
@@ -52,7 +69,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Welcome to Harmony Premium!')),
           );
-          _navigateToHome();
+          await _navigateToHome();
         }
       }
     } on PlatformException catch (e) {
@@ -92,7 +109,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Purchases restored!')),
           );
-          _navigateToHome();
+          await _navigateToHome();
         }
       } else {
         if (mounted) {

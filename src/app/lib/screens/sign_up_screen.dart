@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/gradient_scaffold.dart';
 import '../services/user_service.dart';
 import '../services/subscription_service.dart';
@@ -31,6 +31,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   static const String _usernameTakenCode = 'username-taken';
 
+  Future<void> _markReturningUser({String? email}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('has_created_account', true);
+    await prefs.setBool('has_logged_in_before', true);
+    final normalizedEmail = email?.trim();
+    if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
+      await prefs.setString('last_login_email', normalizedEmail);
+    }
+  }
+
   String? _assignedSellerCode() {
     final code = _referralCodeController.text.trim();
     return code.isEmpty ? null : code;
@@ -43,11 +53,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
     await FirebaseFirestore.instance.collection('users').doc(uid).set({
       'assignedSellerCode': sellerCode,
     }, SetOptions(merge: true));
-
-    await FirebaseAnalytics.instance.logEvent(
-      name: 'seller_signup',
-      parameters: {'seller_id': sellerCode},
-    );
 
     await Purchases.setAttributes({'assignedSellerCode': sellerCode});
   }
@@ -348,6 +353,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
               }, SetOptions(merge: true));
 
           await _applySellerReferralIfPresent(uid);
+          await _markReturningUser(email: email);
 
           if (!mounted) return;
           Provider.of<SubscriptionService>(context, listen: false).setVipStatus(true);
@@ -444,6 +450,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
           }, SetOptions(merge: true));
 
       await _applySellerReferralIfPresent(uid);
+      await _markReturningUser(email: email);
       return credential;
     } on FirebaseAuthException catch (e) {
       if (mounted) {

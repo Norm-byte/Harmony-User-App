@@ -8,9 +8,10 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
 import '../services/event_service.dart';
 import '../services/user_service.dart';
-import '../models/event.dart';
 import '../widgets/media/content_viewer.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'events_screen.dart';
@@ -33,6 +34,180 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+  VideoPlayerController? _backgroundAudioController;
+  String? _activeBackgroundAudioUrl;
+  bool _isBackgroundAudioMuted = false;
+  bool _speakerButtonPressed = false;
+  double? _preMuteEventVolume;
+  bool _audioPreferenceLoaded = false;
+  bool _lastAudioShouldPlayHome = true;
+  EventService? _eventService;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadBackgroundAudioPreference());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final currentEventService = context.read<EventService>();
+    if (_eventService == currentEventService) {
+      return;
+    }
+
+    _eventService?.removeListener(_handleEventServiceChanged);
+    _eventService = currentEventService;
+    _eventService?.addListener(_handleEventServiceChanged);
+  }
+
+  void _handleEventServiceChanged() {
+    final eventService = _eventService;
+    if (eventService == null) return;
+
+    final shouldPauseHome = eventService.isEventActive || _selectedIndex != 0;
+    if (shouldPauseHome && _backgroundAudioController?.value.isInitialized == true) {
+      unawaited(_backgroundAudioController?.pause());
+    } else if (!shouldPauseHome && !_isBackgroundAudioMuted && _lastAudioShouldPlayHome) {
+      unawaited(_backgroundAudioController?.play());
+    }
+  }
+
+  @override
+  void dispose() {
+    _eventService?.removeListener(_handleEventServiceChanged);
+    _backgroundAudioController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadBackgroundAudioPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final muted = prefs.getBool('home_background_audio_muted') ?? false;
+    if (!mounted) return;
+    setState(() {
+      _isBackgroundAudioMuted = muted;
+      _audioPreferenceLoaded = true;
+    });
+    _applyBackgroundAudioVolume();
+  }
+
+  Future<void> _setBackgroundAudioMuted(bool muted) async {
+    debugPrint(
+      'HARMONY_HOME_AUDIO_MUTING requested=$muted current=$_isBackgroundAudioMuted selectedIndex=$_selectedIndex controllerInit=${_backgroundAudioController?.value.isInitialized == true}',
+    );
+    setState(() => _isBackgroundAudioMuted = muted);
+
+    final userService = context.read<UserService>();
+    if (muted) {
+      if (userService.eventVolume > 0) {
+        _preMuteEventVolume = userService.eventVolume;
+      }
+      if (userService.eventVolume != 0) {
+        await userService.setEventVolume(0);
+      }
+    } else {
+      final restoreVolume = (_preMuteEventVolume ?? 1.0).clamp(0.0, 1.0);
+      if (userService.eventVolume == 0 && restoreVolume > 0) {
+        await userService.setEventVolume(restoreVolume);
+      }
+    }
+
+    final controller = _backgroundAudioController;
+    if (controller != null) {
+      _applyBackgroundAudioVolume();
+      if (muted) {
+        await controller.pause();
+      }
+    }
+
+    final eventActive = _eventService?.isEventActive ?? false;
+    await _syncBackgroundAudio(
+      url: _activeBackgroundAudioUrl,
+      shouldPlayHome: _selectedIndex == 0 && !eventActive,
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('home_background_audio_muted', muted);
+    debugPrint(
+      'HARMONY_HOME_AUDIO_MUTED_DONE muted=$_isBackgroundAudioMuted controllerExists=${_backgroundAudioController != null}',
+    );
+  }
+
+  void _applyBackgroundAudioVolume() {
+    final controller = _backgroundAudioController;
+    if (controller == null) return;
+    controller.setVolume(_isBackgroundAudioMuted ? 0.0 : 0.42);
+  }
+
+  Future<void> _syncBackgroundAudio({
+    required String? url,
+    required bool shouldPlayHome,
+  }) async {
+    final normalized = (url ?? '').trim();
+
+    if (normalized.isEmpty) {
+      _lastAudioShouldPlayHome = shouldPlayHome;
+      if (_backgroundAudioController != null) {
+        await _backgroundAudioController!.dispose();
+        _backgroundAudioController = null;
+        _activeBackgroundAudioUrl = null;
+        if (mounted) setState(() {});
+      }
+      return;
+    }
+
+    final needsNewController = _activeBackgroundAudioUrl != normalized ||
+        _backgroundAudioController == null;
+
+    if (!needsNewController && _lastAudioShouldPlayHome == shouldPlayHome) {
+      _applyBackgroundAudioVolume();
+      if (shouldPlayHome && !_isBackgroundAudioMuted) {
+        await _backgroundAudioController!.play();
+      } else {
+        await _backgroundAudioController!.pause();
+      }
+      return;
+    }
+
+    _lastAudioShouldPlayHome = shouldPlayHome;
+
+    if (needsNewController) {
+      await _backgroundAudioController?.dispose();
+      _backgroundAudioController = VideoPlayerController.networkUrl(
+        Uri.parse(normalized),
+      );
+      _activeBackgroundAudioUrl = normalized;
+      try {
+        await _backgroundAudioController!.initialize();
+        await _backgroundAudioController!.setLooping(true);
+        _applyBackgroundAudioVolume();
+        if (mounted) setState(() {});
+      } catch (e) {
+        debugPrint('HARMONY_HOME_BG_AUDIO_INIT_ERROR: $e url=$normalized');
+        await _backgroundAudioController?.dispose();
+        _backgroundAudioController = null;
+        _activeBackgroundAudioUrl = null;
+        if (mounted) setState(() {});
+        return;
+      }
+    }
+
+    if (shouldPlayHome && !_isBackgroundAudioMuted) {
+      await _backgroundAudioController!.play();
+    } else {
+      await _backgroundAudioController!.pause();
+    }
+  }
+
+  Future<void> _onTabTapped(int index) async {
+    if (_selectedIndex == index) return;
+    setState(() => _selectedIndex = index);
+    await _syncBackgroundAudio(
+      url: _activeBackgroundAudioUrl,
+      shouldPlayHome: index == 0,
+    );
+  }
 
   bool _isYoutubeUrl(String url) {
     final lower = url.toLowerCase();
@@ -149,7 +324,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
+        onTap: (index) => unawaited(_onTabTapped(index)),
         selectedItemColor:
             Colors.amber, // Changed to Amber for better contrast on dark
         unselectedItemColor: Colors.white70,
@@ -178,6 +353,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHomeTab({bool isVisible = true}) {
     return Consumer<EventService>(
       builder: (context, eventService, _) {
+        final shouldPlayHomeAudio = isVisible && !eventService.isEventActive;
         return StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance
               .collection('app_config')
@@ -205,6 +381,7 @@ class _HomeScreenState extends State<HomeScreen> {
             final message =
                 data['message'] as String? ?? 'Your journey begins here.';
             final backgroundImageUrl = data['backgroundImageUrl'] as String?;
+            final backgroundAudioUrl = data['backgroundAudioUrl'] as String?;
             bool showBulletin = false;
             String bulletinText = '';
             final showLiveStats = data['showLiveStats'] as bool? ?? false;
@@ -232,6 +409,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
             return Stack(
               children: [
+                // Keep home background audio in sync with App Content config.
+                Builder(
+                  builder: (context) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      unawaited(_syncBackgroundAudio(
+                        url: backgroundAudioUrl,
+                        shouldPlayHome: shouldPlayHomeAudio,
+                      ));
+                    });
+                    return const SizedBox.shrink();
+                  },
+                ),
+
                 // Background Image/Video Overlay (if present)
                 if (backgroundImageUrl != null)
                   Positioned.fill(
@@ -282,6 +473,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 32),
 
                         // Bulletin Board
+
                         if (showBulletin)
                           Container(
                             width: double.infinity,
@@ -465,6 +657,70 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
+
+                if (_audioPreferenceLoaded &&
+                    _backgroundAudioController?.value.isInitialized == true)
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: (_) {
+                        setState(() => _speakerButtonPressed = true);
+                      },
+                      onTapCancel: () {
+                        if (mounted) {
+                          setState(() => _speakerButtonPressed = false);
+                        }
+                      },
+                      onTapUp: (_) {
+                        if (mounted) {
+                          setState(() => _speakerButtonPressed = false);
+                        }
+                      },
+                      onTap: () {
+                        debugPrint(
+                          'HARMONY_HOME_AUDIO_TAP muted=$_isBackgroundAudioMuted selectedIndex=$_selectedIndex',
+                        );
+                        unawaited(
+                          _setBackgroundAudioMuted(!_isBackgroundAudioMuted),
+                        );
+                      },
+                      child: AnimatedScale(
+                        scale: _speakerButtonPressed ? 0.92 : 1.0,
+                        duration: const Duration(milliseconds: 120),
+                        curve: Curves.easeOut,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 120),
+                          curve: Curves.easeOut,
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            color: _speakerButtonPressed
+                                ? Colors.black.withOpacity(0.52)
+                                : Colors.black.withOpacity(0.34),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: Colors.white24),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(
+                                    _speakerButtonPressed ? 0.18 : 0.32),
+                                blurRadius: _speakerButtonPressed ? 4 : 10,
+                                offset: Offset(0, _speakerButtonPressed ? 1 : 4),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            _isBackgroundAudioMuted
+                                ? Icons.volume_off_rounded
+                                : Icons.volume_up_rounded,
+                            color: Colors.white70,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             );
           },
@@ -537,17 +793,60 @@ class _ReelsFullscreenScreen extends StatefulWidget {
 class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
   late final PageController _pageController;
   int _currentPage = 0;
+  DateTime? _lastViewedAt;
+
+  static const String _reelsLastPagePrefKey = 'home_reels_last_page';
+  static const String _reelsLastViewedAtPrefKey = 'home_reels_last_viewed_at';
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
+    unawaited(_restoreResumeState());
   }
 
   @override
   void dispose() {
+    unawaited(_persistResumeState(_currentPage));
     _pageController.dispose();
     super.dispose();
+  }
+
+  Future<void> _restoreResumeState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedIndex = prefs.getInt(_reelsLastPagePrefKey) ?? 0;
+    final savedTimestamp = prefs.getString(_reelsLastViewedAtPrefKey);
+
+    final safeIndex = widget.items.isEmpty
+      ? 0
+      : (savedIndex < 0
+        ? 0
+        : (savedIndex >= widget.items.length ? widget.items.length - 1 : savedIndex));
+
+    DateTime? parsed;
+    if (savedTimestamp != null && savedTimestamp.isNotEmpty) {
+      parsed = DateTime.tryParse(savedTimestamp);
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _currentPage = safeIndex;
+      _lastViewedAt = parsed;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_pageController.hasClients || safeIndex == 0) return;
+      _pageController.jumpToPage(safeIndex);
+    });
+  }
+
+  Future<void> _persistResumeState(int page) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_reelsLastPagePrefKey, page);
+    await prefs.setString(
+      _reelsLastViewedAtPrefKey,
+      DateTime.now().toIso8601String(),
+    );
   }
 
   void _goToNext() {
@@ -582,6 +881,10 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final resumeText = _lastViewedAt == null
+        ? null
+        : 'Resumed from ${DateFormat('MMM d, h:mm a').format(_lastViewedAt!.toLocal())}';
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -589,7 +892,10 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
           PageView.builder(
             controller: _pageController,
             itemCount: widget.items.length,
-            onPageChanged: (index) => setState(() => _currentPage = index),
+            onPageChanged: (index) {
+              setState(() => _currentPage = index);
+              unawaited(_persistResumeState(index));
+            },
             itemBuilder: (context, index) {
               final item = widget.items[index];
               final url = (item['url'] as String?)?.trim() ?? '';
@@ -675,6 +981,19 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (resumeText != null)
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      resumeText,
+                      style: const TextStyle(color: Colors.white54, fontSize: 11),
+                    ),
+                  ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(

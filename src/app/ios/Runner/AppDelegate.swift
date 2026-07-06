@@ -11,10 +11,12 @@ import UIKit
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
 
-    if let controller = window?.rootViewController as? FlutterViewController {
+    // Scene-safe channel registration: do not rely on window/rootViewController
+    // during didFinishLaunching on modern iOS lifecycle.
+    if let registrar = self.registrar(forPlugin: "HarmonyDormantAlarmBridge") {
       let channel = FlutterMethodChannel(
         name: dormantAlarmChannelName,
-        binaryMessenger: controller.binaryMessenger
+        binaryMessenger: registrar.messenger()
       )
 
       channel.setMethodCallHandler { call, result in

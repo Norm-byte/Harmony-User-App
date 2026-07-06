@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -152,8 +154,33 @@ class NotificationService {
     // 5. Get Token (for debugging)
     String? token = await _firebaseMessaging.getToken();
     debugPrint('FCM_TOKEN: $token');
+    await _syncFcmTokenToUserProfile(token);
+
+    _firebaseMessaging.onTokenRefresh.listen((token) async {
+      debugPrint('FCM_TOKEN_REFRESH: $token');
+      await _syncFcmTokenToUserProfile(token);
+    });
 
     _isInitialized = true;
+  }
+
+  Future<void> _syncFcmTokenToUserProfile(String? token) async {
+    final normalized = (token ?? '').trim();
+    if (normalized.isEmpty) return;
+
+    final authUid = FirebaseAuth.instance.currentUser?.uid;
+    final fallbackUid = UserService().userId;
+    final uid = (authUid != null && authUid.isNotEmpty) ? authUid : fallbackUid;
+    if (uid.isEmpty) return;
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'fcmToken': normalized,
+        'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('FCM_TOKEN_SYNC_ERROR: $e');
+    }
   }
 
   Future<void> _subscribeToTopics() async {

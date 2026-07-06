@@ -25,7 +25,7 @@ class ContentViewer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final userService = Provider.of<UserService>(context, listen: false);
+    final userService = context.watch<UserService>();
     final volume = userService.eventVolume;
 
     if (url.isEmpty) {
@@ -161,13 +161,15 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
       final uri = Uri.parse(url);
       if (uri.pathSegments.contains('shorts')) {
         final index = uri.pathSegments.indexOf('shorts');
-        if (index + 1 < uri.pathSegments.length)
+        if (index + 1 < uri.pathSegments.length) {
           return uri.pathSegments[index + 1];
+        }
       }
       if (uri.pathSegments.contains('live')) {
         final index = uri.pathSegments.indexOf('live');
-        if (index + 1 < uri.pathSegments.length)
+        if (index + 1 < uri.pathSegments.length) {
           return uri.pathSegments[index + 1];
+        }
       }
     } catch (_) {}
 
@@ -203,6 +205,14 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) _controller.setVolume((widget.volume * 100).toInt());
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant _NativeYoutubePlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.volume != widget.volume) {
+      _controller.setVolume((widget.volume * 100).round().clamp(0, 100));
+    }
   }
 
   @override
@@ -290,7 +300,7 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.45),
+                  color: Colors.black.withValues(alpha: 0.45),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -350,6 +360,11 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
       _initialized = false;
       _initFailed = false;
       _initializePlayer();
+      return;
+    }
+
+    if (oldWidget.volume != widget.volume && _controller != null && _initialized) {
+      _controller!.setVolume(widget.volume.clamp(0.0, 1.0));
     }
   }
 

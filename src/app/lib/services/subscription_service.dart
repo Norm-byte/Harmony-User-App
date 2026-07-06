@@ -37,6 +37,7 @@ class SubscriptionService extends ChangeNotifier {
 
   // Configuration
   final String _apiKey = 'goog_ObzZGAhZOHyXwpOTXHfBhTWBvuo'; 
+  final String _iosApiKey = 'appl_lxUwKHvtHbMWzOCOupmcauHoXkl';
   final String _starterEntitlement = 'starter_access';
   final String _unlimitedEntitlement = 'unlimited_access';
 
@@ -88,7 +89,7 @@ class SubscriptionService extends ChangeNotifier {
     if (Platform.isAndroid) {
       configuration = PurchasesConfiguration(_apiKey);
     } else if (Platform.isIOS) {
-      configuration = PurchasesConfiguration(_apiKey);
+      configuration = PurchasesConfiguration(_iosApiKey);
     } else {
         // Fallback or specific key for other platforms if needed
         return;

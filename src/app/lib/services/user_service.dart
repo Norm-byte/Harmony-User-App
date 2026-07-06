@@ -12,6 +12,8 @@ class UserService extends ChangeNotifier {
   static const String _dormantPlaybackEnabledKey = 'dormant_playback_enabled';
   static const String _dormantPlaybackPreferenceSetKey =
       'dormant_playback_preference_set';
+  static const String _notifyOnCommentLikesKey =
+      'notify_on_comment_likes';
 
   // Singleton instance
   static final UserService _instance = UserService._internal();
@@ -36,6 +38,7 @@ class UserService extends ChangeNotifier {
   bool _globalPriority = true; // Added for Global Priority
   bool _autoJoinWorldwide = true; // New Auto-Join setting (Default ON)
   bool _dormantPlaybackEnabled = true;
+  bool _notifyOnCommentLikes = true;
   bool _settingsLoaded = false;
   Timer? _presenceHeartbeatTimer;
   // 0 = video (active), 1 = audio (active), 2 = off
@@ -50,6 +53,7 @@ class UserService extends ChangeNotifier {
   bool get globalPriority => _globalPriority;
   bool get autoJoinWorldwide => _autoJoinWorldwide;
   bool get dormantPlaybackEnabled => _dormantPlaybackEnabled;
+  bool get notifyOnCommentLikes => _notifyOnCommentLikes;
   bool get settingsLoaded => _settingsLoaded;
   List<List<int>> get hourlyChimes => _hourlyChimes;
   List<String> get blockedUsers => _blockedUsers;
@@ -86,6 +90,8 @@ class UserService extends ChangeNotifier {
       _dormantPlaybackEnabled = true;
       await prefs.setBool(_dormantPlaybackEnabledKey, true);
     }
+    _notifyOnCommentLikes =
+        prefs.getBool(_notifyOnCommentLikesKey) ?? true;
     _blockedUsers = prefs.getStringList('blocked_users') ?? [];
 
     final savedChimes = prefs.getString('hourly_chimes_matrix');
@@ -184,6 +190,7 @@ class UserService extends ChangeNotifier {
         'platform': defaultTargetPlatform.toString(),
         'autoJoinWorldwide': _autoJoinWorldwide,
         'dormantPlaybackEnabled': _dormantPlaybackEnabled,
+        'notifyOnCommentLikes': _notifyOnCommentLikes,
       }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Error syncing user to Firestore: $e');
@@ -349,6 +356,14 @@ class UserService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_dormantPlaybackEnabledKey, enabled);
     await prefs.setBool(_dormantPlaybackPreferenceSetKey, true);
+    _syncUserToFirestore();
+  }
+
+  Future<void> setNotifyOnCommentLikes(bool enabled) async {
+    _notifyOnCommentLikes = enabled;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_notifyOnCommentLikesKey, enabled);
     _syncUserToFirestore();
   }
 
