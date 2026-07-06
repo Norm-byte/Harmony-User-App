@@ -521,7 +521,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Your account is suspended from community posting. Please use Support chat in My Harmony for assistance.',
+            'Your account is under moderation review or suspended from community posting. Please use Support chat in My Harmony for assistance.',
           ),
           backgroundColor: Colors.redAccent,
         ),
@@ -723,7 +723,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Your account is suspended from community posting. Please use Support chat in My Harmony for assistance.',
+            'Your account is under moderation review or suspended from community posting. Please use Support chat in My Harmony for assistance.',
           ),
           backgroundColor: Colors.redAccent,
         ),
@@ -1049,7 +1049,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Your account is suspended from community posting. Please use Support chat in My Harmony for assistance.',
+              'Your account is under moderation review or suspended from community posting. Please use Support chat in My Harmony for assistance.',
             ),
             backgroundColor: Colors.redAccent,
           ),
