@@ -223,7 +223,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Your account is under moderation review or suspended from community messaging. Please use Support chat in My Harmony for assistance.',
+            'Your account is suspended from community messaging. Please use Support chat in My Harmony for assistance.',
           ),
           backgroundColor: Colors.redAccent,
         ),

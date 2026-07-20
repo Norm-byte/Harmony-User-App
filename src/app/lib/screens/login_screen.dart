@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/gradient_scaffold.dart';
 import '../services/user_service.dart';
 import '../services/subscription_service.dart';
@@ -22,16 +21,6 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
-
-  Future<void> _markReturningUser({String? email}) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('has_logged_in_before', true);
-    await prefs.setBool('has_created_account', true);
-    final normalizedEmail = email?.trim();
-    if (normalizedEmail != null && normalizedEmail.isNotEmpty) {
-      await prefs.setString('last_login_email', normalizedEmail);
-    }
-  }
   
   String _quotaTierFromCodeType(String? type, {String? explicitTier}) {
     final normalizedExplicit = explicitTier?.trim();
@@ -103,17 +92,13 @@ class _LoginScreenState extends State<LoginScreen> {
           break;
         }
       }
-      if (effectiveName == null) {
-        final sanitizedEmail = UserService.sanitizePublicDisplayName(emailPrefix);
-        effectiveName =
-            UserService.isRecognizedPublicDisplayName(sanitizedEmail)
-                ? sanitizedEmail
-                : uidSuffix;
+      effectiveName = UserService.sanitizePublicDisplayName(emailPrefix);
+      if (effectiveName.isEmpty) {
+        effectiveName = uidSuffix;
       }
       final recognizedName = effectiveName;
 
       await UserService().setUser(user.uid, effectiveName);
-      await _markReturningUser(email: user.email);
 
       if (!mounted) return;
 

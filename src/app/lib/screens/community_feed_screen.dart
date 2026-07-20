@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/gradient_scaffold.dart';
-import '../widgets/threaded_replies_panel.dart';
 import '../widgets/translatable_text.dart';
 import '../services/user_service.dart';
 import '../services/usage_service.dart';
@@ -34,7 +33,6 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
   final _postController = TextEditingController();
   final ScrollController _feedScrollController = ScrollController();
   final Map<String, Future<String>> _resolvedNameFutureByUserId = {};
-  final Map<String, bool> _expandedRepliesByPostId = {};
   bool _isPosting = false;
   
   // Daily Message Limit State
@@ -301,19 +299,6 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       );
     }
   }
-
-  String _formatLikeCount(dynamic rawLikes) {
-    final likes = (rawLikes is num) ? rawLikes.toInt() : int.tryParse('$rawLikes') ?? 0;
-    if (likes < 1000) return '$likes';
-    if (likes < 1000000) {
-      final value = likes / 1000;
-      final compact = value >= 100 ? value.toStringAsFixed(0) : value.toStringAsFixed(1);
-      return '${compact.replaceAll(RegExp(r'\.0$'), '')}K';
-    }
-    final value = likes / 1000000;
-    final compact = value >= 100 ? value.toStringAsFixed(0) : value.toStringAsFixed(1);
-    return '${compact.replaceAll(RegExp(r'\.0$'), '')}M';
-  }
   Future<void> _decrementMessageLimit() async {
     final prefs = await SharedPreferences.getInstance();
     int sent = prefs.getInt('chat_messages_sent_today') ?? 0;
@@ -434,569 +419,6 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
     return future;
   }
 
-  CollectionReference<Map<String, dynamic>> _roomPostsCollection() {
-    return FirebaseFirestore.instance.collection('community_posts');
-  }
-
-  CollectionReference<Map<String, dynamic>> _repliesCollection(String postId) {
-    return _roomPostsCollection().doc(postId).collection('replies');
-  }
-
-  Future<void> _primeRepliesFromServer(String postId) async {
-    try {
-      await _repliesCollection(postId).get(const GetOptions(source: Source.server));
-    } catch (e) {
-      debugPrint('Community replies server refresh failed for $postId: $e');
-    }
-  }
-
-  String _currentAuthUid() {
-    return (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-  }
-
-  String _effectiveCurrentUserId() {
-    final serviceId = UserService().userId.trim();
-    if (serviceId.isNotEmpty) return serviceId;
-    return _currentAuthUid();
-  }
-
-  bool _isCurrentUserAuthor({required String authorId, String? authorUid}) {
-    final normalizedAuthorId = authorId.trim();
-    final candidates = <String>{
-      _effectiveCurrentUserId(),
-      _currentAuthUid(),
-    }.where((v) => v.isNotEmpty);
-    final normalizedAuthorUid = (authorUid ?? '').trim();
-    return candidates.any(
-      (id) =>
-          (normalizedAuthorId.isNotEmpty && id == normalizedAuthorId) ||
-          (normalizedAuthorUid.isNotEmpty && id == normalizedAuthorUid),
-    );
-  }
-
-  Future<String> _resolveDisplayNameForUser({
-    required String userId,
-    required String rawName,
-  }) {
-    if (userId.isEmpty) {
-      return Future.value(UserService.sanitizePublicDisplayName(rawName));
-    }
-
-    final existing = _resolvedNameFutureByUserId[userId];
-    if (existing != null) {
-      return existing;
-    }
-
-    final future = _fetchBestNameForUserId(
-      userId,
-      UserService.sanitizePublicDisplayName(rawName),
-    );
-    _resolvedNameFutureByUserId[userId] = future;
-    return future;
-  }
-
-  Future<void> _submitReply({
-    required String postId,
-    required String content,
-  }) async {
-    final trimmed = content.trim();
-    if (trimmed.isEmpty) return;
-
-    await _calculateRemaining();
-    if (_messagesRemaining <= 0) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Daily message limit reached. Try again tomorrow!'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    final user = UserService();
-    final suspended = await user.isCurrentlySuspended();
-    if (suspended) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Your account is under moderation review or suspended from community posting. Please use Support chat in My Harmony for assistance.',
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
-
-    final userId = _effectiveCurrentUserId();
-    final authUid = _currentAuthUid();
-    if (userId.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not resolve account id. Please re-login and try again.'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
-
-    final publicName = await user.ensureRecognizedPublicDisplayName();
-    if (publicName == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Your account username is not recognized. Messaging is disabled until your profile name is fixed.',
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
-
-    if (ProfanityService().hasProfanity(trimmed)) {
-      await FirebaseFirestore.instance.collection('moderation_queue').add({
-        'content': trimmed,
-        'userId': userId,
-        'userName': publicName,
-        'source': 'Community Room Reply',
-        'timestamp': FieldValue.serverTimestamp(),
-        'reason': 'Profanity Detected',
-        'status': 'pending',
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profanity detected. Reply flagged for moderation.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    await _repliesCollection(postId).add({
-      'content': trimmed,
-      'userId': userId,
-      'authorUid': authUid,
-      'userName': publicName,
-      'userPhoto': user.userPhoto,
-      'timestamp': FieldValue.serverTimestamp(),
-      'likes': 0,
-      'likedBy': <String>[],
-    });
-
-    await _decrementMessageLimit();
-  }
-
-  Future<void> _showReplyComposer({
-    required String postId,
-    String? replyId,
-    String? initialContent,
-  }) async {
-    final replyController = TextEditingController(text: initialContent ?? '');
-    bool sending = false;
-    final isEditing = replyId != null;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.grey.shade900,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 16,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Reply to comment',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: replyController,
-                    autofocus: true,
-                    maxLines: 4,
-                    minLines: 1,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: 'Type your reply...',
-                      hintStyle: const TextStyle(color: Colors.white54),
-                      filled: true,
-                      fillColor: Colors.white.withValues(alpha: 0.08),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: sending
-                          ? null
-                          : () async {
-                              final content = replyController.text.trim();
-                              if (content.isEmpty) return;
-                              setModalState(() => sending = true);
-                              try {
-                                if (isEditing) {
-                                  await _updateReply(
-                                    postId: postId,
-                                    replyId: replyId!,
-                                    content: content,
-                                  );
-                                } else {
-                                  await _submitReply(postId: postId, content: content);
-                                }
-                                if (mounted) {
-                                  setState(() {
-                                    _expandedRepliesByPostId[postId] = true;
-                                  });
-                                }
-                                if (ctx.mounted) {
-                                  Navigator.of(ctx).pop();
-                                }
-                              } catch (e) {
-                                if (!mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Could not send reply: $e')),
-                                );
-                              } finally {
-                                if (ctx.mounted) {
-                                  setModalState(() => sending = false);
-                                }
-                              }
-                            },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.amber,
-                        foregroundColor: Colors.black,
-                      ),
-                      child: sending
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(isEditing ? 'Save changes' : 'Send reply'),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _updateReply({
-    required String postId,
-    required String replyId,
-    required String content,
-  }) async {
-    final trimmed = content.trim();
-    if (trimmed.isEmpty) return;
-
-    final user = UserService();
-    final suspended = await user.isCurrentlySuspended();
-    if (suspended) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Your account is under moderation review or suspended from community posting. Please use Support chat in My Harmony for assistance.',
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
-
-    final userId = _effectiveCurrentUserId();
-    final authUid = _currentAuthUid();
-    if (userId.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not resolve account id. Please re-login and try again.'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
-
-    final publicName = await user.ensureRecognizedPublicDisplayName();
-    if (publicName == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Your account username is not recognized. Messaging is disabled until your profile name is fixed.',
-          ),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-      return;
-    }
-
-    if (ProfanityService().hasProfanity(trimmed)) {
-      await FirebaseFirestore.instance.collection('moderation_queue').add({
-        'content': trimmed,
-        'userId': userId,
-        'userName': publicName,
-        'source': 'Community Room Reply Edit',
-        'timestamp': FieldValue.serverTimestamp(),
-        'reason': 'Profanity Detected',
-        'status': 'pending',
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profanity detected. Reply update flagged for moderation.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    await _repliesCollection(postId).doc(replyId).update({
-      'content': trimmed,
-      'userId': userId,
-      'authorUid': authUid,
-      'userName': publicName,
-      'userPhoto': user.userPhoto,
-    });
-  }
-
-  Future<void> _deleteReply({
-    required String postId,
-    required String replyId,
-  }) async {
-    final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: Colors.grey.shade900,
-            title: const Text(
-              'Delete reply?',
-              style: TextStyle(color: Colors.white),
-            ),
-            content: const Text(
-              'This will permanently remove your reply from the conversation.',
-              style: TextStyle(color: Colors.white70),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text(
-                  'Delete',
-                  style: TextStyle(color: Colors.redAccent),
-                ),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-
-    if (!confirmed) return;
-
-    await _repliesCollection(postId).doc(replyId).delete();
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Reply deleted.')),
-    );
-  }
-
-  Future<void> _showPostEditor({
-    required String postId,
-    required String initialContent,
-  }) async {
-    final controller = TextEditingController(text: initialContent);
-    bool saving = false;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.grey.shade900,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 16,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Edit comment',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    maxLines: 6,
-                    minLines: 1,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: 'Update your comment...',
-                      hintStyle: const TextStyle(color: Colors.white54),
-                      filled: true,
-                      fillColor: Colors.white.withValues(alpha: 0.08),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: saving
-                          ? null
-                          : () async {
-                              final content = controller.text.trim();
-                              if (content.isEmpty) return;
-                              setModalState(() => saving = true);
-                              try {
-                                await _updatePost(postId: postId, content: content);
-                                if (ctx.mounted) {
-                                  Navigator.of(ctx).pop();
-                                }
-                              } finally {
-                                if (ctx.mounted) {
-                                  setModalState(() => saving = false);
-                                }
-                              }
-                            },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.amber,
-                        foregroundColor: Colors.black,
-                      ),
-                      child: saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Save changes'),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _updatePost({
-    required String postId,
-    required String content,
-  }) async {
-    final trimmed = content.trim();
-    if (trimmed.isEmpty) return;
-
-    if (ProfanityService().hasProfanity(trimmed)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profanity detected. Please adjust and try again.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    await _roomPostsCollection().doc(postId).update({
-      'content': trimmed,
-      'editedAt': FieldValue.serverTimestamp(),
-    });
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Comment updated.')),
-    );
-  }
-
-  Future<void> _deletePost({required String postId}) async {
-    final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: Colors.grey.shade900,
-            title: const Text(
-              'Delete comment?',
-              style: TextStyle(color: Colors.white),
-            ),
-            content: const Text(
-              'This will permanently remove your comment.',
-              style: TextStyle(color: Colors.white70),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text(
-                  'Delete',
-                  style: TextStyle(color: Colors.redAccent),
-                ),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-
-    if (!confirmed) return;
-
-    await _roomPostsCollection().doc(postId).delete();
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Comment deleted.')),
-    );
-  }
-
   Future<void> _submitPost() async {
     final content = _postController.text.trim();
     if (content.isEmpty) return;
@@ -1049,7 +471,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Your account is under moderation review or suspended from community posting. Please use Support chat in My Harmony for assistance.',
+              'Your account is suspended from community posting. Please use Support chat in My Harmony for assistance.',
             ),
             backgroundColor: Colors.redAccent,
           ),
@@ -1095,7 +517,6 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       await FirebaseFirestore.instance.collection('community_posts').add({
         'content': content,
         'userId': userId,
-        'authorUid': _currentAuthUid(),
         'userName': publicName,
         'userPhoto': user.userPhoto,
         'timestamp': FieldValue.serverTimestamp(),
@@ -1165,10 +586,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                 return const SizedBox.shrink();
               }
               final data = snapshot.data!.data() as Map<String, dynamic>;
-              final rawAdminMessage = data['admin_message'];
-              final adminMessage = rawAdminMessage == null
-                  ? null
-                  : rawAdminMessage.toString();
+              final adminMessage = data['admin_message'] as String?;
 
               if (adminMessage == null || adminMessage.isEmpty) {
                 return const SizedBox.shrink();
@@ -1187,21 +605,22 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                   children: [
                     Row(
                       children: [
-                        Icon(
-                          Icons.push_pin,
-                          size: 16,
-                          color: Colors.amber.withValues(alpha: 0.9),
+                        const CircleAvatar(
+                          radius: 16,
+                          backgroundColor: Colors.amber,
+                          child: Icon(Icons.shield, size: 16, color: Colors.black),
                         ),
                         const SizedBox(width: 8),
-                        Text(
-                          'Pinned',
+                        const Text(
+                          'Admin',
                           style: TextStyle(
-                            color: Colors.amber.withValues(alpha: 0.9),
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                            letterSpacing: 0.2,
+                            color: Colors.amber,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
                           ),
                         ),
+                        const Spacer(),
+                        Icon(Icons.push_pin, size: 16, color: Colors.white.withValues(alpha: 0.5)),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -1240,28 +659,24 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
 
                 return ListView.builder(
                   controller: _feedScrollController,
-                  reverse: true,
+                  reverse: true, // Typically chats are bottom-up, but this was top-down. Let's keep it consistent or flip?
+                  // User said "appear the same as... newly created chat rooms". Chat rooms are usually reverse.
+                  // But this is a "Feed" (like Facebook). 
+                  // If I move input to bottom, it feels more like a Chat.
+                  // I will KEEP it standard list for now but move input to bottom.
                   padding: const EdgeInsets.all(16),
                   itemCount: posts.length,
                   itemBuilder: (context, index) {
                     final post = posts[index].data() as Map<String, dynamic>;
                     final timestamp = (post['timestamp'] as Timestamp?)?.toDate();
                     final likedBy = List<String>.from(post['likedBy'] ?? []);
-                    final uid = _effectiveCurrentUserId();
-                    final authUid = _currentAuthUid();
-                    final postUserId = post['userId']?.toString() ?? '';
-                    final postAuthorUid = post['authorUid']?.toString() ?? '';
-                    final isOwnPost = _isCurrentUserAuthor(
-                      authorId: postUserId,
-                      authorUid: postAuthorUid,
-                    );
+                    final uid = UserService().userId;
 
                     return FutureBuilder<String>(
                       future: _resolveDisplayNameForPost(post),
                       builder: (context, nameSnapshot) {
                         final displayName = nameSnapshot.data ?? 'Member';
                         return Padding(
-                          key: ValueKey('community_post_${posts[index].id}'),
                           padding: const EdgeInsets.only(bottom: 6),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1294,57 +709,25 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                                       DateFormat('MMM d, h:mm a').format(timestamp),
                                       style: TextStyle(fontSize: 10, color: Colors.white54),
                                     ),
-                                  SizedBox(
-                                    width: 28,
-                                    height: 28,
-                                    child: PopupMenuButton<String>(
-                                      padding: EdgeInsets.zero,
-                                      icon: const Icon(Icons.more_vert, color: Colors.white38, size: 16),
-                                      color: Colors.grey.shade900,
-                                      onSelected: (value) async {
-                                        if (value == 'report') {
-                                          _showReportPostSheet(
-                                            context,
-                                            postId: posts[index].id,
-                                            reportedUserId: postUserId,
-                                            content: post['content']?.toString() ?? '',
-                                          );
-                                        } else if (value == 'edit') {
-                                          await _showPostEditor(
-                                            postId: posts[index].id,
-                                            initialContent: post['content']?.toString() ?? '',
-                                          );
-                                        } else if (value == 'delete') {
-                                          await _deletePost(postId: posts[index].id);
-                                        }
-                                      },
-                                      itemBuilder: (_) {
-                                        if (isOwnPost) {
-                                          return const [
-                                            PopupMenuItem(
-                                              value: 'edit',
-                                              child: Row(
-                                                children: [
-                                                  Icon(Icons.edit_outlined, color: Colors.white70, size: 16),
-                                                  SizedBox(width: 8),
-                                                  Text('Edit post', style: TextStyle(color: Colors.white70)),
-                                                ],
-                                              ),
-                                            ),
-                                            PopupMenuItem(
-                                              value: 'delete',
-                                              child: Row(
-                                                children: [
-                                                  Icon(Icons.delete_outline, color: Colors.redAccent, size: 16),
-                                                  SizedBox(width: 8),
-                                                  Text('Delete post', style: TextStyle(color: Colors.redAccent)),
-                                                ],
-                                              ),
-                                            ),
-                                          ];
-                                        }
-
-                                        return const [
+                                  if ((post['userId']?.toString() ?? '') != uid)
+                                    SizedBox(
+                                      width: 28,
+                                      height: 28,
+                                      child: PopupMenuButton<String>(
+                                        padding: EdgeInsets.zero,
+                                        icon: const Icon(Icons.more_vert, color: Colors.white38, size: 16),
+                                        color: Colors.grey.shade900,
+                                        onSelected: (value) {
+                                          if (value == 'report') {
+                                            _showReportPostSheet(
+                                              context,
+                                              postId: posts[index].id,
+                                              reportedUserId: post['userId']?.toString() ?? '',
+                                              content: post['content']?.toString() ?? '',
+                                            );
+                                          }
+                                        },
+                                        itemBuilder: (_) => const [
                                           PopupMenuItem(
                                             value: 'report',
                                             child: Row(
@@ -1355,10 +738,9 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                                               ],
                                             ),
                                           ),
-                                        ];
-                                      },
+                                        ],
+                                      ),
                                     ),
-                                  ),
                                 ],
                               ),
                               const SizedBox(height: 4),
@@ -1381,46 +763,13 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                                         ),
                                         const SizedBox(width: 4),
                                         Text(
-                                          _formatLikeCount(post['likes']),
+                                          '${post['likes'] ?? 0}',
                                           style: const TextStyle(color: Colors.white54, fontSize: 11),
                                         ),
                                       ],
                                     ),
                                   ),
                                 ],
-                              ),
-                              ThreadedRepliesPanel(
-                                postId: posts[index].id,
-                                isExpanded: _expandedRepliesByPostId[posts[index].id] ?? false,
-                                currentUserId: uid,
-                                currentAuthUid: authUid,
-                                  repliesStream: _repliesCollection(posts[index].id)
-                                      .snapshots(includeMetadataChanges: true),
-                                resolveDisplayName: (userId, rawName) =>
-                                    _resolveDisplayNameForUser(
-                                  userId: userId,
-                                  rawName: rawName,
-                                ),
-                                onToggleExpanded: () {
-                                  final current = _expandedRepliesByPostId[posts[index].id] ?? false;
-                                  final next = !current;
-                                  setState(() {
-                                    _expandedRepliesByPostId[posts[index].id] = next;
-                                  });
-                                  if (next) {
-                                    _primeRepliesFromServer(posts[index].id);
-                                  }
-                                },
-                                onComposeReply: () => _showReplyComposer(postId: posts[index].id),
-                                onEditReply: (replyId, reply) => _showReplyComposer(
-                                  postId: posts[index].id,
-                                  replyId: replyId,
-                                  initialContent: reply['content']?.toString() ?? '',
-                                ),
-                                onDeleteReply: (replyId, _) => _deleteReply(
-                                  postId: posts[index].id,
-                                  replyId: replyId,
-                                ),
                               ),
                               Divider(color: Colors.white.withValues(alpha: 0.05), height: 10),
                             ],

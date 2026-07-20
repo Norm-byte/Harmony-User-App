@@ -20,6 +20,36 @@ async function assertSuperAdmin(context) {
     return callerData;
 }
 
+async function assertAdminPermission(context, permission, purpose) {
+    if (!context.auth || !context.auth.uid) {
+        throw new functions.https.HttpsError('unauthenticated', 'You must be signed in.');
+    }
+
+    const callerDoc = await admin.firestore().collection('admin_users').doc(context.auth.uid).get();
+    if (!callerDoc.exists) {
+        throw new functions.https.HttpsError('permission-denied', 'Admin profile not found.');
+    }
+
+    const callerData = callerDoc.data() || {};
+    if (callerData.isActive !== true) {
+        throw new functions.https.HttpsError('permission-denied', 'Only active operators can perform this action.');
+    }
+
+    if (callerData.role === 'super-admin') {
+        return callerData;
+    }
+
+    const permissions = Array.isArray(callerData.permissions)
+        ? callerData.permissions.map((value) => String(value))
+        : [];
+
+    if (!permissions.includes(permission)) {
+        throw new functions.https.HttpsError('permission-denied', `You do not have permission to ${purpose}.`);
+    }
+
+    return callerData;
+}
+
 exports.provisionAdminOperator = functions.https.onCall(async (data, context) => {
     const callerData = await assertSuperAdmin(context);
 
@@ -89,6 +119,123 @@ exports.provisionAdminOperator = functions.https.onCall(async (data, context) =>
         existed,
         uid: authUser.uid,
         email,
+    };
+});
+
+exports.provisionAppUserAccount = functions.https.onCall(async (data, context) => {
+    const callerData = await assertAdminPermission(context, 'app_accounts', 'manage app accounts');
+
+    const email = String(data.email || '').trim().toLowerCase();
+    const initialPassword = String(data.initialPassword || '').trim();
+    const fullName = String(data.fullName || '').trim();
+    const username = String(data.username || '').trim();
+    const usernameLower = username.toLowerCase();
+    const isVip = data.isVip === true;
+    const vipQuotaTier = String(data.vipQuotaTier || 'tier_beta').trim() || 'tier_beta';
+
+    if (!email || !initialPassword || !username) {
+        throw new functions.https.HttpsError('invalid-argument', 'Email, password, and username are required.');
+    }
+
+    if (!usernameLower || usernameLower === 'guest' || usernameLower === 'member') {
+        throw new functions.https.HttpsError('invalid-argument', 'Please choose a valid username.');
+    }
+
+    let authUser;
+    let existed = false;
+
+    try {
+        authUser = await admin.auth().getUserByEmail(email);
+        existed = true;
+        authUser = await admin.auth().updateUser(authUser.uid, {
+            password: initialPassword,
+            displayName: username,
+        });
+    } catch (error) {
+        if (error.code === 'auth/user-not-found') {
+            authUser = await admin.auth().createUser({
+                email,
+                password: initialPassword,
+                displayName: username,
+            });
+        } else {
+            throw error;
+        }
+    }
+
+    const db = admin.firestore();
+    const userRef = db.collection('users').doc(authUser.uid);
+    const usernameRef = db.collection('usernames').doc(usernameLower);
+
+    await db.runTransaction(async (tx) => {
+        const [userSnap, usernameSnap] = await Promise.all([
+            tx.get(userRef),
+            tx.get(usernameRef),
+        ]);
+
+        if (usernameSnap.exists) {
+            const usernameData = usernameSnap.data() || {};
+            const ownerUid = String(usernameData.ownerUid || '').trim();
+            if (ownerUid && ownerUid !== authUser.uid) {
+                throw new functions.https.HttpsError('already-exists', 'That username is already claimed.');
+            }
+        }
+
+        const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+        const previousUsernameLower = String(
+            userData.usernameLower || userData.username || userData.userName || userData.displayName || userData.name || '',
+        ).trim().toLowerCase();
+
+        if (previousUsernameLower && previousUsernameLower !== usernameLower) {
+            const previousUsernameRef = db.collection('usernames').doc(previousUsernameLower);
+            const previousUsernameSnap = await tx.get(previousUsernameRef);
+            if (previousUsernameSnap.exists) {
+                const previousOwnerUid = String(previousUsernameSnap.data()?.ownerUid || '').trim();
+                if (previousOwnerUid === authUser.uid) {
+                    tx.delete(previousUsernameRef);
+                }
+            }
+        }
+
+        tx.set(usernameRef, {
+            username,
+            usernameLower,
+            ownerUid: authUser.uid,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: usernameSnap.exists
+                ? (usernameSnap.data()?.createdAt || admin.firestore.FieldValue.serverTimestamp())
+                : admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        const userPayload = {
+            email,
+            fullName,
+            username,
+            usernameLower,
+            userName: username,
+            displayName: username,
+            name: username,
+            isVip,
+            vipQuotaTier: isVip ? vipQuotaTier : null,
+            status: isVip ? 'active' : (String(userData.status || '').trim() || 'trial'),
+            invitedBy: callerData.email || context.auth.token.email || null,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        if (!userSnap.exists) {
+            userPayload.createdAt = admin.firestore.FieldValue.serverTimestamp();
+            userPayload.joinDate = admin.firestore.FieldValue.serverTimestamp();
+        }
+
+        tx.set(userRef, userPayload, { merge: true });
+    });
+
+    return {
+        ok: true,
+        existed,
+        uid: authUser.uid,
+        email,
+        username,
     };
 });
 
@@ -381,6 +528,238 @@ function isDeterministicPublishedSlot(docId) {
     return typeof docId === 'string' && docId.startsWith('slot_');
 }
 
+function parseFeaturedItems(raw) {
+    const list = Array.isArray(raw) ? raw : [];
+    return list
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => ({ ...item }))
+        .filter((item) => typeof item.text === 'string' && item.text.trim().length > 0);
+}
+
+function parseFeaturedKeywords(raw) {
+    const list = Array.isArray(raw) ? raw : [];
+    const normalized = list
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter((value) => value.length > 0);
+    return [...new Set(normalized)];
+}
+
+function parseSourceTimestamp(value) {
+    if (!value) return null;
+    if (value instanceof admin.firestore.Timestamp) {
+        return value.toDate();
+    }
+    if (typeof value === 'string') {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return null;
+}
+
+function buildFeaturedDisplayText(item) {
+    const rawText = String(item.text || '').replace(/\s+/g, ' ').trim();
+    if (!rawText) return '';
+
+    const sourceType = String(item.sourceType || 'manual').toLowerCase();
+    const isCommentSource = sourceType.includes('comment');
+    const maxLen = isCommentSource ? 180 : 260;
+    const trimmed = rawText.length > maxLen ? `${rawText.slice(0, maxLen)}...` : rawText;
+
+    if (!isCommentSource) {
+        return trimmed;
+    }
+
+    const ts = parseSourceTimestamp(item.sourceTimestamp);
+    if (!ts) {
+        return trimmed;
+    }
+
+    const mm = String(ts.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(ts.getUTCDate()).padStart(2, '0');
+    const hh = String(ts.getUTCHours()).padStart(2, '0');
+    const min = String(ts.getUTCMinutes()).padStart(2, '0');
+    // Keep metadata compact to preserve pinned panel height in user app.
+    return `${trimmed} [Feed ${mm}/${dd} ${hh}:${min} UTC]`;
+}
+
+exports.publishCommunityFeaturedCarousel = functions.pubsub
+    .schedule('every 1 minutes')
+    .timeZone('UTC')
+    .onRun(async () => {
+        const db = admin.firestore();
+        const settingsRef = db.collection('app_config').doc('community_settings');
+        const settingsSnap = await settingsRef.get();
+
+        if (!settingsSnap.exists) {
+            return null;
+        }
+
+        const settings = settingsSnap.data() || {};
+        const enabled = settings.featuredCarouselEnabled === true;
+        const autoPublish = settings.featuredAutoPublish === true;
+        if (!enabled || !autoPublish) {
+            return null;
+        }
+
+        const intervalSeconds = Math.max(
+            30,
+            Math.min(172800, Number(settings.featuredIntervalSeconds || 60) || 60),
+        );
+        const lastPublishedAt = settings.featuredLastPublishedAt instanceof admin.firestore.Timestamp
+            ? settings.featuredLastPublishedAt.toDate()
+            : null;
+
+        if (lastPublishedAt) {
+            const elapsedSeconds = Math.floor((Date.now() - lastPublishedAt.getTime()) / 1000);
+            if (elapsedSeconds < intervalSeconds) {
+                return null;
+            }
+        }
+
+        const randomize = settings.featuredRandomize === true;
+        const sourceMode = String(settings.featuredSourceMode || 'mixed').toLowerCase();
+        const currentIndex = Number(settings.featuredCurrentIndex || 0) || 0;
+        const adminIndex = Number(settings.featuredAdminIndex || currentIndex) || 0;
+        const userIndex = Number(settings.featuredUserIndex || 0) || 0;
+        const mixedUserStreak = Number(settings.featuredMixedUserStreak || 0) || 0;
+        const mixedAdminEveryUsers = Math.max(
+            1,
+            Math.min(100, Number(settings.featuredMixedAdminEveryUsers || 5) || 5),
+        );
+        const keywords = parseFeaturedKeywords(settings.featuredKeywords);
+        const includeManual = sourceMode !== 'keywords_only';
+        const includeKeywords = sourceMode !== 'admin_only';
+        const manualMessage = String(settings.admin_message_manual || '').trim();
+        const manualItems = includeManual
+            ? parseFeaturedItems(settings.featuredItems).filter((item) => item.active !== false)
+            : [];
+
+        const adminCandidates = [
+            ...(includeManual && manualMessage
+                ? [{
+                    id: 'manual_admin_message',
+                    text: manualMessage,
+                    sourceType: 'manual_admin_message',
+                    active: true,
+                }]
+                : []),
+            ...manualItems,
+        ];
+        const userCandidates = [];
+
+        if (includeKeywords && keywords.length > 0) {
+            const postsSnap = await db
+                .collection('community_posts')
+                .orderBy('timestamp', 'desc')
+                .limit(120)
+                .get();
+
+            postsSnap.forEach((doc) => {
+                const data = doc.data() || {};
+                const content = String(data.content || '').trim();
+                if (!content) return;
+
+                const lower = content.toLowerCase();
+                const matchedKeyword = keywords.find((keyword) => lower.includes(keyword)) || '';
+                if (!matchedKeyword) return;
+
+                userCandidates.push({
+                    id: `kw_${doc.id}`,
+                    text: content,
+                    sourceType: 'keyword_comment',
+                    sourceKeyword: matchedKeyword,
+                    sourcePostId: doc.id,
+                    sourceTimestamp: data.timestamp || null,
+                    active: true,
+                });
+            });
+        }
+
+        let selectedPool = [];
+        let selectedPoolType = 'admin';
+        let nextAdminIndex = adminIndex;
+        let nextUserIndex = userIndex;
+        let nextMixedUserStreak = mixedUserStreak;
+
+        if (sourceMode === 'admin_only') {
+            selectedPool = adminCandidates;
+            selectedPoolType = 'admin';
+        } else if (sourceMode === 'keywords_only') {
+            selectedPool = userCandidates;
+            selectedPoolType = 'user';
+        } else {
+            if (adminCandidates.length === 0 && userCandidates.length === 0) {
+                return null;
+            }
+
+            const shouldUseAdmin = userCandidates.length === 0 ||
+                (adminCandidates.length > 0 && mixedUserStreak >= mixedAdminEveryUsers);
+
+            if (shouldUseAdmin && adminCandidates.length > 0) {
+                selectedPool = adminCandidates;
+                selectedPoolType = 'admin';
+            } else if (userCandidates.length > 0) {
+                selectedPool = userCandidates;
+                selectedPoolType = 'user';
+            } else {
+                selectedPool = adminCandidates;
+                selectedPoolType = 'admin';
+            }
+        }
+
+        if (selectedPool.length === 0) {
+            return null;
+        }
+
+        const selectedIndex = randomize
+            ? Math.floor(Math.random() * selectedPool.length)
+            : (((selectedPoolType === 'admin' ? adminIndex : userIndex) % selectedPool.length) + selectedPool.length) % selectedPool.length;
+
+        if (!randomize) {
+            if (selectedPoolType === 'admin') {
+                nextAdminIndex = (selectedIndex + 1) % selectedPool.length;
+            } else {
+                nextUserIndex = (selectedIndex + 1) % selectedPool.length;
+            }
+        }
+
+        if (sourceMode === 'mixed') {
+            nextMixedUserStreak = selectedPoolType === 'admin'
+                ? 0
+                : Math.min(100000, mixedUserStreak + 1);
+        } else {
+            nextMixedUserStreak = 0;
+        }
+
+        const selected = selectedPool[selectedIndex];
+        const selectedSourceType = String(selected.sourceType || 'manual').toLowerCase();
+        const displayType = selectedSourceType.includes('comment') ? 'featured' : 'pinned';
+        const publishText = buildFeaturedDisplayText(selected);
+
+        if (!publishText) {
+            return null;
+        }
+
+        await settingsRef.set(
+            {
+                admin_message: publishText,
+                admin_message_display_type: displayType,
+                featuredCurrentIndex: selectedPoolType === 'admin' ? nextAdminIndex : nextUserIndex,
+                featuredAdminIndex: nextAdminIndex,
+                featuredUserIndex: nextUserIndex,
+                featuredMixedUserStreak: nextMixedUserStreak,
+                featuredLastPublishedAt: admin.firestore.FieldValue.serverTimestamp(),
+                featuredLastSourceType: selected.sourceType || 'manual',
+                featuredLastKeyword: selected.sourceKeyword || null,
+                featuredLastPostId: selected.sourcePostId || null,
+                featuredLastPublishedPreview: publishText,
+            },
+            { merge: true },
+        );
+
+        return null;
+    });
+
 exports.autoSystemWeeklyRollover = functions.pubsub
     .schedule('every 5 minutes')
     .timeZone('UTC')
@@ -520,6 +899,177 @@ exports.autoSystemWeeklyRollover = functions.pubsub
 
             await batch.commit();
         }
+
+        return null;
+    });
+
+function parseEventDate(value) {
+    if (!value) return null;
+    if (value instanceof admin.firestore.Timestamp) {
+        return value.toDate();
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    if (typeof value === 'string') {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return null;
+}
+
+function calculateRegistrationExpiry(data) {
+    const end = parseEventDate(data.endTime);
+    const start = parseEventDate(data.startTime) || parseEventDate(data.timestamp);
+    const baseEnd = end || (start ? new Date(start.getTime() + 60 * 60 * 1000) : null);
+    if (!baseEnd) return null;
+
+    const visibilityAfterMinutesRaw = Number(data.visibilityAfterMinutes || 0);
+    const visibilityAfterMinutes = Number.isFinite(visibilityAfterMinutesRaw)
+        ? Math.max(0, visibilityAfterMinutesRaw)
+        : 0;
+
+    return new Date(baseEnd.getTime() + visibilityAfterMinutes * 60 * 1000);
+}
+
+async function pruneRegisteredEventsForUser(userId, options = {}) {
+    const {
+        now = new Date(),
+        eventIdFilter = null,
+        dryRun = false,
+    } = options;
+
+    const db = admin.firestore();
+    const regRef = db.collection('users').doc(userId).collection('registered_events');
+    const snap = await regRef.get();
+
+    if (snap.empty) {
+        return { scanned: 0, removed: 0 };
+    }
+
+    const batch = db.batch();
+    let scanned = 0;
+    let removed = 0;
+
+    snap.docs.forEach((doc) => {
+        scanned++;
+        const data = doc.data() || {};
+        const eventId = String(data.eventId || '').trim();
+        if (eventIdFilter && eventId !== eventIdFilter) {
+            return;
+        }
+
+        const expiry = calculateRegistrationExpiry(data);
+        if (!expiry) {
+            return;
+        }
+
+        if (expiry.getTime() < now.getTime()) {
+            removed++;
+            if (!dryRun) {
+                batch.delete(doc.ref);
+            }
+        }
+    });
+
+    if (!dryRun && removed > 0) {
+        await batch.commit();
+    }
+
+    return { scanned, removed };
+}
+
+exports.cleanupExpiredRegisteredEventsForUser = functions.https.onCall(async (data, context) => {
+    await assertSuperAdmin(context);
+
+    const userId = String(data.userId || '').trim();
+    if (!userId) {
+        throw new functions.https.HttpsError('invalid-argument', 'userId is required.');
+    }
+
+    const eventId = String(data.eventId || '').trim();
+    const dryRun = data.dryRun === true;
+    const result = await pruneRegisteredEventsForUser(userId, {
+        dryRun,
+        eventIdFilter: eventId || null,
+    });
+
+    return {
+        ok: true,
+        userId,
+        eventId: eventId || null,
+        dryRun,
+        scanned: result.scanned,
+        removed: result.removed,
+    };
+});
+
+exports.cleanupExpiredRegisteredEvents = functions.pubsub
+    .schedule('every 15 minutes')
+    .timeZone('UTC')
+    .onRun(async () => {
+        const db = admin.firestore();
+        const settingsRef = db.collection('system_settings').doc('maintenance_jobs');
+        const settingsSnap = await settingsRef.get();
+        const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
+
+        const lastCursor = typeof settings.registeredEventsPruneCursor === 'string'
+            ? settings.registeredEventsPruneCursor
+            : null;
+
+        const pageSize = 2000;
+        const now = new Date();
+        let query = db
+            .collectionGroup('registered_events')
+            .orderBy(admin.firestore.FieldPath.documentId())
+            .limit(pageSize);
+
+        if (lastCursor) {
+            query = query.startAfter(lastCursor);
+        }
+
+        const snap = await query.get();
+        if (snap.empty) {
+            await settingsRef.set(
+                {
+                    registeredEventsPruneCursor: null,
+                    registeredEventsPruneLastRunAt: admin.firestore.FieldValue.serverTimestamp(),
+                    registeredEventsPruneScanned: 0,
+                    registeredEventsPruneRemoved: 0,
+                },
+                { merge: true },
+            );
+            return null;
+        }
+
+        const batch = db.batch();
+        let removed = 0;
+
+        snap.docs.forEach((doc) => {
+            const data = doc.data() || {};
+            const expiry = calculateRegistrationExpiry(data);
+            if (!expiry) return;
+
+            if (expiry.getTime() < now.getTime()) {
+                batch.delete(doc.ref);
+                removed++;
+            }
+        });
+
+        if (removed > 0) {
+            await batch.commit();
+        }
+
+        const nextCursor = snap.docs[snap.docs.length - 1].ref.path;
+        await settingsRef.set(
+            {
+                registeredEventsPruneCursor: nextCursor,
+                registeredEventsPruneLastRunAt: admin.firestore.FieldValue.serverTimestamp(),
+                registeredEventsPruneScanned: snap.docs.length,
+                registeredEventsPruneRemoved: removed,
+            },
+            { merge: true },
+        );
 
         return null;
     });

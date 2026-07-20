@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/event.dart';
 import '../services/favorites_service.dart';
 import '../services/group_service.dart';
@@ -28,54 +27,6 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   late TabController _tabController;
   late Future<int> _totalUsersFuture;
   late Future<int> _timeZoneUsersFuture;
-  bool _isMostLikedCommentExpanded = false;
-
-  void _showCommunityPulseDialog(String pulseText) {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: Colors.black87,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          title: const Row(
-            children: [
-              Icon(Icons.bolt, color: Colors.amber, size: 18),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Overall Most Liked Comment',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 18,
-                    height: 1.2,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Text(
-              pulseText,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                height: 1.35,
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Close', style: TextStyle(color: Colors.amber)),
-            ),
-          ],
-        );
-      },
-    );
-  }
 
   @override
   void initState() {
@@ -196,42 +147,24 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                         }
                                       }
 
-                                      return InkWell(
-                                        borderRadius: BorderRadius.circular(10),
-                                        onTap: () => _showCommunityPulseDialog(pulseText),
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(vertical: 2),
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                      return Column(
+                                        crossAxisAlignment: CrossAxisAlignment.center,
+                                        children: [
+                                          const Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
                                             children: [
-                                              const Row(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Icon(Icons.bolt, color: Colors.amber, size: 18),
-                                                  SizedBox(width: 8),
-                                                  Text('OVERALL MOST LIKED COMMENT', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                pulseText,
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                                textAlign: TextAlign.center,
-                                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: 1.2, shadows: [Shadow(blurRadius: 2, color: Colors.black)]),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                'Tap to read full pulse',
-                                                style: TextStyle(
-                                                  color: Colors.amber.withValues(alpha: 0.9),
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
+                                              Icon(Icons.bolt, color: Colors.amber, size: 18),
+                                              SizedBox(width: 8),
+                                              Text('COMMUNITY PULSE', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                                             ],
                                           ),
-                                        ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            pulseText,
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: 1.2, shadows: [Shadow(blurRadius: 2, color: Colors.black)]),
+                                          ),
+                                        ],
                                       );
                                     },
                                   ),
@@ -758,13 +691,6 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                              ),
                            );
                            if (confirmed == true && context.mounted) {
-                             final prefs = await SharedPreferences.getInstance();
-                             await prefs.setBool('has_logged_in_before', true);
-                             await prefs.setBool('has_created_account', true);
-                             final currentEmail = FirebaseAuth.instance.currentUser?.email?.trim();
-                             if (currentEmail != null && currentEmail.isNotEmpty) {
-                               await prefs.setString('last_login_email', currentEmail);
-                             }
                              await FirebaseAuth.instance.signOut();
                              await Provider.of<UserService>(context, listen: false).clearUser();
                              if (context.mounted) {
@@ -1078,14 +1004,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return const Text(
-              'My most liked comment is temporarily unavailable.',
+              'Most liked comment is temporarily unavailable.',
               style: TextStyle(color: Colors.white38, fontSize: 11),
             );
           }
 
           String topComment = 'Post your first comment to start your activity.';
           var likes = 0;
-          var hasLikedComment = false;
 
           if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
             final docs = snapshot.data!.docs;
@@ -1102,7 +1027,6 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 ? data['content'] as String
                 : 'Comment text unavailable';
             likes = (data['likes'] as int?) ?? 0;
-            hasLikedComment = true;
           }
 
           return Column(
@@ -1113,7 +1037,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   const Icon(Icons.star, color: Colors.amber, size: 16),
                   const SizedBox(width: 8),
                   const Text(
-                    'My Most Liked Comment',
+                    'Most Liked Comment',
                     style: TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                   const Spacer(),
@@ -1123,44 +1047,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 ],
               ),
               const SizedBox(height: 8),
-              GestureDetector(
-                onTap: hasLikedComment
-                    ? () {
-                        setState(() {
-                          _isMostLikedCommentExpanded =
-                              !_isMostLikedCommentExpanded;
-                        });
-                      }
-                    : null,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '"$topComment"',
-                      maxLines: _isMostLikedCommentExpanded ? null : 2,
-                      overflow: _isMostLikedCommentExpanded
-                          ? TextOverflow.visible
-                          : TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                    if (hasLikedComment) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        _isMostLikedCommentExpanded
-                            ? 'Tap to collapse'
-                            : 'Tap to expand',
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+              Text(
+                '"$topComment"',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
               ),
             ],
           );

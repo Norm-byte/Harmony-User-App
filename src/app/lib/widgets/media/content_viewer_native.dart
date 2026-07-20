@@ -1,26 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart'; // Added for caching
 import 'package:url_launcher/url_launcher.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
-import 'dart:async';
-import 'dart:io';
 import '../../services/user_service.dart';
-
-const MethodChannel _iosAudioSessionChannel = MethodChannel(
-  'com.harmonybyintent.harmony_user_app/dormant_alarm',
-);
-
-Future<void> _ensureIosPlaybackAudioSession() async {
-  if (!Platform.isIOS) return;
-
-  try {
-    await _iosAudioSessionChannel.invokeMethod('activate_playback_audio_session');
-  } catch (_) {}
-}
 
 class ContentViewer extends StatelessWidget {
   final String url;
@@ -40,17 +25,8 @@ class ContentViewer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final userService = context.watch<UserService>();
-    final rawVolume = userService.eventVolume;
-    final volume = (Platform.isIOS && autoPlay && !controls && rawVolume <= 0.01)
-        ? 1.0
-        : rawVolume;
-
-    if (Platform.isIOS && autoPlay && !controls && rawVolume <= 0.01) {
-      debugPrint(
-        'HARMONY_IOS_EVENT_AUDIO_VOLUME_GUARD raw=$rawVolume effective=$volume',
-      );
-    }
+    final userService = Provider.of<UserService>(context, listen: false);
+    final volume = userService.eventVolume;
 
     if (url.isEmpty) {
       return const Center(
@@ -185,15 +161,13 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
       final uri = Uri.parse(url);
       if (uri.pathSegments.contains('shorts')) {
         final index = uri.pathSegments.indexOf('shorts');
-        if (index + 1 < uri.pathSegments.length) {
+        if (index + 1 < uri.pathSegments.length)
           return uri.pathSegments[index + 1];
-        }
       }
       if (uri.pathSegments.contains('live')) {
         final index = uri.pathSegments.indexOf('live');
-        if (index + 1 < uri.pathSegments.length) {
+        if (index + 1 < uri.pathSegments.length)
           return uri.pathSegments[index + 1];
-        }
       }
     } catch (_) {}
 
@@ -206,7 +180,6 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
     final videoId = _extractVideoId(widget.url);
     debugPrint('YoutubePlayer: URL: ${widget.url}');
     debugPrint('YoutubePlayer: Extracted ID: $videoId');
-    unawaited(_ensureIosPlaybackAudioSession());
 
     _controller = YoutubePlayerController(
       initialVideoId: videoId ?? '',
@@ -230,14 +203,6 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) _controller.setVolume((widget.volume * 100).toInt());
     });
-  }
-
-  @override
-  void didUpdateWidget(covariant _NativeYoutubePlayer oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.volume != widget.volume) {
-      _controller.setVolume((widget.volume * 100).round().clamp(0, 100));
-    }
   }
 
   @override
@@ -325,7 +290,7 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.45),
+                  color: Colors.black.withOpacity(0.45),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -385,11 +350,6 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
       _initialized = false;
       _initFailed = false;
       _initializePlayer();
-      return;
-    }
-
-    if (oldWidget.volume != widget.volume && _controller != null && _initialized) {
-      _controller!.setVolume(widget.volume.clamp(0.0, 1.0));
     }
   }
 
@@ -434,8 +394,6 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
 
   Future<void> _initializePlayer() async {
     try {
-      await _ensureIosPlaybackAudioSession();
-
       // CACHE STRATEGY IMPROVED (v4+):
       // 1. Check if file exists in cache WITHOUT blocking for download.
       // 2. If cached -> Play file (Instant).

@@ -130,21 +130,6 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
               );
             },
           ),
-          SwitchListTile(
-            title: const Text(
-              'Comment Activity Alerts',
-              style: TextStyle(color: Colors.white),
-            ),
-            subtitle: const Text(
-              'Notify me when someone likes or replies to one of my comments',
-              style: TextStyle(color: Colors.white70),
-            ),
-            value: userService.notifyOnCommentLikes,
-            onChanged: (val) => userService.setNotifyOnCommentLikes(val),
-            secondary: const Icon(Icons.thumb_up_alt_outlined, color: Colors.white70),
-            activeThumbColor: Colors.amber,
-            contentPadding: EdgeInsets.zero,
-          ),
 
           if (Platform.isAndroid) ...[  
             const SizedBox(height: 16),
