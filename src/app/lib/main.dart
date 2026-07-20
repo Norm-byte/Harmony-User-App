@@ -136,6 +136,8 @@ class _AppLifecycleManagerState extends State<AppLifecycleManager>
                   description: eventService.currentEventDescription,
                   isWorldwide: eventService.isWorldwide,
                   mediaUrl: eventService.currentEventMediaUrl, // Pass mediaUrl
+                  eventStartTime: eventService.currentEventStartTime,
+                  eventEndTime: eventService.currentEventEndTime,
                   userIntent: null,
                   onDismiss: eventService.dismissEvent,
                 ),

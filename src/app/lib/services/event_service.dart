@@ -264,6 +264,8 @@ class EventService extends ChangeNotifier {
   String get currentEventTitle => _currentEventTitle;
   String get currentEventDescription => _currentEventDescription;
   String? get currentEventMediaUrl => _currentEventMediaUrl;
+  DateTime? get currentEventStartTime => _currentEventStartTime;
+  DateTime? get currentEventEndTime => _currentEventEndTime;
 
   void setAppInForegroundState(bool isForeground) {
     _isAppInForeground = isForeground;
