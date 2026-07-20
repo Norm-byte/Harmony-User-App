@@ -360,8 +360,7 @@ class EventsScreen extends StatelessWidget {
                                               event.type, 
                                               event.startTime, 
                                               event.endTime,
-                                              visibilityAfterMinutes: event.visibilityAfterMinutes ?? 0,
-                                              source: 'user',
+                                              visibilityAfterMinutes: event.visibilityAfterMinutes ?? 0 // Pass visibility param
                                           );
 
                                           if (context.mounted) {
@@ -531,8 +530,7 @@ class EventsScreen extends StatelessWidget {
                                                     event.type, 
                                                     event.startTime, 
                                                     event.endTime,
-                                                    visibilityAfterMinutes: event.visibilityAfterMinutes ?? 0,
-                                                    source: 'user',
+                                                    visibilityAfterMinutes: event.visibilityAfterMinutes ?? 0 // Pass visibility param
                                                 ); 
 
                                                 if (context.mounted) {
