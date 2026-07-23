@@ -55,14 +55,12 @@ class EventOverlayScreen extends StatelessWidget {
           ),
           if (mediaUrl != null && mediaUrl!.isNotEmpty)
             Positioned.fill(
-              child: IgnorePointer(
-                child: ContentViewer(
-                  url: mediaUrl!,
-                  fit: BoxFit.cover,
-                  controls: false,
-                  autoPlay: true,
-                  loop: true,
-                ),
+              child: ContentViewer(
+                url: mediaUrl!,
+                fit: BoxFit.cover,
+                controls: true,
+                autoPlay: true,
+                loop: true,
               ),
             )
           else

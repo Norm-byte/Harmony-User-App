@@ -548,39 +548,38 @@ class SectionDetailScreen extends StatelessWidget {
             ),
 
           if (gridVideos.isNotEmpty) ...[
-            SliverPadding(
-              padding: const EdgeInsets.all(16),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  const SizedBox(height: 24),
-                  Text(
+          /* General content removed from view
+              SliverPadding(
+                padding: const EdgeInsets.all(16),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    const SizedBox(height: 24),
+                    Text(
                     subcategories.isNotEmpty ? 'General Content' : 'Content',
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    const SizedBox(height: 12),
+                  ])
+                )
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    childAspectRatio: 0.85, 
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
                   ),
-                  const SizedBox(height: 12),
-                ]),
-              ),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              sliver: SliverGrid(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  childAspectRatio: 0.85,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    return TopicsLandingScreen._buildTopicGridItemStatic(
-                      context,
-                      TopicsLandingScreen._docToMapStatic(gridVideos[index]),
-                    );
-                  },
-                  childCount: gridVideos.length,
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      return TopicsLandingScreen._buildTopicGridItemStatic(context, TopicsLandingScreen._docToMapStatic(gridVideos[index]));
+                    },
+                    childCount: gridVideos.length,
+                  ),
                 ),
               ),
-            ),
+            */
           ],
           const SliverPadding(padding: EdgeInsets.only(bottom: 32)),
         ],
@@ -881,6 +880,7 @@ class _TopicsFullscreenYoutubePlayerState
     extends State<_TopicsFullscreenYoutubePlayer> {
   YoutubePlayerController? _controller;
   bool _isReady = false;
+  bool _repeatEnabled = false;
 
   @override
   void initState() {
@@ -896,9 +896,9 @@ class _TopicsFullscreenYoutubePlayerState
       flags: const YoutubePlayerFlags(
         autoPlay: true,
         mute: false,
-        disableDragSeek: true,
-        hideControls: true,
-        controlsVisibleAtStart: false,
+        disableDragSeek: false,
+        hideControls: false,
+        controlsVisibleAtStart: true,
         hideThumbnail: true,
       ),
     );
@@ -907,6 +907,14 @@ class _TopicsFullscreenYoutubePlayerState
 
   void _syncState() {
     if (!mounted) return;
+    final c = _controller;
+    if (_repeatEnabled &&
+        c != null &&
+        c.value.playerState == PlayerState.ended &&
+        !c.value.isPlaying) {
+      c.seekTo(Duration.zero);
+      c.play();
+    }
     setState(() {});
   }
 
@@ -941,8 +949,6 @@ class _TopicsFullscreenYoutubePlayerState
       );
     }
 
-    final isPlaying = _controller!.value.isPlaying;
-
     Widget buildYoutubeSurface(Widget player) {
       return SizedBox.expand(
         child: Center(
@@ -958,61 +964,51 @@ class _TopicsFullscreenYoutubePlayerState
       );
     }
 
-    return GestureDetector(
-      onTap: () {
-        final c = _controller!;
-        if (c.value.isPlaying) {
-          c.pause();
-        } else {
-          c.play();
-        }
-        setState(() {});
-      },
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(color: Colors.black),
-          YoutubePlayerBuilder(
-            player: YoutubePlayer(
-              controller: _controller!,
-              showVideoProgressIndicator: false,
-              onReady: () {
-                if (!mounted) return;
-                setState(() => _isReady = true);
-              },
-            ),
-            builder: (context, player) => AnimatedOpacity(
-              duration: const Duration(milliseconds: 180),
-              opacity: _isReady ? 1 : 0,
-              child: IgnorePointer(
-                // Keep all interactions in-app. This prevents taps on the
-                // embedded YouTube title/overlays from opening external links.
-                ignoring: true,
-                child: buildYoutubeSurface(player),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Container(color: Colors.black),
+        YoutubePlayerBuilder(
+          player: YoutubePlayer(
+            controller: _controller!,
+            showVideoProgressIndicator: true,
+            onReady: () {
+              if (!mounted) return;
+              setState(() => _isReady = true);
+            },
+          ),
+          builder: (context, player) => AnimatedOpacity(
+            duration: const Duration(milliseconds: 180),
+            opacity: _isReady ? 1 : 0,
+            child: buildYoutubeSurface(player),
+          ),
+        ),
+        if (!_isReady)
+          const Center(
+            child: CircularProgressIndicator(color: Colors.white70),
+          ),
+        if (_isReady)
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: IconButton(
+                tooltip: _repeatEnabled ? 'Repeat on' : 'Repeat off',
+                icon: Icon(
+                  Icons.repeat,
+                  color: _repeatEnabled ? Colors.amberAccent : Colors.white70,
+                ),
+                onPressed: () {
+                  setState(() => _repeatEnabled = !_repeatEnabled);
+                },
               ),
             ),
           ),
-          if (!_isReady)
-            const Center(
-              child: CircularProgressIndicator(color: Colors.white70),
-            ),
-          if (_isReady && !isPlaying)
-            Center(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.45),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.play_arrow,
-                  color: Colors.white,
-                  size: 40,
-                ),
-              ),
-            ),
-        ],
-      ),
+      ],
     );
   }
 }

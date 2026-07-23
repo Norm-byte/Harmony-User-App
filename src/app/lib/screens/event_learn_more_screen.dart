@@ -151,7 +151,9 @@ class EventLearnMoreScreen extends StatelessWidget {
     return ContentViewer(
       url: url,
       fit: BoxFit.contain,
-      controls: false,
+      controls: true,
+      autoPlay: true,
+      loop: false,
     );
   }
 

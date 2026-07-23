@@ -1652,7 +1652,21 @@ class EventService extends ChangeNotifier {
       if (_isAudioUrl(event.mediaUrl)) {
         return event.mediaUrl;
       }
-      return null;
+      // Audio mode requested but no usable audio source: fall back to visual
+      // media so overlays do not degrade to the blank music-note screen.
+      if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
+        return event.visualUrl;
+      }
+      if (event.mediaUrl != null && event.mediaUrl!.isNotEmpty) {
+        return event.mediaUrl;
+      }
+      return event.soundUrl;
+    }
+
+    // In visual/video mode, explicit YouTube media links must win over visual
+    // fallback assets so event taps route into the YouTube viewer path.
+    if (_isYoutubeUrl(event.mediaUrl)) {
+      return event.mediaUrl;
     }
 
     if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
@@ -1662,6 +1676,10 @@ class EventService extends ChangeNotifier {
   }
 
   String? _selectPlaybackMediaForForcedVideo(Event event) {
+    if (_isYoutubeUrl(event.mediaUrl)) {
+      return event.mediaUrl;
+    }
+
     if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
       return event.visualUrl;
     }
@@ -1681,5 +1699,26 @@ class EventService extends ChangeNotifier {
         lower.contains('.wav') ||
         lower.contains('.aac') ||
         lower.contains('.m4a');
+  }
+
+  bool _isYoutubeUrl(String? url) {
+    if (url == null || url.isEmpty) return false;
+
+    final parsed = Uri.tryParse(url);
+    final host = (parsed?.host ?? '').toLowerCase();
+    if (host.contains('youtube.com') ||
+        host.contains('youtu.be') ||
+        host.contains('youtube-nocookie.com')) {
+      return true;
+    }
+
+    final lower = url.toLowerCase();
+    if (lower.contains('youtube.com') || lower.contains('youtu.be')) {
+      return true;
+    }
+
+    // Handle encoded redirect-style URLs that still contain a YouTube target.
+    final decoded = Uri.decodeFull(url).toLowerCase();
+    return decoded.contains('youtube.com') || decoded.contains('youtu.be');
   }
 }

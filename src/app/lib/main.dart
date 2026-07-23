@@ -326,7 +326,6 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.spa, size: 80, color: Colors.indigo.shade300),
             const SizedBox(height: 24),
             const CircularProgressIndicator(color: Colors.indigo),
             const SizedBox(height: 24),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
@@ -61,19 +63,35 @@ class ContentViewer extends StatelessWidget {
         url.toLowerCase().contains('.doc') ||
         url.toLowerCase().contains('.docx');
 
-    // Check for YouTube
-    final isYoutube = url.contains('youtube.com') || url.contains('youtu.be');
+    // Check for YouTube links across common host variants.
+    final parsed = Uri.tryParse(url);
+    final host = (parsed?.host ?? '').toLowerCase();
+    final lowerUrl = url.toLowerCase();
+    final isYoutube =
+      host.contains('youtube.com') ||
+      host.contains('youtu.be') ||
+      host.contains('youtube-nocookie.com') ||
+      host.contains('m.youtube.com') ||
+      lowerUrl.contains('youtube.com') ||
+      lowerUrl.contains('youtu.be');
+
+    debugPrint(
+      'CV_BRANCH: host=$host isYoutube=$isYoutube isVideo=$isVideo isPdf=$isPdf isDoc=$isDoc url=$url',
+    );
 
     if (isYoutube) {
+      debugPrint('CV_BRANCH: using _NativeYoutubePlayer fit=$fit controls=$controls');
       return _NativeYoutubePlayer(
         url: url,
         autoPlay: autoPlay,
+        loop: loop,
         volume: volume,
         fit: fit,
       );
     }
 
     if (isVideo) {
+      debugPrint('CV_BRANCH: using _NativeVideoPlayer fit=$fit controls=$controls');
       return _NativeVideoPlayer(
         url: url,
         controls: controls,
@@ -133,12 +151,14 @@ class ContentViewer extends StatelessWidget {
 class _NativeYoutubePlayer extends StatefulWidget {
   final String url;
   final bool autoPlay;
+  final bool loop;
   final double volume;
   final BoxFit fit;
 
   const _NativeYoutubePlayer({
     required this.url,
     this.autoPlay = false,
+    this.loop = false,
     required this.volume,
     this.fit = BoxFit.contain,
   });
@@ -150,24 +170,28 @@ class _NativeYoutubePlayer extends StatefulWidget {
 class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
   late YoutubePlayerController _controller;
   bool _isReady = false;
+  bool _repeatEnabled = false;
+  bool _showControlsOverlay = false;
+  double? _scrubValueMs;
+  Timer? _controlsHideTimer;
 
   String? _extractVideoId(String url) {
-    // 1. Try library function first
     String? id = YoutubePlayer.convertUrlToId(url);
     if (id != null) return id;
 
-    // 2. Manual fallback for Shorts/Live
     try {
       final uri = Uri.parse(url);
       if (uri.pathSegments.contains('shorts')) {
         final index = uri.pathSegments.indexOf('shorts');
-        if (index + 1 < uri.pathSegments.length)
+        if (index + 1 < uri.pathSegments.length) {
           return uri.pathSegments[index + 1];
+        }
       }
       if (uri.pathSegments.contains('live')) {
         final index = uri.pathSegments.indexOf('live');
-        if (index + 1 < uri.pathSegments.length)
+        if (index + 1 < uri.pathSegments.length) {
           return uri.pathSegments[index + 1];
+        }
       }
     } catch (_) {}
 
@@ -178,17 +202,15 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
   void initState() {
     super.initState();
     final videoId = _extractVideoId(widget.url);
-    debugPrint('YoutubePlayer: URL: ${widget.url}');
-    debugPrint('YoutubePlayer: Extracted ID: $videoId');
 
     _controller = YoutubePlayerController(
       initialVideoId: videoId ?? '',
       flags: YoutubePlayerFlags(
-        autoPlay: widget.autoPlay, // Use widget.autoPlay
+        autoPlay: widget.autoPlay,
         mute: false,
         enableCaption: false,
         forceHD: false,
-        loop: true,
+        loop: false,
         hideControls: true,
         controlsVisibleAtStart: false,
         disableDragSeek: true,
@@ -196,25 +218,98 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
       ),
     );
 
+    _repeatEnabled = widget.loop;
     _controller.addListener(_onControllerUpdate);
 
-    // Set volume after init
-    // Youtube volume is 0-100
     Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) _controller.setVolume((widget.volume * 100).toInt());
+      if (mounted) {
+        _controller.setVolume((widget.volume * 100).toInt());
+      }
     });
   }
 
   @override
   void dispose() {
+    _controlsHideTimer?.cancel();
     _controller.removeListener(_onControllerUpdate);
     _controller.dispose();
     super.dispose();
   }
 
+  double _durationMs() {
+    final value = _controller.metadata.duration.inMilliseconds;
+    if (value > 0) return value.toDouble();
+    return 1;
+  }
+
+  double _currentSliderValueMs() {
+    final durationMs = _durationMs();
+    final currentMs =
+        _scrubValueMs ?? _controller.value.position.inMilliseconds.toDouble();
+    return currentMs.clamp(0, durationMs);
+  }
+
+  String _formatDuration(Duration value) {
+    final totalSeconds = value.inSeconds;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    }
+
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  void _showControlsBriefly() {
+    _controlsHideTimer?.cancel();
+    setState(() => _showControlsOverlay = true);
+    _controlsHideTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) {
+        setState(() => _showControlsOverlay = false);
+      }
+    });
+  }
+
+  void _togglePlayPause() {
+    if (_controller.value.isPlaying) {
+      _controller.pause();
+    } else {
+      _controller.play();
+    }
+    _showControlsBriefly();
+  }
+
+  void _handlePrimaryTap() {
+    if (!_isReady) return;
+
+    if (!_controller.value.isPlaying) {
+      _controller.play();
+      return;
+    }
+
+    if (_showControlsOverlay) {
+      _showControlsBriefly();
+      return;
+    }
+
+    _showControlsBriefly();
+  }
+
   void _onControllerUpdate() {
     if (!mounted) return;
-    setState(() {});
+
+    if (_repeatEnabled &&
+        _controller.value.playerState == PlayerState.ended &&
+        !_controller.value.isPlaying) {
+      _controller.seekTo(Duration.zero);
+      _controller.play();
+    }
+
+    if (_showControlsOverlay || !_controller.value.isPlaying) {
+      setState(() {});
+    }
   }
 
   @override
@@ -237,71 +332,138 @@ class _NativeYoutubePlayerState extends State<_NativeYoutubePlayer> {
       );
     }
 
-    final isPlaying = _controller.value.isPlaying;
-
     Widget buildYoutubeSurface(Widget player) {
       return SizedBox.expand(
         child: Center(
           child: FittedBox(
-            fit: widget.fit,
+            fit: BoxFit.contain,
             child: SizedBox(
               width: 16 * 100,
               height: 9 * 100,
-              child: player,
+              child: IgnorePointer(
+                ignoring: true,
+                child: player,
+              ),
             ),
           ),
         ),
       );
     }
 
-    return GestureDetector(
-      onTap: () {
-        if (_controller.value.isPlaying) {
-          _controller.pause();
-        } else {
-          _controller.play();
-        }
-      },
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(color: Colors.black),
-          YoutubePlayerBuilder(
-            player: YoutubePlayer(
-              controller: _controller,
-              showVideoProgressIndicator: false,
-              onReady: () {
-                if (!mounted) return;
-                setState(() => _isReady = true);
-              },
-            ),
-            builder: (context, player) => AnimatedOpacity(
-              duration: const Duration(milliseconds: 180),
-              opacity: _isReady ? 1 : 0,
-              child: buildYoutubeSurface(player),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Container(color: Colors.black),
+        YoutubePlayerBuilder(
+          player: YoutubePlayer(
+            controller: _controller,
+            showVideoProgressIndicator: false,
+            onReady: () {
+              if (!mounted) return;
+              setState(() => _isReady = true);
+            },
+          ),
+          builder: (context, player) => AnimatedOpacity(
+            duration: const Duration(milliseconds: 180),
+            opacity: _isReady ? 1 : 0,
+            child: buildYoutubeSurface(player),
+          ),
+        ),
+        if (!_isReady)
+          const Center(
+            child: CircularProgressIndicator(color: Colors.white70),
+          ),
+        if (_isReady)
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _handlePrimaryTap,
+              child: const SizedBox.expand(),
             ),
           ),
-          if (!_isReady)
-            const Center(
-              child: CircularProgressIndicator(color: Colors.white70),
-            ),
-          if (_isReady && !isPlaying)
-            Center(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.45),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.play_arrow,
-                  color: Colors.white,
-                  size: 40,
-                ),
+        if (_isReady && _showControlsOverlay)
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.58),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: _controller.value.isPlaying ? 'Pause' : 'Play',
+                    onPressed: _togglePlayPause,
+                    icon: Icon(
+                      _controller.value.isPlaying
+                          ? Icons.pause_circle_filled
+                          : Icons.play_circle_fill,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackHeight: 2.5,
+                            thumbShape: const RoundSliderThumbShape(
+                              enabledThumbRadius: 6,
+                            ),
+                          ),
+                          child: Slider(
+                            min: 0,
+                            max: _durationMs(),
+                            value: _currentSliderValueMs(),
+                            activeColor: Colors.white,
+                            inactiveColor: Colors.white24,
+                            onChanged: (value) {
+                              setState(() => _scrubValueMs = value);
+                            },
+                            onChangeEnd: (value) {
+                              _controller.seekTo(
+                                Duration(milliseconds: value.toInt()),
+                              );
+                              setState(() => _scrubValueMs = null);
+                              _showControlsBriefly();
+                            },
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            '${_formatDuration(_controller.value.position)} / ${_formatDuration(_controller.metadata.duration)}',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: _repeatEnabled ? 'Repeat on' : 'Repeat off',
+                    icon: Icon(
+                      Icons.repeat,
+                      color:
+                          _repeatEnabled ? Colors.amberAccent : Colors.white70,
+                    ),
+                    onPressed: () {
+                      setState(() => _repeatEnabled = !_repeatEnabled);
+                      _showControlsBriefly();
+                    },
+                  ),
+                ],
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
@@ -332,6 +494,10 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
   VideoPlayerController? _controller;
   bool _initialized = false;
   bool _initFailed = false;
+  bool _repeatEnabled = false;
+  bool _showControlsOverlay = false;
+  double? _scrubValueMs;
+  Timer? _controlsHideTimer;
   DateTime? _lastAutoResume;
 
   @override
@@ -345,6 +511,7 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
   void didUpdateWidget(covariant _NativeVideoPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url) {
+      _controlsHideTimer?.cancel();
       _controller?.dispose();
       _controller = null;
       _initialized = false;
@@ -392,6 +559,95 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
     });
   }
 
+  double _currentSliderValueMs() {
+    final controller = _controller;
+    if (controller == null) return 0;
+    final durationMs = controller.value.duration.inMilliseconds;
+    if (durationMs <= 0) return 0;
+    final currentMs =
+        _scrubValueMs ?? controller.value.position.inMilliseconds.toDouble();
+    return currentMs.clamp(0, durationMs.toDouble());
+  }
+
+  Duration _durationFromMs(double value) => Duration(milliseconds: value.toInt());
+
+  String _formatDuration(Duration value) {
+    final totalSeconds = value.inSeconds;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    }
+
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  void _showControlsBriefly() {
+    _controlsHideTimer?.cancel();
+    setState(() => _showControlsOverlay = true);
+    _controlsHideTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) {
+        setState(() => _showControlsOverlay = false);
+      }
+    });
+  }
+
+  void _hideControls() {
+    _controlsHideTimer?.cancel();
+    if (_showControlsOverlay) {
+      setState(() => _showControlsOverlay = false);
+    }
+  }
+
+  Future<void> _seekRelative(int deltaSeconds) async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    final duration = controller.value.duration;
+    final current = controller.value.position;
+    final next = current + Duration(seconds: deltaSeconds);
+
+    Duration clamped = next;
+    if (clamped < Duration.zero) clamped = Duration.zero;
+    if (duration > Duration.zero && clamped > duration) clamped = duration;
+
+    await controller.seekTo(clamped);
+  }
+
+  Future<void> _toggleRepeat() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    final next = !_repeatEnabled;
+    setState(() => _repeatEnabled = next);
+    await controller.setLooping(next);
+  }
+
+  void _handlePrimaryTap() {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    if (!widget.controls) {
+      setState(() {
+        controller.value.isPlaying ? controller.pause() : controller.play();
+      });
+      return;
+    }
+
+    if (_showControlsOverlay) {
+      _showControlsBriefly();
+      return;
+    }
+
+    if (!controller.value.isPlaying) {
+      setState(() => controller.play());
+      return;
+    }
+
+    _showControlsBriefly();
+  }
+
   Future<void> _initializePlayer() async {
     try {
       // CACHE STRATEGY IMPROVED (v4+):
@@ -432,10 +688,17 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
         setState(() {
           _initialized = true;
           _initFailed = false;
+          _repeatEnabled = widget.loop;
         });
         _controller!.setVolume(widget.volume);
         _controller!.setLooping(widget.loop);
         _attachPlaybackGuard();
+        _controller!.addListener(() {
+          if (!mounted) return;
+          if (_showControlsOverlay) {
+            setState(() {});
+          }
+        });
         if (widget.autoPlay) {
           _controller!.play();
         }
@@ -452,6 +715,7 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
 
   @override
   void dispose() {
+    _controlsHideTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _controller?.dispose();
     super.dispose();
@@ -499,24 +763,130 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
             ),
           ),
           if (widget.controls)
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _controller!.value.isPlaying
-                      ? _controller!.pause()
-                      : _controller!.play();
-                });
-              },
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _handlePrimaryTap,
+                child: const SizedBox.expand(),
+              ),
+            ),
+          if (widget.controls && _showControlsOverlay)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
               child: Container(
-                color: Colors.transparent,
-                child: Center(
-                  child: Icon(
-                    _controller!.value.isPlaying
-                        ? Icons.pause
-                        : Icons.play_arrow,
-                    color: Colors.white.withValues(alpha: 0.7),
-                    size: 48,
-                  ),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        overlayShape: SliderComponentShape.noOverlay,
+                        trackHeight: 2.8,
+                      ),
+                      child: Slider(
+                        value: _controller!.value.duration.inMilliseconds <= 0
+                            ? 0
+                            : _currentSliderValueMs(),
+                        min: 0,
+                        max: _controller!.value.duration.inMilliseconds <= 0
+                            ? 1
+                            : _controller!.value.duration.inMilliseconds.toDouble(),
+                        onChangeStart: (_) => setState(() {
+                          _scrubValueMs = _currentSliderValueMs();
+                        }),
+                        onChanged: (value) => setState(() => _scrubValueMs = value),
+                        onChangeEnd: (value) async {
+                          setState(() => _scrubValueMs = null);
+                          await _controller!.seekTo(_durationFromMs(value));
+                        },
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Text(
+                          _formatDuration(_controller!.value.position),
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          tooltip: 'Back 10 seconds',
+                          icon: const Icon(Icons.replay_10, color: Colors.white70),
+                          onPressed: () {
+                            _showControlsBriefly();
+                            unawaited(_seekRelative(-10));
+                          },
+                        ),
+                        IconButton(
+                          tooltip: _controller!.value.isPlaying ? 'Pause' : 'Play',
+                          icon: Icon(
+                            _controller!.value.isPlaying
+                                ? Icons.pause_circle_filled
+                                : Icons.play_circle_fill,
+                            color: Colors.white,
+                          ),
+                          onPressed: () {
+                            _showControlsBriefly();
+                            setState(() {
+                              _controller!.value.isPlaying
+                                  ? _controller!.pause()
+                                  : _controller!.play();
+                            });
+                          },
+                        ),
+                        IconButton(
+                          tooltip: 'Forward 10 seconds',
+                          icon: const Icon(Icons.forward_10, color: Colors.white70),
+                          onPressed: () {
+                            _showControlsBriefly();
+                            unawaited(_seekRelative(10));
+                          },
+                        ),
+                        const Spacer(),
+                        Text(
+                          _formatDuration(_controller!.value.duration),
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        IconButton(
+                          tooltip: _repeatEnabled ? 'Repeat on' : 'Repeat off',
+                          icon: Icon(
+                            Icons.repeat,
+                            color: _repeatEnabled
+                                ? Colors.amberAccent
+                                : Colors.white70,
+                          ),
+                          onPressed: () {
+                            _showControlsBriefly();
+                            unawaited(_toggleRepeat());
+                          },
+                        ),
+                        IconButton(
+                          tooltip: 'Hide controls',
+                          icon: const Icon(Icons.close, color: Colors.white70),
+                          onPressed: _hideControls,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ),

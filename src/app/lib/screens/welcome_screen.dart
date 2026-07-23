@@ -151,7 +151,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                                     ? Transform.scale(
                                         scale: logoSize / 200.0,
                                         child: SizedBox(
-                                          width: 200, height: 200,
+                                          width: 200,
+                                          height: 200,
                                           child: Image.network(
                                             logoUrl,
                                             fit: BoxFit.contain,
@@ -160,11 +161,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                                               return const Center(child: CircularProgressIndicator(color: Colors.white));
                                             },
                                             errorBuilder: (context, error, stackTrace) =>
-                                                Icon(Icons.spa, size: 80, color: Colors.white), // Default size for fallback
+                                                const SizedBox.shrink(),
                                           ),
                                         ),
                                       )
-                                    : Icon(Icons.spa, size: logoSize, color: Colors.white),
+                                    : const SizedBox.shrink(),
                               ),
                               const SizedBox(height: 40),
                               Text(

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:video_player/video_player.dart';
+import '../widgets/media/content_viewer.dart';
 
 class GenericVideoPlayerScreen extends StatefulWidget {
   final String videoUrl;
@@ -12,45 +12,8 @@ class GenericVideoPlayerScreen extends StatefulWidget {
 }
 
 class _GenericVideoPlayerScreenState extends State<GenericVideoPlayerScreen> {
-  late VideoPlayerController _controller;
-  bool _isInitialized = false;
-  String? _errorMessage;
-
-  @override
-  void initState() {
-    super.initState();
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    SystemChrome.setPreferredOrientations(const [
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-    _initializeVideo();
-  }
-
-  Future<void> _initializeVideo() async {
-    debugPrint('GenericVideoPlayerScreen initializing: ${widget.videoUrl}');
-    try {
-      _controller = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
-      await _controller.initialize().timeout(const Duration(seconds: 10));
-      setState(() {
-        _isInitialized = true;
-      });
-      _controller.play();
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Error loading video: $e\nURL: ${widget.videoUrl}';
-      });
-      debugPrint('Video initialization error: $e');
-    }
-  }
-
   @override
   void dispose() {
-    if (_isInitialized) {
-      _controller.dispose();
-    }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.portraitUp,
@@ -69,54 +32,14 @@ class _GenericVideoPlayerScreenState extends State<GenericVideoPlayerScreen> {
         child: Stack(
           children: [
             Positioned.fill(
-              child: _errorMessage != null
-                  ? Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Center(
-                        child: Text(
-                          _errorMessage!,
-                          style: const TextStyle(color: Colors.white),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    )
-                  : _isInitialized
-                      ? FittedBox(
-                          fit: BoxFit.contain,
-                          child: SizedBox(
-                            width: _controller.value.size.width,
-                            height: _controller.value.size.height,
-                            child: VideoPlayer(_controller),
-                          ),
-                        )
-                      : const Center(child: CircularProgressIndicator()),
-            ),
-            // Controls overlay
-            if (_isInitialized)
-              Positioned(
-                bottom: 20,
-                left: 0,
-                right: 0,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    IconButton(
-                      icon: Icon(
-                        _controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
-                        color: Colors.white,
-                        size: 30,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _controller.value.isPlaying
-                              ? _controller.pause()
-                              : _controller.play();
-                        });
-                      },
-                    ),
-                  ],
-                ),
+              child: ContentViewer(
+                url: widget.videoUrl,
+                fit: BoxFit.contain,
+                controls: true,
+                autoPlay: true,
+                loop: false,
               ),
+            ),
             Positioned(
               top: 16,
               left: 16,
