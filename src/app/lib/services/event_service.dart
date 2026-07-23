@@ -248,6 +248,8 @@ class EventService extends ChangeNotifier {
   String _currentEventDescription = '';
   String? _currentEventMediaUrl;
   String? _currentEventId; // Track ID for dismissal logic
+  int _currentEventParticipantCount = 0;
+  String? _currentEventOriginTimeZone;
   DateTime? _currentEventStartTime; // Track Start Time for valid dismissal key
   DateTime? _currentEventEndTime; // Track End Time for auto-dismissal
   final Duration _eventGracePeriod = const Duration(
@@ -264,6 +266,9 @@ class EventService extends ChangeNotifier {
   String get currentEventTitle => _currentEventTitle;
   String get currentEventDescription => _currentEventDescription;
   String? get currentEventMediaUrl => _currentEventMediaUrl;
+  String? get currentEventId => _currentEventId;
+  int get currentEventParticipantCount => _currentEventParticipantCount;
+  String? get currentEventOriginTimeZone => _currentEventOriginTimeZone;
 
   void setAppInForegroundState(bool isForeground) {
     _isAppInForeground = isForeground;
@@ -770,6 +775,8 @@ class EventService extends ChangeNotifier {
       isWorldwide: target.type == EventType.global,
       mediaUrl: forcedMedia,
       intent: target.mostPopularIntent,
+      participantCount: target.participantCount,
+      originTimeZone: target.originTimeZone,
       fromAlarmLaunch: true,
       startTime: forcedStart,
       durationSeconds: cappedSeconds,
@@ -1358,6 +1365,8 @@ class EventService extends ChangeNotifier {
         isWorldwide: bestEventToTrigger.type == EventType.global,
         mediaUrl: _selectPlaybackMedia(bestEventToTrigger),
         intent: bestEventToTrigger.mostPopularIntent,
+        participantCount: bestEventToTrigger.participantCount,
+        originTimeZone: bestEventToTrigger.originTimeZone,
         fromAlarmLaunch: false,
         startTime: bestEventToTrigger.startTime.toLocal(),
         // We do NOT pass endTime to trigger anymore to avoid confusion. Logic is purely duration based.
@@ -1374,6 +1383,8 @@ class EventService extends ChangeNotifier {
     required bool isWorldwide,
     String? mediaUrl,
     String? intent,
+    int participantCount = 0,
+    String? originTimeZone,
     bool fromAlarmLaunch = false,
     DateTime? startTime,
     // DateTime? endTime, // REMOVED to prevent accidental usage
@@ -1406,6 +1417,8 @@ class EventService extends ChangeNotifier {
     _currentEventEndTime =
         null; // Explicitly nullify this. use STRICT timer only.
     _currentEventTitle = title;
+    _currentEventParticipantCount = participantCount;
+    _currentEventOriginTimeZone = originTimeZone;
 
     if (description.isEmpty &&
         intent != null &&
@@ -1534,6 +1547,8 @@ class EventService extends ChangeNotifier {
     _isEventActive = false;
     _currentEventMediaUrl = null;
     _currentEventId = null;
+    _currentEventParticipantCount = 0;
+    _currentEventOriginTimeZone = null;
     _currentEventEndTime = null;
     _currentEventStartTime = null;
     _currentEventFromAlarmLaunch = false;

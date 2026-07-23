@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import '../services/event_service.dart';
 import '../services/user_service.dart';
+import '../services/home_speaker_state.dart';
 import '../widgets/media/content_viewer.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'events_screen.dart';
@@ -66,7 +67,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final eventService = _eventService;
     if (eventService == null) return;
 
-    final shouldPauseHome = eventService.isEventActive || _selectedIndex != 0;
+    final shouldPauseHome = eventService.isEventActive;
     if (shouldPauseHome && _backgroundAudioController?.value.isInitialized == true) {
       unawaited(_backgroundAudioController?.pause());
     } else if (!shouldPauseHome && !_isBackgroundAudioMuted && _lastAudioShouldPlayHome) {
@@ -78,6 +79,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _eventService?.removeListener(_handleEventServiceChanged);
     _backgroundAudioController?.dispose();
+    homeSpeakerToggleCallback = null;
+    homeSpeakerUiStateNotifier.value =
+        const HomeSpeakerUiState(visible: false, muted: false);
     super.dispose();
   }
 
@@ -124,7 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final eventActive = _eventService?.isEventActive ?? false;
     await _syncBackgroundAudio(
       url: _activeBackgroundAudioUrl,
-      shouldPlayHome: _selectedIndex == 0 && !eventActive,
+      shouldPlayHome: !eventActive,
     );
 
     final prefs = await SharedPreferences.getInstance();
@@ -203,9 +207,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _onTabTapped(int index) async {
     if (_selectedIndex == index) return;
     setState(() => _selectedIndex = index);
+    final eventActive = _eventService?.isEventActive ?? false;
     await _syncBackgroundAudio(
       url: _activeBackgroundAudioUrl,
-      shouldPlayHome: index == 0,
+      shouldPlayHome: !eventActive,
     );
   }
 
@@ -263,9 +268,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final appBarTitle = switch (_selectedIndex) {
+      1 => 'Events',
+      2 => 'Common Room',
+      3 => 'Interesting Topics',
+      4 => 'My Space',
+      _ => 'Harmony by Intent',
+    };
+
+    homeSpeakerToggleCallback =
+        () => _setBackgroundAudioMuted(!_isBackgroundAudioMuted);
+    final isEventActive = _eventService?.isEventActive ?? false;
+    homeSpeakerUiStateNotifier.value = HomeSpeakerUiState(
+      visible: _audioPreferenceLoaded &&
+          (_backgroundAudioController?.value.isInitialized == true) &&
+          !isEventActive,
+      muted: _isBackgroundAudioMuted,
+    );
+
     return GradientScaffold(
       appBar: AppBar(
-        title: const Text('Harmony by Intent'),
+        title: Text(appBarTitle),
         // backgroundColor: Colors.indigo, // Removed to let gradient show
         foregroundColor: Colors.white,
         actions: [
@@ -280,31 +303,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
             ),
+            if (_selectedIndex == 1 || _selectedIndex == 2 || _selectedIndex == 3 || _selectedIndex == 4)
+              ValueListenableBuilder<HomeSpeakerUiState>(
+                valueListenable: homeSpeakerUiStateNotifier,
+                builder: (context, speakerState, _) {
+                  final toggle = homeSpeakerToggleCallback;
+                  if (!speakerState.visible || toggle == null) {
+                    return const SizedBox.shrink();
+                  }
 
-          if (widget.isSuperAdmin)
-            Container(
-              margin: const EdgeInsets.only(right: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.08),
-                border: Border.all(color: Colors.white24),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.shield, size: 13, color: Colors.white70),
-                  SizedBox(width: 4),
-                  Text(
-                    'Super Admin',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w500,
+                  return IconButton(
+                    tooltip: speakerState.muted
+                        ? 'Enable background audio'
+                        : 'Mute background audio',
+                    onPressed: () => unawaited(toggle()),
+                    icon: Icon(
+                      speakerState.muted
+                          ? Icons.volume_off_rounded
+                          : Icons.volume_up_rounded,
+                      color:
+                          speakerState.muted ? Colors.white70 : Colors.amberAccent,
                     ),
-                  ),
-                ],
+                  );
+                },
               ),
-            ),
         ],
       ),
       body: IndexedStack(
@@ -353,7 +375,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHomeTab({bool isVisible = true}) {
     return Consumer<EventService>(
       builder: (context, eventService, _) {
-        final shouldPlayHomeAudio = isVisible && !eventService.isEventActive;
+        final shouldPlayHomeAudio = !eventService.isEventActive;
         return StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance
               .collection('app_config')
@@ -384,7 +406,6 @@ class _HomeScreenState extends State<HomeScreen> {
             final backgroundAudioUrl = data['backgroundAudioUrl'] as String?;
             bool showBulletin = false;
             String bulletinText = '';
-            final showLiveStats = data['showLiveStats'] as bool? ?? false;
             final showFeatured = data['showFeatured'] as bool? ?? false;
             final featuredType = data['featuredType'] as String? ?? 'youtube';
             final featuredUrl = data['featuredUrl'] as String? ?? '';
@@ -638,21 +659,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               onOpen: () => _openReelsFullscreen(reelItems),
                             ),
                           ),
-
-                        // Live Stats
-                        const _ActiveUsersChip(),
-
-                        if (widget.isSuperAdmin) ...[
-                          const SizedBox(height: 18),
-                          Text(
-                            'Super Admin access enabled',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.55),
-                              fontSize: 11,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -1896,81 +1902,6 @@ class _FlipContentCardState extends State<_FlipContentCard>
           ),
         ],
       ),
-    );
-  }
-}
-
-class _ActiveUsersChip extends StatefulWidget {
-  const _ActiveUsersChip();
-
-  @override
-  State<_ActiveUsersChip> createState() => _ActiveUsersChipState();
-}
-
-class _ActiveUsersChipState extends State<_ActiveUsersChip> {
-  static const Duration _refreshInterval = Duration(hours: 1);
-  late Future<int> _activeUsersFuture;
-  Timer? _refreshTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _activeUsersFuture = _loadActiveUsers();
-    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
-      if (!mounted) return;
-      setState(() {
-        _activeUsersFuture = _loadActiveUsers();
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _refreshTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<int> _loadActiveUsers() async {
-    final cutoff = Timestamp.fromDate(
-      DateTime.now().subtract(_refreshInterval),
-    );
-    final snapshot = await FirebaseFirestore.instance
-        .collection('users')
-        .where('lastActive', isGreaterThan: cutoff)
-        .count()
-        .get();
-    return snapshot.count ?? 0;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<int>(
-      future: _activeUsersFuture,
-      builder: (context, snapshot) {
-        final count = snapshot.data ?? 0;
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.green.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.green.withOpacity(0.5)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.circle, color: Colors.green, size: 12),
-              const SizedBox(width: 8),
-              Text(
-                '$count Active In Last Hour',
-                style: const TextStyle(
-                  color: Colors.greenAccent,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }

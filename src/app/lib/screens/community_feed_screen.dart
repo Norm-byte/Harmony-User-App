@@ -6,13 +6,13 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/gradient_scaffold.dart';
+import '../widgets/live_room_counter_badge.dart';
 import '../widgets/threaded_replies_panel.dart';
 import '../widgets/translatable_text.dart';
 import '../services/user_service.dart';
 import '../services/usage_service.dart';
 import '../services/profanity_service.dart';
 import '../services/translation_service.dart';
-
 class CommunityFeedScreen extends StatelessWidget {
   const CommunityFeedScreen({super.key});
 
@@ -189,6 +189,31 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       );
     });
   }
+
+  ({bool showCounter, bool showFlags}) _counterSettingsFromAppConfig(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    Map<String, dynamic> home = const <String, dynamic>{};
+    Map<String, dynamic> community = const <String, dynamic>{};
+
+    for (final doc in snapshot.docs) {
+      if (doc.id == 'home_screen') {
+        home = doc.data();
+      } else if (doc.id == 'community_settings') {
+        community = doc.data();
+      }
+    }
+
+    final showCounter = community.containsKey('showCommunityLiveCounter')
+        ? community['showCommunityLiveCounter'] == true
+        : home['showCommunityLiveCounter'] == true;
+
+    final showFlags = community.containsKey('statsShowTimezoneFlags')
+        ? community['statsShowTimezoneFlags'] == true
+        : home['statsShowTimezoneFlags'] == true;
+
+    return (showCounter: showCounter, showFlags: showFlags);
+  }
   Future<void> _showReportPostSheet(
     BuildContext context, {
     required String postId,
@@ -291,6 +316,45 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       }
     } catch (e) {
       debugPrint('Community like toggle failed for $docId: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not update like right now. Please try again.'),
+          backgroundColor: Colors.redAccent,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _toggleReplyLike({
+    required String postId,
+    required String replyId,
+    required List<dynamic> likedBy,
+  }) async {
+    final uid = UserService().userId;
+    if (uid.isEmpty) return;
+
+    final replyRef = FirebaseFirestore.instance
+        .collection('community_posts')
+        .doc(postId)
+        .collection('replies')
+        .doc(replyId);
+
+    try {
+      if (likedBy.contains(uid)) {
+        await replyRef.update({
+          'likes': FieldValue.increment(-1),
+          'likedBy': FieldValue.arrayRemove([uid]),
+        });
+      } else {
+        await replyRef.update({
+          'likes': FieldValue.increment(1),
+          'likedBy': FieldValue.arrayUnion([uid]),
+        });
+      }
+    } catch (e) {
+      debugPrint('Community reply like toggle failed for $postId/$replyId: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1127,9 +1191,24 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
     final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
     return GradientScaffold(
       appBar: AppBar(
-        title: const Text('Community Room'),
+        title: const SizedBox.shrink(),
         foregroundColor: Colors.white,
         actions: [
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('app_config')
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) return const SizedBox.shrink();
+              final settings = _counterSettingsFromAppConfig(snapshot.data!);
+              if (!settings.showCounter) return const SizedBox.shrink();
+              return LiveRoomCounterBadge(
+                roomId: 'community_room',
+                enabled: true,
+                showFlags: settings.showFlags,
+              );
+            },
+          ),
           ValueListenableBuilder<bool>(
             valueListenable: TranslationService.instance.enabledNotifier,
             builder: (context, enabled, _) {
@@ -1420,6 +1499,20 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                                 onDeleteReply: (replyId, _) => _deleteReply(
                                   postId: posts[index].id,
                                   replyId: replyId,
+                                ),
+                                onLikeReply: (replyId, reply) => _toggleReplyLike(
+                                  postId: posts[index].id,
+                                  replyId: replyId,
+                                  likedBy: List<dynamic>.from(
+                                    reply['likedBy'] ?? const [],
+                                  ),
+                                ),
+                                onReportReply: (replyId, reply) => _showReportPostSheet(
+                                  context,
+                                  postId: posts[index].id + ':' + replyId,
+                                  reportedUserId:
+                                      (reply['userId'] ?? '').toString().trim(),
+                                  content: (reply['content'] ?? '').toString(),
                                 ),
                               ),
                               Divider(color: Colors.white.withValues(alpha: 0.05), height: 10),

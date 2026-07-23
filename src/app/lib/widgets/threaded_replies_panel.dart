@@ -18,6 +18,10 @@ class ThreadedRepliesPanel extends StatelessWidget {
     onEditReply;
   final Future<void> Function(String replyId, Map<String, dynamic> reply)
     onDeleteReply;
+  final Future<void> Function(String replyId, Map<String, dynamic> reply)
+    onLikeReply;
+  final Future<void> Function(String replyId, Map<String, dynamic> reply)
+    onReportReply;
 
   const ThreadedRepliesPanel({
     super.key,
@@ -31,6 +35,8 @@ class ThreadedRepliesPanel extends StatelessWidget {
     required this.onComposeReply,
     required this.onEditReply,
     required this.onDeleteReply,
+    required this.onLikeReply,
+    required this.onReportReply,
   });
 
   @override
@@ -87,6 +93,8 @@ class ThreadedRepliesPanel extends StatelessWidget {
                 resolveDisplayName: resolveDisplayName,
                 onEditReply: onEditReply,
                 onDeleteReply: onDeleteReply,
+                onLikeReply: onLikeReply,
+                onReportReply: onReportReply,
               ),
           ],
         );
@@ -107,6 +115,10 @@ class _RepliesList extends StatelessWidget {
       onEditReply;
   final Future<void> Function(String replyId, Map<String, dynamic> reply)
       onDeleteReply;
+    final Future<void> Function(String replyId, Map<String, dynamic> reply)
+      onLikeReply;
+    final Future<void> Function(String replyId, Map<String, dynamic> reply)
+      onReportReply;
 
   const _RepliesList({
     required this.repliesSnapshot,
@@ -115,6 +127,8 @@ class _RepliesList extends StatelessWidget {
     required this.resolveDisplayName,
     required this.onEditReply,
     required this.onDeleteReply,
+    required this.onLikeReply,
+    required this.onReportReply,
   });
 
   DateTime? _replyTime(Map<String, dynamic> reply) {
@@ -179,6 +193,12 @@ class _RepliesList extends StatelessWidget {
     final replyAuthorUid = _replyAuthorUid(reply);
     final rawName = _replyDisplayName(reply);
     final replyContent = _replyContent(reply);
+    final likedBy = List<dynamic>.from(reply['likedBy'] ?? const []);
+    final isLiked = likedBy.contains(currentUserId) ||
+      (currentAuthUid.isNotEmpty && likedBy.contains(currentAuthUid));
+    final likesCount = (reply['likes'] is num)
+      ? (reply['likes'] as num).toInt()
+      : int.tryParse('${reply['likes']}') ?? 0;
     final isOwner = <String>{currentUserId.trim(), currentAuthUid.trim()}
         .where((v) => v.isNotEmpty)
         .any((currentId) => currentId == userId || currentId == replyAuthorUid);
@@ -277,6 +297,49 @@ class _RepliesList extends StatelessWidget {
                         fontSize: 12,
                         height: 1.2,
                       ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        GestureDetector(
+                          onTap: () async => onLikeReply(replyDoc.id, reply),
+                          child: Row(
+                            children: [
+                              Icon(
+                                isLiked
+                                    ? Icons.thumb_up
+                                    : Icons.thumb_up_outlined,
+                                size: 13,
+                                color: isLiked
+                                    ? Colors.greenAccent
+                                    : Colors.white54,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '$likesCount',
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        GestureDetector(
+                          onTap: () async => onReportReply(replyDoc.id, reply),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.more_horiz,
+                                color: Colors.white.withValues(alpha: 0.55),
+                                size: 16,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
