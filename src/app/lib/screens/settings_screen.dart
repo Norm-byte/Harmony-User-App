@@ -114,7 +114,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                 ),
                                 const SizedBox(height: 16),
                                 _buildMostLikedCommentCard(),
-                                const SizedBox(height: 16),
+                                  const SizedBox(height: 12),
+                                  _buildCommunityPulseCard(),
+                                  const SizedBox(height: 16),
                                 // Trending Intent section simplified
                                 Container(
                                   width: double.infinity,
@@ -983,7 +985,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           border: Border.all(color: Colors.white12),
         ),
         child: const Text(
-          'Your community activity will appear here after you post.',
+          'Your personal liked comments will appear here after you post.',
           style: TextStyle(color: Colors.white70, fontStyle: FontStyle.italic),
         ),
       );
@@ -1030,10 +1032,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           }
 
             final commentPreview = '"$topComment"';
-            final canExpand = topComment.isNotEmpty &&
-                topComment != 'Post your first comment to start your activity.' &&
-                topComment != 'Comment text unavailable' &&
-                topComment.length > 90;
+            final canExpand = false;
 
             void showExpandedComment() {
               showDialog<void>(
@@ -1048,7 +1047,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       ),
                     ),
                     title: const Text(
-                      'Overall Most Liked Comment',
+                      'My Personal Most Liked Comment',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -1115,7 +1114,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       const Icon(Icons.star, color: Colors.amber, size: 16),
                       const SizedBox(width: 8),
                       const Text(
-                        'Overall Most Liked Comment',
+                        'My Personal Most Liked Comment',
                         style: TextStyle(color: Colors.white70, fontSize: 12),
                       ),
                       const Spacer(),
@@ -1148,6 +1147,168 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 ],
               ),
             );
+        },
+      ),
+    );
+  }
+
+  Widget _buildCommunityPulseCard() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('community_posts').snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return const Text(
+              'Most liked comment is temporarily unavailable.',
+              style: TextStyle(color: Colors.white38, fontSize: 11),
+            );
+          }
+
+          String topComment = 'Your community activity will appear here after you post.';
+          var likes = 0;
+
+          if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+            final docs = snapshot.data!.docs;
+            docs.sort((a, b) {
+              final aData = a.data() as Map<String, dynamic>;
+              final bData = b.data() as Map<String, dynamic>;
+              final aLikes = (aData['likes'] as int?) ?? 0;
+              final bLikes = (bData['likes'] as int?) ?? 0;
+              return bLikes.compareTo(aLikes);
+            });
+
+            final data = docs.first.data() as Map<String, dynamic>;
+            topComment = (data['content'] as String?)?.trim().isNotEmpty == true
+                ? data['content'] as String
+                : 'Comment text unavailable';
+            likes = (data['likes'] as int?) ?? 0;
+          }
+
+                    final commentPreview = '"$topComment"';
+          final canExpand = topComment.isNotEmpty &&
+              topComment != 'Your community activity will appear here after you post.' &&
+              topComment != 'Comment text unavailable' &&
+              topComment.length > 90;
+
+          void showExpandedComment() {
+            showDialog<void>(
+              context: context,
+              builder: (dialogContext) {
+                return AlertDialog(
+                  backgroundColor: const Color(0xFF1E1E1E),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  title: const Text(
+                    'Overall Most Liked Comment',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          topComment,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            height: 1.35,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.thumb_up,
+                              size: 16,
+                              color: Colors.greenAccent,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '$likes',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(color: Colors.amberAccent),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          }
+
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: canExpand ? showExpandedComment : null,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.star, color: Colors.amber, size: 16),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Overall Most Liked Comment',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    const Spacer(),
+                    const Icon(Icons.thumb_up, size: 12, color: Colors.greenAccent),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$likes',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  commentPreview,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
+                ),
+                if (canExpand) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Tap anywhere on this card to expand',
+                    style: TextStyle(
+                      color: Colors.amberAccent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
         },
       ),
     );
