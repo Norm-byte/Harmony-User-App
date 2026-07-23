@@ -117,60 +117,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                   const SizedBox(height: 12),
                                   _buildCommunityPulseCard(),
                                   const SizedBox(height: 16),
-                                // Trending Intent section simplified
-                                Container(
-                                  width: double.infinity,
-                                  margin: const EdgeInsets.only(top: 12),
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [Colors.purple.shade900.withValues(alpha: 0.4), Colors.pink.shade900.withValues(alpha: 0.4)],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: Colors.pinkAccent.withValues(alpha: 0.3)),
-                                    boxShadow: [
-                                      BoxShadow(color: Colors.black26, blurRadius: 4, offset: const Offset(0, 2))
-                                    ],
-                                  ),
-                                  child: StreamBuilder<DocumentSnapshot>(
-                                    stream: FirebaseFirestore.instance
-                                        .collection('system_settings')
-                                        .doc('trending_intent')
-                                        .snapshots(),
-                                    builder: (context, pulseSnapshot) {
-                                      String pulseText = 'Harmony';
-                                      if (pulseSnapshot.hasData && pulseSnapshot.data!.exists) {
-                                        final data = pulseSnapshot.data!.data() as Map<String, dynamic>?;
-                                        final configured = (data?['currentIntent'] as String?)?.trim();
-                                        if (configured != null && configured.isNotEmpty) {
-                                          pulseText = configured;
-                                        }
-                                      }
 
-                                      return Column(
-                                        crossAxisAlignment: CrossAxisAlignment.center,
-                                        children: [
-                                          const Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              Icon(Icons.bolt, color: Colors.amber, size: 18),
-                                              SizedBox(width: 8),
-                                              Text('COMMUNITY PULSE', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            pulseText,
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20, letterSpacing: 1.2, shadows: [Shadow(blurRadius: 2, color: Colors.black)]),
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  ),
-                                ),
                               ],
                             ),
                           ),
@@ -1047,7 +994,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       ),
                     ),
                     title: const Text(
-                      'My Personal Most Liked Comment',
+                      'My Most Liked Comment',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -1114,7 +1061,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       const Icon(Icons.star, color: Colors.amber, size: 16),
                       const SizedBox(width: 8),
                       const Text(
-                        'My Personal Most Liked Comment',
+                        'My Most Liked Comment',
                         style: TextStyle(color: Colors.white70, fontSize: 12),
                       ),
                       const Spacer(),
