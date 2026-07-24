@@ -548,38 +548,43 @@ class SectionDetailScreen extends StatelessWidget {
             ),
 
           if (gridVideos.isNotEmpty) ...[
-          /* General content removed from view
-              SliverPadding(
-                padding: const EdgeInsets.all(16),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate([
-                    const SizedBox(height: 24),
-                    Text(
+            SliverPadding(
+              padding: const EdgeInsets.all(16),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  const SizedBox(height: 24),
+                  Text(
                     subcategories.isNotEmpty ? 'General Content' : 'Content',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
-                    const SizedBox(height: 12),
-                  ])
-                )
+                  ),
+                  const SizedBox(height: 12),
+                ]),
               ),
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                sliver: SliverGrid(
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    childAspectRatio: 0.85, 
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                  ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      return TopicsLandingScreen._buildTopicGridItemStatic(context, TopicsLandingScreen._docToMapStatic(gridVideos[index]));
-                    },
-                    childCount: gridVideos.length,
-                  ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  childAspectRatio: 0.85,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    return TopicsLandingScreen._buildTopicGridItemStatic(
+                      context,
+                      TopicsLandingScreen._docToMapStatic(gridVideos[index]),
+                    );
+                  },
+                  childCount: gridVideos.length,
                 ),
               ),
-            */
+            ),
           ],
           const SliverPadding(padding: EdgeInsets.only(bottom: 32)),
         ],
