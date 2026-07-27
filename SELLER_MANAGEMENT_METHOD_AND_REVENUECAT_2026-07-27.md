@@ -9,6 +9,8 @@ This method defines how Harmony tracks seller-attributed subscribers, validates 
 - Unknown text is ignored and never persisted as seller attribution.
 - Seller metrics are visible in the admin Sellers tab.
 - Seller payout rates are configurable globally, per country, and per seller.
+- Seller totals always show Sterling (GBP) for internal reference.
+- Local-currency totals can be shown using FX snapshot/reference rates.
 
 ## Data Model
 ### sellers collection
@@ -97,6 +99,22 @@ Formula:
 - Country-specific override in seller_country_rates/{CC}
 - Seller-specific default rate in sellers/{sellerId}.defaultRate
 
+## FX Strategy (GBP Base)
+- Base accounting currency: GBP.
+- Live FX reference document: fx_rates/live_reference.
+- Locked monthly snapshot document: fx_rates_monthly/{YYYY-MM}.
+- Conversion precedence in Admin totals:
+   1) Monthly snapshot rate
+   2) Live reference rate
+   3) GBP fallback (1.0)
+- GBP values remain the source of truth for audit and payout review.
+
+Admin controls:
+- Refresh Live FX (manual callable)
+- Lock current month snapshot (manual callable)
+- Daily live-refresh scheduler (automatic)
+- Day-1 monthly lock scheduler (automatic)
+
 Recommended priority order:
 1. Seller-specific country override
 2. Seller default rate
@@ -137,3 +155,4 @@ Before payout run:
 - This method keeps garbage promo input out of Firestore attribution fields.
 - This method supports one seller owning multiple codes.
 - This method supports future daily rollups if scale requires cheaper aggregation.
+- FX conversion is for reference/ops visibility; GBP baseline remains canonical.

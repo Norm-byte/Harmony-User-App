@@ -1073,3 +1073,163 @@ exports.cleanupExpiredRegisteredEvents = functions.pubsub
 
         return null;
     });
+
+function currentMonthKeyUtc() {
+    const now = new Date();
+    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+    return `${now.getUTCFullYear()}-${month}`;
+}
+
+function normalizeCurrencyCode(raw) {
+    const code = String(raw || '').trim().toUpperCase();
+    return code.length === 3 ? code : null;
+}
+
+function collectDefaultCurrencies() {
+    return ['GBP', 'USD', 'EUR', 'AUD', 'CAD', 'NZD', 'ZAR', 'NGN', 'INR'];
+}
+
+async function collectTargetCurrencies() {
+    const snap = await admin.firestore().collection('sellers').get();
+    const result = new Set(collectDefaultCurrencies());
+
+    snap.docs.forEach((doc) => {
+        const data = doc.data() || {};
+        const payoutCurrency = normalizeCurrencyCode(data.payoutCurrency);
+        if (payoutCurrency) {
+            result.add(payoutCurrency);
+        }
+    });
+
+    result.delete('GBP');
+    return Array.from(result).sort();
+}
+
+async function fetchLiveGbpRates(targetCurrencies) {
+    if (!Array.isArray(targetCurrencies) || targetCurrencies.length === 0) {
+        return { rates: { GBP: 1 }, provider: 'frankfurter' };
+    }
+
+    const to = targetCurrencies.join(',');
+    const url = `https://api.frankfurter.app/latest?from=GBP&to=${encodeURIComponent(to)}`;
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'accept': 'application/json' },
+    });
+
+    if (!response.ok) {
+        throw new Error(`FX provider error: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const apiRates = payload && typeof payload === 'object' ? payload.rates || {} : {};
+
+    const rates = { GBP: 1 };
+    targetCurrencies.forEach((code) => {
+        const value = apiRates[code];
+        if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+            rates[code] = value;
+        }
+    });
+
+    return {
+        rates,
+        provider: 'frankfurter',
+        providerDate: String(payload.date || ''),
+    };
+}
+
+async function writeLiveReference({ actor = 'system' } = {}) {
+    const targetCurrencies = await collectTargetCurrencies();
+    const { rates, provider, providerDate } = await fetchLiveGbpRates(targetCurrencies);
+
+    await admin.firestore().collection('fx_rates').doc('live_reference').set({
+        baseCurrency: 'GBP',
+        rates,
+        provider,
+        providerDate,
+        targetCurrencies,
+        updatedBy: actor,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    return { rates, provider, providerDate, targetCurrencies };
+}
+
+async function lockMonthSnapshot(monthKey, actor) {
+    const safeMonth = String(monthKey || '').trim() || currentMonthKeyUtc();
+    const liveRef = await admin.firestore().collection('fx_rates').doc('live_reference').get();
+
+    if (!liveRef.exists) {
+        throw new Error('Live FX reference missing. Refresh live FX first.');
+    }
+
+    const data = liveRef.data() || {};
+    const rates = data.rates && typeof data.rates === 'object' ? data.rates : null;
+    if (!rates || Object.keys(rates).length === 0) {
+        throw new Error('Live FX rates are empty.');
+    }
+
+    await admin.firestore().collection('fx_rates_monthly').doc(safeMonth).set({
+        month: safeMonth,
+        baseCurrency: 'GBP',
+        rates,
+        source: 'fx_rates/live_reference',
+        provider: String(data.provider || 'unknown'),
+        providerDate: String(data.providerDate || ''),
+        lockedBy: actor,
+        lockedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    return {
+        month: safeMonth,
+        rateCount: Object.keys(rates).length,
+    };
+}
+
+exports.refreshLiveFxRates = functions.https.onCall(async (data, context) => {
+    await assertAdminPermission(context, 'seller_management', 'manage seller FX rates');
+    const actor = context.auth && context.auth.uid ? context.auth.uid : 'unknown';
+    const result = await writeLiveReference({ actor });
+    return {
+        ok: true,
+        provider: result.provider,
+        providerDate: result.providerDate,
+        rateCount: Object.keys(result.rates).length,
+        targetCurrencies: result.targetCurrencies,
+    };
+});
+
+exports.lockCurrentMonthFxSnapshot = functions.https.onCall(async (data, context) => {
+    await assertAdminPermission(context, 'seller_management', 'lock seller FX snapshots');
+    const actor = context.auth && context.auth.uid ? context.auth.uid : 'unknown';
+    const month = normalizeMonthKey(data && data.month);
+    const result = await lockMonthSnapshot(month, actor);
+    return {
+        ok: true,
+        month: result.month,
+        rateCount: result.rateCount,
+    };
+});
+
+function normalizeMonthKey(raw) {
+    const value = String(raw || '').trim();
+    if (!value) return currentMonthKeyUtc();
+    return /^\d{4}-\d{2}$/.test(value) ? value : currentMonthKeyUtc();
+}
+
+exports.refreshLiveFxRatesDaily = functions.pubsub
+    .schedule('every 24 hours')
+    .timeZone('UTC')
+    .onRun(async () => {
+        await writeLiveReference({ actor: 'scheduler:daily' });
+        return null;
+    });
+
+exports.lockMonthlyFxSnapshot = functions.pubsub
+    .schedule('5 0 1 * *')
+    .timeZone('UTC')
+    .onRun(async () => {
+        await lockMonthSnapshot(currentMonthKeyUtc(), 'scheduler:monthly');
+        return null;
+    });
