@@ -147,6 +147,15 @@ exports.provisionAppUserAccount = functions.https.onCall(async (data, context) =
     try {
         authUser = await admin.auth().getUserByEmail(email);
         existed = true;
+
+        const existingAdminDoc = await admin.firestore().collection('admin_users').doc(authUser.uid).get();
+        if (existingAdminDoc.exists) {
+            throw new functions.https.HttpsError(
+                'failed-precondition',
+                'This email belongs to an admin/operator account and cannot be provisioned as an app user. Use a separate email for app-user testing.',
+            );
+        }
+
         authUser = await admin.auth().updateUser(authUser.uid, {
             password: initialPassword,
             displayName: username,
