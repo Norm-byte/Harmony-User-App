@@ -1083,6 +1083,468 @@ exports.cleanupExpiredRegisteredEvents = functions.pubsub
         return null;
     });
 
+function parseEventWindow(data) {
+    const start = parseEventDate(data.startTimeUTC) || parseEventDate(data.startTime);
+    if (!start) return null;
+
+    let end = parseEventDate(data.endTime);
+    if (!end) {
+        const durationRaw = Number(data.durationSeconds || 0);
+        const durationSeconds = Number.isFinite(durationRaw) && durationRaw > 0
+            ? durationRaw
+            : 3600;
+        end = new Date(start.getTime() + durationSeconds * 1000);
+    }
+
+    return { start, end };
+}
+
+function londonNowParts(now) {
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/London',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    });
+
+    const parts = fmt.formatToParts(now);
+    const get = (type) => parts.find((p) => p.type === type)?.value || '';
+    const year = get('year');
+    const month = get('month');
+    const day = get('day');
+    const hour = get('hour');
+    const minute = get('minute');
+
+    return {
+        dateKey: `${year}${month}${day}`,
+        hour,
+        minute,
+        minuteOfDay: Number(hour) * 60 + Number(minute),
+    };
+}
+
+function londonShortZone(now) {
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/London',
+        timeZoneName: 'short',
+    });
+    const parts = fmt.formatToParts(now);
+    const zone = parts.find((p) => p.type === 'timeZoneName')?.value || '';
+    return String(zone).trim().toUpperCase();
+}
+
+function normalizeZone(raw) {
+    return String(raw || '').trim().toUpperCase();
+}
+
+function formatMinuteOfDay(minuteOfDay) {
+    const normalized = ((minuteOfDay % 1440) + 1440) % 1440;
+    const hh = String(Math.floor(normalized / 60)).padStart(2, '0');
+    const mm = String(normalized % 60).padStart(2, '0');
+    return `${hh}:${mm}`;
+}
+
+function parseIsoDate(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return null;
+    return dt;
+}
+
+function pickCanonicalEventDoc(docs, now) {
+    if (!Array.isArray(docs) || docs.length === 0) return null;
+
+    const withStart = docs
+        .map((doc) => {
+            const data = doc.data() || {};
+            return {
+                doc,
+                data,
+                start: parseIsoDate(data.startTimeUTC),
+            };
+        })
+        .filter((entry) => entry.start !== null);
+
+    if (withStart.length === 0) {
+        return docs[0];
+    }
+
+    const candidates = withStart
+        .filter((entry) => entry.start.getTime() <= now.getTime())
+        .sort((a, b) => b.start.getTime() - a.start.getTime());
+    if (candidates.length > 0) {
+        return candidates[0].doc;
+    }
+
+    withStart.sort((a, b) => a.start.getTime() - b.start.getTime());
+    return withStart[0].doc;
+}
+
+function isActiveBySlotFallback(docId, data, now) {
+    const match = /^slot_(\d{2})(\d{2})_(\d{8})$/.exec(String(docId || '').trim());
+    if (!match) return false;
+
+    const [, hh, mm, dateKey] = match;
+    const slotMinuteOfDay = Number(hh) * 60 + Number(mm);
+    const durationRaw = Number(data.durationSeconds || 0);
+    const durationSeconds = Number.isFinite(durationRaw) && durationRaw > 0
+        ? durationRaw
+        : 60;
+    const windowMinutes = Math.max(1, Math.ceil(durationSeconds / 60));
+    const preWarmMinutes = 1;
+
+    const london = londonNowParts(now);
+    if (london.dateKey !== dateKey) return false;
+
+    return london.minuteOfDay >= (slotMinuteOfDay - preWarmMinutes) &&
+        london.minuteOfDay < (slotMinuteOfDay + windowMinutes);
+}
+
+function timestampToDate(value) {
+    if (!value) return null;
+    if (value instanceof admin.firestore.Timestamp) return value.toDate();
+    if (value instanceof Date) return value;
+    if (typeof value === 'string') {
+        const parsed = new Date(value);
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return null;
+}
+
+function normalizedUserId(raw) {
+    return String(raw || '').trim();
+}
+
+async function listActivePublishedEventIds(now) {
+    const db = admin.firestore();
+    const startWindow = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+    const endWindow = new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString();
+
+    const snap = await db
+        .collection('events')
+        .where('startTimeUTC', '>=', startWindow)
+        .where('startTimeUTC', '<=', endWindow)
+        .get();
+
+    const activeEventMap = new Map();
+    const markActive = (docId, data) => {
+        if (!docId) return;
+        if (!activeEventMap.has(docId)) {
+            activeEventMap.set(docId, data || {});
+        }
+    };
+
+    snap.docs.forEach((doc) => {
+        const data = doc.data() || {};
+        if (data.isPublished !== true) return;
+        if (data.isDraft === true) return;
+
+        if (isActiveBySlotFallback(doc.id, data, now)) {
+            markActive(doc.id, data);
+            return;
+        }
+
+        const window = parseEventWindow(data);
+        if (!window) return;
+        const startWithPreWarm = new Date(window.start.getTime() - 90 * 1000);
+        const inWindow = now >= startWithPreWarm && now <= window.end;
+        if (inWindow) markActive(doc.id, data);
+    });
+
+    // Fallback: app playback can still use published slots by clock time even
+    // when stored startTimeUTC/doc date key is stale. Match by London clock.
+    const london = londonNowParts(now);
+    const currentClock = formatMinuteOfDay(london.minuteOfDay);
+    const nextClock = formatMinuteOfDay(london.minuteOfDay + 1);
+
+    const [currentSnap, nextSnap] = await Promise.all([
+        db.collection('events').where('originTime', '==', currentClock).get(),
+        db.collection('events').where('originTime', '==', nextClock).get(),
+    ]);
+
+    [currentSnap, nextSnap].forEach((timeSnap) => {
+        const eligible = timeSnap.docs.filter((doc) => {
+            const data = doc.data() || {};
+            return data.isPublished === true && data.isDraft !== true;
+        });
+
+        const canonical = pickCanonicalEventDoc(eligible, now);
+        if (!canonical) return;
+        markActive(canonical.id, canonical.data() || {});
+    });
+
+    return Array.from(activeEventMap.entries()).map(([id, data]) => ({ id, data }));
+}
+
+async function listOpenAppCandidates(cutoffTs, recentUserActiveCutoffTs) {
+    const db = admin.firestore();
+    const roomSnap = await db
+        .collection('room_live_presence')
+        .doc('community_room')
+        .collection('sessions')
+        .where('lastSeenAt', '>=', cutoffTs)
+        .get();
+
+    const candidates = new Map();
+    roomSnap.docs.forEach((doc) => {
+        const data = doc.data() || {};
+        const userId = normalizedUserId(data.userId);
+        if (!userId) return;
+        candidates.set(userId, {
+            userId,
+            timeZone: String(data.timeZone || '').trim() || null,
+            countryCode: String(data.countryCode || '').trim().toUpperCase() || null,
+            flagEmoji: String(data.flagEmoji || '').trim() || null,
+            reasons: ['open_app'],
+        });
+    });
+
+    const usersSnap = await db
+        .collection('users')
+        .where('lastActive', '>=', recentUserActiveCutoffTs)
+        .get();
+
+    usersSnap.docs.forEach((doc) => {
+        const data = doc.data() || {};
+        if (data.autoJoinWorldwide !== true) return;
+
+        const userId = normalizedUserId(doc.id);
+        if (!userId) return;
+
+        const countryCode = String(
+            data.countryCode || data.country_code || data.country || '',
+        )
+            .trim()
+            .toUpperCase();
+
+        const existing = candidates.get(userId);
+        if (!existing) {
+            candidates.set(userId, {
+                userId,
+                timeZone: String(data.timeZone || '').trim() || null,
+                countryCode: countryCode || null,
+                flagEmoji: String(data.flagEmoji || '').trim() || null,
+                reasons: ['open_app_recent_activity'],
+            });
+            return;
+        }
+
+        const mergedReasons = new Set([...(existing.reasons || []), 'open_app_recent_activity']);
+        existing.reasons = Array.from(mergedReasons);
+        existing.timeZone = existing.timeZone || String(data.timeZone || '').trim() || null;
+        existing.countryCode = existing.countryCode || countryCode || null;
+        existing.flagEmoji = existing.flagEmoji || String(data.flagEmoji || '').trim() || null;
+        candidates.set(userId, existing);
+    });
+
+    return candidates;
+}
+
+async function listDormantOverrideCandidates(recentUserActiveCutoffDate) {
+    const db = admin.firestore();
+    const snap = await db
+        .collection('users')
+        .where('dormantPlaybackEnabled', '==', true)
+        .where('autoJoinWorldwide', '==', true)
+        .get();
+
+    const candidates = new Map();
+    snap.docs.forEach((doc) => {
+        const data = doc.data() || {};
+        const lastActive = timestampToDate(data.lastActive);
+        if (!lastActive) return;
+        if (lastActive.getTime() < recentUserActiveCutoffDate.getTime()) return;
+
+        const userId = normalizedUserId(doc.id);
+        if (!userId) return;
+
+        const countryCode = String(
+            data.countryCode || data.country_code || data.country || '',
+        )
+            .trim()
+            .toUpperCase();
+
+        candidates.set(userId, {
+            userId,
+            timeZone: String(data.timeZone || '').trim() || null,
+            countryCode: countryCode || null,
+            flagEmoji: String(data.flagEmoji || '').trim() || null,
+            reasons: ['dormant_override'],
+        });
+    });
+
+    return candidates;
+}
+
+exports.guardrailEventLiveCounter = functions.pubsub
+    .schedule('every 1 minutes')
+    .timeZone('UTC')
+    .onRun(async () => runGuardrailEventCounterPass(new Date()));
+
+async function runGuardrailEventCounterPass(now) {
+    const db = admin.firestore();
+    const bridgeLastSeenAt = admin.firestore.Timestamp.fromDate(
+        new Date(now.getTime() + 75 * 1000),
+    );
+    const cutoffTs = admin.firestore.Timestamp.fromDate(
+        new Date(now.getTime() - 70 * 1000),
+    );
+    const recentUserActiveCutoffDate = new Date(now.getTime() - 15 * 60 * 1000);
+    const recentUserActiveCutoffTs = admin.firestore.Timestamp.fromDate(
+        recentUserActiveCutoffDate,
+    );
+
+        const activeEvents = await listActivePublishedEventIds(now);
+        if (activeEvents.length === 0) {
+        return null;
+    }
+
+    const [openAppCandidates, dormantCandidates] = await Promise.all([
+        listOpenAppCandidates(cutoffTs, recentUserActiveCutoffTs),
+        listDormantOverrideCandidates(recentUserActiveCutoffDate),
+    ]);
+
+        for (const activeEvent of activeEvents) {
+            const eventId = activeEvent.id;
+            const eventData = activeEvent.data || {};
+            const eventType = String(eventData.type || '').trim().toLowerCase();
+            const isWorldwide = eventType === 'worldwide' || eventType === 'global';
+
+        const eventRef = db.collection('event_live_viewers').doc(eventId);
+        const sessionsRef = eventRef.collection('sessions');
+
+        const [activeSessionsSnap, existingBridgeSnap] = await Promise.all([
+            sessionsRef.where('lastSeenAt', '>=', cutoffTs).get(),
+            sessionsRef.where('source', '==', 'backend_live_counter_bridge_v3').get(),
+        ]);
+
+        const realUserIds = new Set();
+            const realZones = new Set();
+        activeSessionsSnap.docs.forEach((doc) => {
+            const data = doc.data() || {};
+            const source = String(data.source || '');
+            if (source === 'backend_live_counter_bridge_v3') return;
+            const userId = normalizedUserId(data.userId);
+            if (userId) realUserIds.add(userId);
+                const zone = normalizeZone(data.timeZone);
+                if (zone) realZones.add(zone);
+        });
+
+            const allowedZones = new Set();
+            if (!isWorldwide) {
+                if (realZones.size > 0) {
+                    realZones.forEach((zone) => allowedZones.add(zone));
+                } else {
+                    const originZone = normalizeZone(eventData.originTimeZone);
+                    if (originZone) {
+                        allowedZones.add(originZone);
+                    } else {
+                        const londonZone = londonShortZone(now);
+                        if (londonZone) allowedZones.add(londonZone);
+                    }
+                }
+            }
+
+        const candidateMap = new Map();
+        const addCandidate = (candidate) => {
+            if (!candidate || !candidate.userId) return;
+            if (realUserIds.has(candidate.userId)) return;
+                if (!isWorldwide) {
+                    const candidateZone = normalizeZone(candidate.timeZone);
+                    if (!candidateZone || !allowedZones.has(candidateZone)) {
+                        return;
+                    }
+                }
+            const existing = candidateMap.get(candidate.userId);
+            if (!existing) {
+                candidateMap.set(candidate.userId, candidate);
+                return;
+            }
+
+            const mergedReasons = new Set([...(existing.reasons || []), ...(candidate.reasons || [])]);
+            existing.reasons = Array.from(mergedReasons);
+            existing.timeZone = existing.timeZone || candidate.timeZone || null;
+            existing.countryCode = existing.countryCode || candidate.countryCode || null;
+            existing.flagEmoji = existing.flagEmoji || candidate.flagEmoji || null;
+            candidateMap.set(candidate.userId, existing);
+        };
+
+        openAppCandidates.forEach((candidate) => addCandidate(candidate));
+        dormantCandidates.forEach((candidate) => addCandidate(candidate));
+
+        const batch = db.batch();
+
+        candidateMap.forEach((candidate, userId) => {
+            const bridgeDocId = `bridge_v3_${userId}`;
+            batch.set(
+                sessionsRef.doc(bridgeDocId),
+                {
+                    sessionId: bridgeDocId,
+                    userId,
+                    // Keep bridge sessions visible through short (10-40s) events,
+                    // despite the app-side 15s active cutoff.
+                    lastSeenAt: bridgeLastSeenAt,
+                    timeZone: candidate.timeZone || null,
+                    countryCode: candidate.countryCode || null,
+                    flagEmoji: candidate.flagEmoji || null,
+                    source: 'backend_live_counter_bridge_v3',
+                    reasons: candidate.reasons || [],
+                },
+                { merge: true },
+            );
+        });
+
+        existingBridgeSnap.docs.forEach((doc) => {
+            const data = doc.data() || {};
+            const userId = normalizedUserId(data.userId);
+            if (!userId || !candidateMap.has(userId)) {
+                batch.delete(doc.ref);
+            }
+        });
+
+        batch.set(
+            eventRef,
+            {
+                eventId,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true },
+        );
+
+        await batch.commit();
+    }
+
+    return null;
+}
+
+exports.guardrailEventLiveCounterOnRoomPresence = functions.region('europe-west1').firestore
+    .document('room_live_presence/community_room/sessions/{sessionId}')
+    .onWrite(async (change) => {
+        if (!change.after.exists) return null;
+        return runGuardrailEventCounterPass(new Date());
+    });
+
+exports.guardrailEventLiveCounterOnUserActivity = functions.region('europe-west1').firestore
+    .document('users/{userId}')
+    .onWrite(async (change) => {
+        if (!change.after.exists) return null;
+        const before = change.before.exists ? (change.before.data() || {}) : {};
+        const after = change.after.data() || {};
+
+        if (after.autoJoinWorldwide !== true) return null;
+
+        const beforeLast = timestampToDate(before.lastActive);
+        const afterLast = timestampToDate(after.lastActive);
+        if (!afterLast) return null;
+        if (beforeLast && afterLast.getTime() === beforeLast.getTime()) return null;
+
+        return runGuardrailEventCounterPass(new Date());
+    });
+
 function currentMonthKeyUtc() {
     const now = new Date();
     const month = String(now.getUTCMonth() + 1).padStart(2, '0');
