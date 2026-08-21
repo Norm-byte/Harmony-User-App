@@ -20,6 +20,7 @@ import 'services/profanity_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint("HARMONY_APP_STARTING: This is the correct app!");
+  final subscriptionService = SubscriptionService();
 
   try {
     await Firebase.initializeApp(
@@ -28,7 +29,7 @@ void main() async {
     debugPrint("HARMONY_APP_FIREBASE: Initialized successfully");
 
     // Initialize Services
-    await SubscriptionService().init();
+    await subscriptionService.init();
     await NotificationService().init();
     await ProfanityService().init();
   } catch (e) {
@@ -41,7 +42,9 @@ void main() async {
         ChangeNotifierProvider(create: (_) => EventService()),
         ChangeNotifierProvider(create: (_) => FavoritesService()),
         ChangeNotifierProvider(create: (_) => UserService()),
-        ChangeNotifierProvider(create: (_) => SubscriptionService()),
+        ChangeNotifierProvider<SubscriptionService>.value(
+          value: subscriptionService,
+        ),
         ChangeNotifierProxyProvider<SubscriptionService, UsageService>(
           create: (context) =>
               UsageService(context.read<SubscriptionService>()),

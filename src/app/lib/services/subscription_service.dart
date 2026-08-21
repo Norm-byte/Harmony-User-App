@@ -13,6 +13,8 @@ class SubscriptionService extends ChangeNotifier {
   factory SubscriptionService() => _instance;
   SubscriptionService._internal();
 
+  bool _purchasesConfigured = false;
+
   bool _isSubscribed = false;
   bool _isVipOverride = false; // Add VIP Override
 
@@ -75,7 +77,6 @@ class SubscriptionService extends ChangeNotifier {
   }
 
   Future<void> init() async {
-    await Purchases.setLogLevel(LogLevel.debug);
 
     // Resume VIP status
     try {
@@ -95,15 +96,14 @@ class SubscriptionService extends ChangeNotifier {
     if (Platform.isAndroid) {
       selectedApiKey = _androidApiKey;
     } else if (Platform.isIOS) {
-      if (_iosApiKey.isEmpty || !_iosApiKey.startsWith('appl_')) {
-        debugPrint(
-          'HARMONY_RC: Missing/invalid iOS RevenueCat key. Set RC_IOS_API_KEY with an appl_ key to enable purchases.',
-        );
-        return;
-      }
-      selectedApiKey = _iosApiKey;
+      selectedApiKey = _iosApiKey.trim().isNotEmpty ? _iosApiKey : _androidApiKey;
     } else {
       // Purchases plugin is only configured on mobile platforms.
+      return;
+    }
+
+    if (selectedApiKey.trim().isEmpty) {
+      debugPrint('HARMONY_RC: No RevenueCat API key available; skipping purchases init.');
       return;
     }
 
@@ -111,6 +111,8 @@ class SubscriptionService extends ChangeNotifier {
 
     try {
       await Purchases.configure(configuration);
+      _purchasesConfigured = true;
+      await Purchases.setLogLevel(LogLevel.debug);
       // Listen to customer info updates
       Purchases.addCustomerInfoUpdateListener((customerInfo) {
         _updateSubscriptionStatus(customerInfo);
@@ -145,7 +147,9 @@ class SubscriptionService extends ChangeNotifier {
     }
   }
 
+  
   Future<void> _checkSubscriptionStatus() async {
+    if (!_purchasesConfigured) return;
     try {
       _customerInfo = await Purchases.getCustomerInfo();
       _updateSubscriptionStatus(_customerInfo);
@@ -289,6 +293,15 @@ class SubscriptionService extends ChangeNotifier {
        await RevenueCatUI.presentCustomerCenter();
     } catch (e) {
        debugPrint("Error showing customer center: $e");
+    }
+  }
+
+  Future<void> setSubscriberAttributes(Map<String, String> attributes) async {
+    if (!_purchasesConfigured || attributes.isEmpty) return;
+    try {
+      await Purchases.setAttributes(attributes);
+    } catch (e) {
+      debugPrint("Error setting subscriber attributes.");
     }
   }
 }

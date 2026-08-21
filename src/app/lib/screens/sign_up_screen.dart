@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:provider/provider.dart';
 import '../widgets/gradient_scaffold.dart';
 import '../services/user_service.dart';
@@ -49,7 +48,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
       parameters: {'seller_id': sellerCode},
     );
 
-    await Purchases.setAttributes({'assignedSellerCode': sellerCode});
+    await context.read<SubscriptionService>().setSubscriberAttributes({
+        'assignedSellerCode': sellerCode,
+      });
   }
 
   Future<void> _applySellerReferralIfPresent(String uid) async {
