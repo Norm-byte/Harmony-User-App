@@ -149,9 +149,19 @@ class NotificationService {
     // 4. Subscribe to Topics
     await _subscribeToTopics();
 
-    // 5. Get Token (for debugging)
-    String? token = await _firebaseMessaging.getToken();
-    debugPrint('FCM_TOKEN: $token');
+
+    // 5. Get Token (for debugging). On iOS this can fail early before APNS token is ready.
+    try {
+      final token = await _firebaseMessaging.getToken();
+      debugPrint('FCM_TOKEN: $token');
+    } catch (e) {
+      final message = e.toString();
+      if (Platform.isIOS && message.contains('apns-token-not-set')) {
+        debugPrint('FCM_TOKEN_DEFERRED_IOS: APNS token not ready yet; continuing startup.');
+      } else {
+        debugPrint('FCM_TOKEN_ERROR: $e');
+      }
+    }
 
     _isInitialized = true;
   }
@@ -577,7 +587,7 @@ class NotificationService {
     int fallbackCount = 0;
     int attemptCount = 0;
     int iosQueuedAlerts = 0;
-    const int iosMaxQueuedAlerts = 40;
+    const int iosMaxQueuedAlerts = 8;
     final Set<String> iosScheduledSlotKeys = <String>{};
 
     final sortedEvents = [...events]
@@ -641,15 +651,10 @@ class NotificationService {
             '${startLocal.minute.toString().padLeft(2, '0')}';
 
         if (!iosScheduledSlotKeys.add(iosSlotKey)) {
-          debugPrint(
-            'iOS reminder dedupe: skipping duplicate slot $iosSlotKey for event ${event.id}',
-          );
           continue;
         }
 
-        final isLockedNow = await _isIOSDeviceLockedNow();
-        final secondsBefore = isLockedNow == true ? 15 : 4;
-        final iosOffsets = <int>[secondsBefore];
+        const iosOffsets = <int>[15];
         for (final secondsBefore in iosOffsets) {
           if (iosQueuedAlerts >= iosMaxQueuedAlerts) {
             break;
@@ -694,9 +699,6 @@ class NotificationService {
             );
             fallbackCount++;
             iosQueuedAlerts++;
-            debugPrint(
-              'iOS reminder scheduled for ${event.id} at $alertTime (${secondsBefore}s before, alarm_id=$alertId)',
-            );
           } catch (e) {
             debugPrint(
               'iOS reminder schedule failed for ${event.id} at $alertTime (${secondsBefore}s): $e',

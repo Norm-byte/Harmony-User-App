@@ -68,5 +68,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Harmony uses your camera so you can take photos for Common Room comments.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Harmony uses your photo library so you can attach images to Common Room comments.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Harmony may save selected photos to your My Harmony Vault.</string>
 </dict>
 </plist>

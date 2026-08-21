@@ -36,7 +36,14 @@ class SubscriptionService extends ChangeNotifier {
   Offerings? get offerings => _offerings;
 
   // Configuration
-  final String _apiKey = 'goog_ObzZGAhZOHyXwpOTXHfBhTWBvuo'; 
+  final String _androidApiKey = const String.fromEnvironment(
+    'RC_ANDROID_API_KEY',
+    defaultValue: 'goog_ObzZGAhZOHyXwpOTXHfBhTWBvuo',
+  );
+  final String _iosApiKey = const String.fromEnvironment(
+    'RC_IOS_API_KEY',
+    defaultValue: '',
+  );
   final String _starterEntitlement = 'starter_access';
   final String _unlimitedEntitlement = 'unlimited_access';
 
@@ -74,25 +81,33 @@ class SubscriptionService extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       _isVipOverride = prefs.getBool('is_vip_override') ?? false;
-      
+
       // SYNC: Check Firestore for latest status using authenticated Firebase user.
       await _syncVipFromFirestoreAuthUser();
-      
+
       debugPrint("HARMONY_VIP_INIT: Loaded VIP Status from Disk: $_isVipOverride");
     } catch (e) {
       debugPrint("HARMONY_VIP_ERROR: Could not load prefs: $e");
     }
     notifyListeners();
-    
-    PurchasesConfiguration configuration;
+
+    String? selectedApiKey;
     if (Platform.isAndroid) {
-      configuration = PurchasesConfiguration(_apiKey);
+      selectedApiKey = _androidApiKey;
     } else if (Platform.isIOS) {
-      configuration = PurchasesConfiguration(_apiKey);
-    } else {
-        // Fallback or specific key for other platforms if needed
+      if (_iosApiKey.isEmpty || !_iosApiKey.startsWith('appl_')) {
+        debugPrint(
+          'HARMONY_RC: Missing/invalid iOS RevenueCat key. Set RC_IOS_API_KEY with an appl_ key to enable purchases.',
+        );
         return;
+      }
+      selectedApiKey = _iosApiKey;
+    } else {
+      // Purchases plugin is only configured on mobile platforms.
+      return;
     }
+
+    final configuration = PurchasesConfiguration(selectedApiKey);
 
     try {
       await Purchases.configure(configuration);
@@ -107,7 +122,6 @@ class SubscriptionService extends ChangeNotifier {
       debugPrint('Error initializing RevenueCat: $e');
     }
   }
-
   Future<void> setVipStatus(bool status) async {
     debugPrint("HARMONY_VIP_SET: Setting VIP status to $status");
     if (!status) {

@@ -775,10 +775,10 @@ class EventService extends ChangeNotifier {
       isWorldwide: target.type == EventType.global,
       mediaUrl: forcedMedia,
       intent: target.mostPopularIntent,
-      participantCount: target.participantCount,
-      originTimeZone: target.originTimeZone,
       fromAlarmLaunch: true,
       startTime: forcedStart,
+      participantCount: target.participantCount,
+      originTimeZone: target.originTimeZone,
       durationSeconds: cappedSeconds,
     );
 
@@ -1020,11 +1020,7 @@ class EventService extends ChangeNotifier {
           continue;
         }
 
-        if (event.type == EventType.national) {
-          print(
-            "DEBUG: National Event '${event.title}': DurationSecs(RAW)=${data['durationSeconds']}, Start=${event.startTime}, End=${event.endTime}, Duration=${event.endTime.difference(event.startTime).inSeconds}s",
-          );
-        }
+        // Avoid per-event logging in this hot path to reduce launch-time churn on iOS.
 
         // Keep blank titles: admins may intentionally publish empty title cards.
         // Do not drop these events, otherwise stale titled events can appear to
@@ -1185,6 +1181,8 @@ class EventService extends ChangeNotifier {
   void checkForEvents() {
     final now = DateTime.now();
 
+    // Rebuild time-dependent event windows each tick so expired slot cards
+    // clear promptly under strict noticeboard rules.
     _refreshEvents();
 
     if (_attemptPendingAlarmPlayback()) {
@@ -1365,10 +1363,10 @@ class EventService extends ChangeNotifier {
         isWorldwide: bestEventToTrigger.type == EventType.global,
         mediaUrl: _selectPlaybackMedia(bestEventToTrigger),
         intent: bestEventToTrigger.mostPopularIntent,
-        participantCount: bestEventToTrigger.participantCount,
-        originTimeZone: bestEventToTrigger.originTimeZone,
         fromAlarmLaunch: false,
         startTime: bestEventToTrigger.startTime.toLocal(),
+        participantCount: bestEventToTrigger.participantCount,
+        originTimeZone: bestEventToTrigger.originTimeZone,
         // We do NOT pass endTime to trigger anymore to avoid confusion. Logic is purely duration based.
         // endTime: bestEventToTrigger.endTime.toLocal(),
         durationSeconds: bestEventToTrigger.durationSeconds,
@@ -1383,10 +1381,10 @@ class EventService extends ChangeNotifier {
     required bool isWorldwide,
     String? mediaUrl,
     String? intent,
-    int participantCount = 0,
-    String? originTimeZone,
     bool fromAlarmLaunch = false,
     DateTime? startTime,
+    int participantCount = 0,
+    String? originTimeZone,
     // DateTime? endTime, // REMOVED to prevent accidental usage
     int? durationSeconds,
   }) {
@@ -1417,8 +1415,6 @@ class EventService extends ChangeNotifier {
     _currentEventEndTime =
         null; // Explicitly nullify this. use STRICT timer only.
     _currentEventTitle = title;
-    _currentEventParticipantCount = participantCount;
-    _currentEventOriginTimeZone = originTimeZone;
 
     if (description.isEmpty &&
         intent != null &&
@@ -1433,6 +1429,8 @@ class EventService extends ChangeNotifier {
 
     _isWorldwide = isWorldwide;
     _currentEventMediaUrl = mediaUrl;
+    _currentEventParticipantCount = participantCount;
+    _currentEventOriginTimeZone = originTimeZone;
     _currentEventFromAlarmLaunch = effectiveFromAlarmLaunch;
 
     if (effectiveFromAlarmLaunch && id != null) {
@@ -1652,21 +1650,7 @@ class EventService extends ChangeNotifier {
       if (_isAudioUrl(event.mediaUrl)) {
         return event.mediaUrl;
       }
-      // Audio mode requested but no usable audio source: fall back to visual
-      // media so overlays do not degrade to the blank music-note screen.
-      if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
-        return event.visualUrl;
-      }
-      if (event.mediaUrl != null && event.mediaUrl!.isNotEmpty) {
-        return event.mediaUrl;
-      }
-      return event.soundUrl;
-    }
-
-    // In visual/video mode, explicit YouTube media links must win over visual
-    // fallback assets so event taps route into the YouTube viewer path.
-    if (_isYoutubeUrl(event.mediaUrl)) {
-      return event.mediaUrl;
+      return null;
     }
 
     if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
@@ -1676,10 +1660,6 @@ class EventService extends ChangeNotifier {
   }
 
   String? _selectPlaybackMediaForForcedVideo(Event event) {
-    if (_isYoutubeUrl(event.mediaUrl)) {
-      return event.mediaUrl;
-    }
-
     if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
       return event.visualUrl;
     }
@@ -1699,26 +1679,5 @@ class EventService extends ChangeNotifier {
         lower.contains('.wav') ||
         lower.contains('.aac') ||
         lower.contains('.m4a');
-  }
-
-  bool _isYoutubeUrl(String? url) {
-    if (url == null || url.isEmpty) return false;
-
-    final parsed = Uri.tryParse(url);
-    final host = (parsed?.host ?? '').toLowerCase();
-    if (host.contains('youtube.com') ||
-        host.contains('youtu.be') ||
-        host.contains('youtube-nocookie.com')) {
-      return true;
-    }
-
-    final lower = url.toLowerCase();
-    if (lower.contains('youtube.com') || lower.contains('youtu.be')) {
-      return true;
-    }
-
-    // Handle encoded redirect-style URLs that still contain a YouTube target.
-    final decoded = Uri.decodeFull(url).toLowerCase();
-    return decoded.contains('youtube.com') || decoded.contains('youtu.be');
   }
 }

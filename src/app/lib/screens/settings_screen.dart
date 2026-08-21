@@ -14,6 +14,7 @@ import 'chat_screen.dart';
 import 'community_groups_screen.dart';
 import 'legal_document_screen.dart';
 import 'personal_information_screen.dart';
+import 'media_vault_screen.dart';
 import 'welcome_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -521,6 +522,22 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                              ),
                         );
                       }
+                    ),
+                    const Divider(color: Colors.white12),
+                    ListTile(
+                      leading: const Icon(Icons.photo_library_outlined, color: Colors.white),
+                      title: const Text('My Harmony Vault', style: TextStyle(color: Colors.white)),
+                      subtitle: const Text(
+                        'Manage saved photos for Common Room comments',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                      trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const MediaVaultScreen()),
+                        );
+                      },
                     ),
                 ],
               ),

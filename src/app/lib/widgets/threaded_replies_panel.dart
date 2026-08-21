@@ -11,17 +11,17 @@ class ThreadedRepliesPanel extends StatelessWidget {
   final String currentAuthUid;
   final Stream<QuerySnapshot> repliesStream;
   final Future<String> Function(String userId, String rawName)
-      resolveDisplayName;
+  resolveDisplayName;
   final VoidCallback onToggleExpanded;
   final VoidCallback onComposeReply;
   final Future<void> Function(String replyId, Map<String, dynamic> reply)
-    onEditReply;
+  onEditReply;
   final Future<void> Function(String replyId, Map<String, dynamic> reply)
-    onDeleteReply;
+  onDeleteReply;
   final Future<void> Function(String replyId, Map<String, dynamic> reply)
-    onLikeReply;
+  onLikeReply;
   final Future<void> Function(String replyId, Map<String, dynamic> reply)
-    onReportReply;
+  onReportReply;
 
   const ThreadedRepliesPanel({
     super.key,
@@ -44,7 +44,9 @@ class ThreadedRepliesPanel extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: repliesStream,
       builder: (context, replySnapshot) {
-        final replyCount = replySnapshot.hasData ? replySnapshot.data!.docs.length : 0;
+        final replyCount = replySnapshot.hasData
+            ? replySnapshot.data!.docs.length
+            : 0;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -57,14 +59,19 @@ class ThreadedRepliesPanel extends StatelessWidget {
                   child: Row(
                     children: [
                       Icon(
-                        isExpanded ? Icons.chat_bubble : Icons.chat_bubble_outline,
+                        isExpanded
+                            ? Icons.chat_bubble
+                            : Icons.chat_bubble_outline,
                         size: 13,
                         color: Colors.white54,
                       ),
                       const SizedBox(width: 4),
                       Text(
                         '$replyCount',
-                        style: const TextStyle(color: Colors.white54, fontSize: 11),
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
                       ),
                     ],
                   ),
@@ -110,15 +117,15 @@ class _RepliesList extends StatelessWidget {
   final String currentUserId;
   final String currentAuthUid;
   final Future<String> Function(String userId, String rawName)
-      resolveDisplayName;
+  resolveDisplayName;
   final Future<void> Function(String replyId, Map<String, dynamic> reply)
-      onEditReply;
+  onEditReply;
   final Future<void> Function(String replyId, Map<String, dynamic> reply)
-      onDeleteReply;
-    final Future<void> Function(String replyId, Map<String, dynamic> reply)
-      onLikeReply;
-    final Future<void> Function(String replyId, Map<String, dynamic> reply)
-      onReportReply;
+  onDeleteReply;
+  final Future<void> Function(String replyId, Map<String, dynamic> reply)
+  onLikeReply;
+  final Future<void> Function(String replyId, Map<String, dynamic> reply)
+  onReportReply;
 
   const _RepliesList({
     required this.repliesSnapshot,
@@ -155,7 +162,8 @@ class _RepliesList extends StatelessWidget {
   }
 
   String _replyUserId(Map<String, dynamic> reply) {
-    return (reply['userId'] ??
+    return (reply['authorUid'] ??
+            reply['userId'] ??
             reply['authorId'] ??
             reply['senderId'] ??
             reply['uid'] ??
@@ -194,11 +202,12 @@ class _RepliesList extends StatelessWidget {
     final rawName = _replyDisplayName(reply);
     final replyContent = _replyContent(reply);
     final likedBy = List<dynamic>.from(reply['likedBy'] ?? const []);
-    final isLiked = likedBy.contains(currentUserId) ||
-      (currentAuthUid.isNotEmpty && likedBy.contains(currentAuthUid));
+    final isLiked =
+        likedBy.contains(currentUserId) ||
+        (currentAuthUid.isNotEmpty && likedBy.contains(currentAuthUid));
     final likesCount = (reply['likes'] is num)
-      ? (reply['likes'] as num).toInt()
-      : int.tryParse('${reply['likes']}') ?? 0;
+        ? (reply['likes'] as num).toInt()
+        : int.tryParse('${reply['likes']}') ?? 0;
     final isOwner = <String>{currentUserId.trim(), currentAuthUid.trim()}
         .where((v) => v.isNotEmpty)
         .any((currentId) => currentId == userId || currentId == replyAuthorUid);
@@ -268,9 +277,16 @@ class _RepliesList extends StatelessWidget {
                                   value: 'edit',
                                   child: Row(
                                     children: [
-                                      Icon(Icons.edit_outlined, color: Colors.white70, size: 16),
+                                      Icon(
+                                        Icons.edit_outlined,
+                                        color: Colors.white70,
+                                        size: 16,
+                                      ),
                                       SizedBox(width: 8),
-                                      Text('Edit reply', style: TextStyle(color: Colors.white70)),
+                                      Text(
+                                        'Edit reply',
+                                        style: TextStyle(color: Colors.white70),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -278,9 +294,18 @@ class _RepliesList extends StatelessWidget {
                                   value: 'delete',
                                   child: Row(
                                     children: [
-                                      Icon(Icons.delete_outline, color: Colors.redAccent, size: 16),
+                                      Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.redAccent,
+                                        size: 16,
+                                      ),
                                       SizedBox(width: 8),
-                                      Text('Delete reply', style: TextStyle(color: Colors.redAccent)),
+                                      Text(
+                                        'Delete reply',
+                                        style: TextStyle(
+                                          color: Colors.redAccent,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -297,6 +322,7 @@ class _RepliesList extends StatelessWidget {
                         fontSize: 12,
                         height: 1.2,
                       ),
+                      enableLinks: true,
                     ),
                     const SizedBox(height: 4),
                     Row(
@@ -391,7 +417,8 @@ class _RepliesList extends StatelessWidget {
                   child: ListView.builder(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
                     itemCount: replies.length,
-                    itemBuilder: (context, index) => _buildReplyTile(context, replies[index]),
+                    itemBuilder: (context, index) =>
+                        _buildReplyTile(context, replies[index]),
                   ),
                 ),
               ],
@@ -409,7 +436,10 @@ class _RepliesList extends StatelessWidget {
         padding: const EdgeInsets.only(top: 6, left: 26),
         child: Text(
           'No replies yet.',
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 11),
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.55),
+            fontSize: 11,
+          ),
         ),
       );
     }
@@ -435,14 +465,19 @@ class _RepliesList extends StatelessWidget {
       padding: const EdgeInsets.only(top: 6, left: 26),
       child: Column(
         children: [
-          ...inlineReplies.map((replyDoc) => _buildReplyTile(context, replyDoc)),
+          ...inlineReplies.map(
+            (replyDoc) => _buildReplyTile(context, replyDoc),
+          ),
           if (hasMoreReplies)
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton(
                 onPressed: () => _showAllRepliesSheet(context, replies),
                 style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 0,
+                    vertical: 2,
+                  ),
                   minimumSize: const Size(0, 0),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),

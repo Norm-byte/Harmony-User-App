@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'legal_document_screen.dart';
+import 'media_vault_screen.dart';
 import '../services/user_service.dart';
 
 class PersonalInformationScreen extends StatefulWidget {
@@ -13,9 +14,24 @@ class PersonalInformationScreen extends StatefulWidget {
 }
 
 class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
+  String _safeProfileName(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return 'Member';
+    final normalized = trimmed.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    if (RegExp(r'^admin0*1$').hasMatch(normalized)) return 'Member';
+    final atIndex = trimmed.indexOf('@');
+    final base = atIndex > 0 ? trimmed.substring(0, atIndex) : trimmed;
+    final sanitized = base
+        .replaceAll(RegExp(r'[^A-Za-z0-9_. -]'), '')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
+    return sanitized.isEmpty ? 'Member' : sanitized;
+  }
+
   @override
   Widget build(BuildContext context) {
     final userService = context.watch<UserService>();
+    final profileName = _safeProfileName(userService.userName);
     
     return GradientScaffold(
       appBar: AppBar(
@@ -28,8 +44,20 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           _buildSettingsTile(
             icon: Icons.badge_outlined,
             title: 'Profile Information',
-            subtitle: '${userService.userName} • ${userService.timeZone}',
+            subtitle: '$profileName • ${userService.timeZone}',
             onTap: () => _showProfileDetailsDialog(context),
+          ),
+          const SizedBox(height: 16),
+          _buildSettingsTile(
+            icon: Icons.photo_library_outlined,
+            title: 'My Harmony Vault',
+            subtitle: 'Manage saved photos for Common Room comments',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const MediaVaultScreen()),
+              );
+            },
           ),
           const SizedBox(height: 16),
           _buildSettingsTile(
@@ -117,6 +145,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
   void _showProfileDetailsDialog(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     final userService = context.read<UserService>();
+    final profileName = _safeProfileName(userService.userName);
     final email = user?.email ?? 'No email available';
 
     showDialog(
@@ -128,7 +157,7 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildInfoRow('Name', userService.userName),
+            _buildInfoRow('Name', profileName),
             const SizedBox(height: 8),
             _buildInfoRow('Email', email),
             const SizedBox(height: 8),

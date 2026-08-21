@@ -13,11 +13,17 @@ class UsageService extends ChangeNotifier {
   static const int _defaultMaxActiveForums = 2;
   static const int _defaultMaxMediaStorageMb = 100;
   static const bool _defaultAllowVideoUploads = false;
+  static const int _defaultMonthlyImageUploadLimit = 0;
+  static const int _defaultMyHarmonyVaultMaxImages = 0;
+  static const int _defaultFeedImageExpiryDays = 5;
 
   int _maxDailySends = _defaultMaxDailySends;
   int _maxActiveForums = _defaultMaxActiveForums;
   int _maxMediaStorageMb = _defaultMaxMediaStorageMb;
   bool _allowVideoUploads = _defaultAllowVideoUploads;
+  int _monthlyImageUploadLimit = _defaultMonthlyImageUploadLimit;
+  int _myHarmonyVaultMaxImages = _defaultMyHarmonyVaultMaxImages;
+  int _feedImageExpiryDays = _defaultFeedImageExpiryDays;
 
   StreamSubscription? _tiersSubscription;
   StreamSubscription<User?>? _authSubscription;
@@ -33,6 +39,9 @@ class UsageService extends ChangeNotifier {
   int get maxActiveForums => _maxActiveForums;
   int get maxMediaStorageMb => _maxMediaStorageMb;
   bool get allowVideoUploads => _allowVideoUploads;
+  int get monthlyImageUploadLimit => _monthlyImageUploadLimit;
+  int get myHarmonyVaultMaxImages => _myHarmonyVaultMaxImages;
+  int get feedImageExpiryDays => _feedImageExpiryDays;
 
   @override
   void dispose() {
@@ -119,14 +128,46 @@ class UsageService extends ChangeNotifier {
         }
       }
 
-      // Safety fallback: VIP users without a mapped tier should never drop to free limits.
+      // Safety fallback: elevated-access users without explicit mapping should
+      // use the strongest active paid tier, including media limits.
       if (!limitsFound && hasElevatedAccess) {
-        limitsToApply = {
-          'maxDailySends': 100,
-          'maxMonthlySends': 3000,
-          'maxActiveForums': 1,
-        };
-        limitsFound = true;
+        Map<String, dynamic>? strongestPaidLimits;
+        var strongestDaily = -1;
+        var strongestImages = -1;
+
+        for (var doc in _latestDocs) {
+          final data = doc.data();
+          final id = doc.id;
+          final isActive = data['isActive'] != false;
+          if (!isActive || id == 'tier_free') continue;
+
+          final limits = (data['limits'] as Map<String, dynamic>?) ?? const {};
+          final daily = _toInt(limits['maxDailySends'], fallback: 0);
+          final images = _toInt(limits['monthlyImageUploadLimit'], fallback: 0);
+
+          final isStronger = daily > strongestDaily ||
+              (daily == strongestDaily && images > strongestImages);
+          if (isStronger) {
+            strongestDaily = daily;
+            strongestImages = images;
+            strongestPaidLimits = limits;
+          }
+        }
+
+        if (strongestPaidLimits != null) {
+          limitsToApply = Map<String, dynamic>.from(strongestPaidLimits);
+          limitsFound = true;
+        } else {
+          limitsToApply = {
+            'maxDailySends': 100,
+            'maxMonthlySends': 3000,
+            'maxActiveForums': 1,
+            'monthlyImageUploadLimit': 25,
+            'myHarmonyVaultMaxImages': 100,
+            'feedImageExpiryDays': 5,
+          };
+          limitsFound = true;
+        }
       }
 
       if (limitsFound && hasElevatedAccess) {
@@ -168,10 +209,67 @@ class UsageService extends ChangeNotifier {
           }
         }
 
-        // Fallback: If subscribed but no RC match found
-          if (!limitsFound && tierDocs.containsKey('tier_free')) {
-           limitsToApply = tierDocs['tier_free']?['limits'] ?? {};
-           limitsFound = true;
+        // Secondary match: align with synced user plan label when admin used
+        // human-readable card titles instead of RevenueCat entitlement/product IDs.
+        if (!limitsFound) {
+          final userPlanRaw = (_currentUserData?['subscriptionPlan'] as String?)
+              ?.trim();
+          final userPlan = _normalize(userPlanRaw);
+          if (userPlan.isNotEmpty) {
+            for (var doc in _latestDocs) {
+              final data = doc.data();
+              final title = _normalize(data['title'] as String?);
+              final docId = _normalize(doc.id);
+              final rcOfferingId =
+                  _normalize(data['revenueCatOfferingId'] as String?);
+              if (userPlan == title || userPlan == docId || userPlan == rcOfferingId) {
+                limitsToApply = data['limits'] ?? {};
+                limitsFound = true;
+                break;
+              }
+            }
+          }
+        }
+
+        // Safety fallback for subscribed users: avoid accidental lockout on free
+        // tier if ID mapping is temporarily misconfigured.
+        if (!limitsFound) {
+          Map<String, dynamic>? strongestPaidLimits;
+          var strongestDaily = -1;
+          var strongestImages = -1;
+
+          for (var doc in _latestDocs) {
+            final data = doc.data();
+            final id = doc.id;
+            final isActive = data['isActive'] != false;
+            if (!isActive || id == 'tier_free') continue;
+
+            final limits = (data['limits'] as Map<String, dynamic>?) ?? const {};
+            final daily = _toInt(limits['maxDailySends'], fallback: 0);
+            final images = _toInt(limits['monthlyImageUploadLimit'], fallback: 0);
+            final isStronger =
+                daily > strongestDaily ||
+                (daily == strongestDaily && images > strongestImages);
+            if (isStronger) {
+              strongestDaily = daily;
+              strongestImages = images;
+              strongestPaidLimits = limits;
+            }
+          }
+
+          if (strongestPaidLimits != null) {
+            limitsToApply = Map<String, dynamic>.from(strongestPaidLimits);
+            limitsFound = true;
+            debugPrint(
+              'UsageService: using strongest paid tier fallback for subscribed user due to ID mismatch.',
+            );
+          }
+        }
+
+        // Final fallback only when no paid tier can be resolved.
+        if (!limitsFound && tierDocs.containsKey('tier_free')) {
+          limitsToApply = tierDocs['tier_free']?['limits'] ?? {};
+          limitsFound = true;
         }
       }
 
@@ -224,6 +322,9 @@ class UsageService extends ChangeNotifier {
     _maxActiveForums = _defaultMaxActiveForums;
     _maxMediaStorageMb = _defaultMaxMediaStorageMb;
     _allowVideoUploads = _defaultAllowVideoUploads;
+    _monthlyImageUploadLimit = _defaultMonthlyImageUploadLimit;
+    _myHarmonyVaultMaxImages = _defaultMyHarmonyVaultMaxImages;
+    _feedImageExpiryDays = _defaultFeedImageExpiryDays;
     notifyListeners();
   }
 
@@ -232,9 +333,12 @@ class UsageService extends ChangeNotifier {
     int newMaxDailySends = _defaultMaxDailySends;
 
     if (limits.containsKey('maxDailySends')) {
-      newMaxDailySends = limits['maxDailySends'] as int;
+      newMaxDailySends = _toInt(
+        limits['maxDailySends'],
+        fallback: _defaultMaxDailySends,
+      );
     } else if (limits.containsKey('maxMonthlySends')) {
-       newMaxDailySends = (limits['maxMonthlySends'] as int) ~/ 30; 
+       newMaxDailySends = _toInt(limits['maxMonthlySends'], fallback: 300) ~/ 30; 
     }
 
     // Only notify if something changed
@@ -242,18 +346,48 @@ class UsageService extends ChangeNotifier {
       _maxDailySends = newMaxDailySends;
     }
     
-    if (limits.containsKey('maxActiveForums') && _maxActiveForums != limits['maxActiveForums']) {
-      _maxActiveForums = limits['maxActiveForums'];
+    final nextMaxActiveForums = _toInt(
+      limits['maxActiveForums'],
+      fallback: _defaultMaxActiveForums,
+    );
+    if (_maxActiveForums != nextMaxActiveForums) {
+      _maxActiveForums = nextMaxActiveForums;
     }
     
     // ... ignoring others for brevity unless easy
     // Actually better to just set them and let notifyListeners handle it (if we optimized)
     // But basic check is fine.
     
-    _maxMediaStorageMb = limits['maxMediaStorageMb'] ?? _defaultMaxMediaStorageMb;
+    _maxMediaStorageMb = _toInt(
+      limits['maxMediaStorageMb'],
+      fallback: _defaultMaxMediaStorageMb,
+    );
     _allowVideoUploads = limits['allowVideoUploads'] ?? _defaultAllowVideoUploads;
+    _monthlyImageUploadLimit = _toInt(
+      limits['monthlyImageUploadLimit'],
+      fallback: _defaultMonthlyImageUploadLimit,
+    );
+    _myHarmonyVaultMaxImages = _toInt(
+      limits['myHarmonyVaultMaxImages'],
+      fallback: _defaultMyHarmonyVaultMaxImages,
+    );
+    _feedImageExpiryDays = _toInt(
+      limits['feedImageExpiryDays'],
+      fallback: _defaultFeedImageExpiryDays,
+    );
     
     // Always notify if we are reapplying limits, UI might need refresh
     notifyListeners();
+  }
+
+  int _toInt(dynamic value, {required int fallback}) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
+  String _normalize(String? value) {
+    return (value ?? '').toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
   }
 }
