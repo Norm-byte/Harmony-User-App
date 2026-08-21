@@ -23,7 +23,33 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   Future<bool> _hasExistingAccount() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('has_existing_account') ?? false;
+    final explicitFlag = prefs.getBool('has_existing_account') ?? false;
+    if (explicitFlag) {
+      return true;
+    }
+
+    // Fallback marker: if we have ever seen a login email on this install,
+    // treat this as a returning user and default to the login screen.
+    final lastLoginEmail = (prefs.getString('last_login_email') ?? '').trim();
+    if (lastLoginEmail.isNotEmpty) {
+      return true;
+    }
+
+    // Android debug/install flows can reinstall the app and clear local
+    // markers. Default to Welcome Back to keep existing subscribers on the
+    // sign-in path instead of create-account.
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return true;
+    }
+
+    // Last-resort fallback: previously persisted local identity means this
+    // install has already completed account setup at least once.
+    final localUserId = (prefs.getString('user_id') ?? '').trim();
+    final localUserName = (prefs.getString('user_name') ?? '').trim().toLowerCase();
+    final hasNamedIdentity = localUserName.isNotEmpty &&
+        localUserName != 'guest' &&
+        localUserName != 'member';
+    return localUserId.isNotEmpty && hasNamedIdentity;
   }
 
   @override
@@ -51,6 +77,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         }
 
         if (defaultTargetPlatform == TargetPlatform.iOS) {
+          // New iOS subscribers still need to see the create-account welcome.
           return _buildStaticIosWelcome(context);
         }
 

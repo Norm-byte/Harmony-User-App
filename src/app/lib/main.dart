@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/home_screen.dart';
@@ -281,6 +282,14 @@ class _SplashScreenState extends State<SplashScreen> {
             onTimeout: () => FirebaseAuth.instance.currentUser,
           );
       if (firebaseUser != null) {
+        // Lock returning-user marker whenever we observe an authenticated user.
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('has_existing_account', true);
+        final signedInEmail = firebaseUser.email?.trim() ?? '';
+        if (signedInEmail.isNotEmpty) {
+          await prefs.setString('last_login_email', signedInEmail);
+        }
+
         // Already authenticated: require VIP or active subscription before Home.
         final subscriptionService = context.read<SubscriptionService>();
         await subscriptionService.refreshVipFromAuthUser();

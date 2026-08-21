@@ -109,7 +109,7 @@ class UserService extends ChangeNotifier {
     if (firebaseUser != null) {
       _userId = firebaseUser.uid;
       _userName = sanitizePublicDisplayName(
-        prefs.getString('user_name') ?? firebaseUser.displayName ?? 'Member',
+        prefs.getString('user_name') ?? firebaseUser.displayName ?? '',
       );
     } else {
       // Generate a persistent anonymous ID for this installation if not found
@@ -120,7 +120,7 @@ class UserService extends ChangeNotifier {
         await prefs.setString('user_id', newId);
       }
       _userId = prefs.getString('user_id')!;
-      _userName = sanitizePublicDisplayName(prefs.getString('user_name') ?? 'Guest');
+      _userName = sanitizePublicDisplayName(prefs.getString('user_name') ?? '');
 
       // FORCE RESET if ID is "Super Admin" (Debug Cleanup)
       if (_userId == 'Super Admin' || _userId.contains(' ')) {
@@ -131,8 +131,8 @@ class UserService extends ChangeNotifier {
         final random = Random().nextInt(10000);
         _userId = 'user_${timestamp}_$random';
         await prefs.setString('user_id', _userId);
-        await prefs.setString('user_name', 'Guest');
-        _userName = 'Guest';
+        await prefs.setString('user_name', '');
+        _userName = '';
         debugPrint("HARMONY_DEBUG: New Identity: $_userId");
       }
     }
@@ -202,7 +202,7 @@ class UserService extends ChangeNotifier {
 
   static String sanitizePublicDisplayName(String? rawName) {
     final input = (rawName ?? '').trim();
-    if (input.isEmpty) return 'Member';
+    if (input.isEmpty) return '';
 
     var sanitized = input;
     final atIndex = sanitized.indexOf('@');
@@ -213,7 +213,7 @@ class UserService extends ChangeNotifier {
     sanitized = sanitized.replaceAll(RegExp(r'[^A-Za-z0-9_. -]'), '').trim();
     sanitized = sanitized.replaceAll(RegExp(r'\s+'), ' ');
 
-    if (sanitized.isEmpty) return 'Member';
+    if (sanitized.isEmpty) return '';
     if (sanitized.length > 24) {
       sanitized = sanitized.substring(0, 24).trim();
     }
@@ -230,14 +230,7 @@ class UserService extends ChangeNotifier {
     final current = sanitizePublicDisplayName(_userName);
 
     final firebaseUser = FirebaseAuth.instance.currentUser;
-    final emailPrefix = (firebaseUser?.email?.contains('@') == true)
-        ? firebaseUser!.email!.split('@').first.trim()
-        : null;
-    final currentLooksLikeEmailPrefix =
-        emailPrefix != null &&
-        current.toLowerCase() == sanitizePublicDisplayName(emailPrefix).toLowerCase();
-
-    if (isRecognizedPublicDisplayName(current) && !currentLooksLikeEmailPrefix) {
+    if (isRecognizedPublicDisplayName(current)) {
       return current;
     }
 
@@ -252,21 +245,9 @@ class UserService extends ChangeNotifier {
           .doc(effectiveUid)
           .get();
       final userData = userDoc.data();
-      if (userData?['isSuperAdmin'] == true) {
-        const fallbackAdminName = 'Admin 1';
-        await setUser(effectiveUid, fallbackAdminName);
-        return fallbackAdminName;
-      }
-        final docEmailPrefix = (userData?['email'] as String?)?.contains('@') == true
-          ? (userData!['email'] as String).split('@').first.trim()
-          : emailPrefix;
-
       final candidates = <String?>[
         userData?['username'] as String?,
         userData?['userName'] as String?,
-        userData?['name'] as String?,
-        userData?['displayName'] as String?,
-        firebaseUser?.displayName,
       ];
 
       for (final candidate in candidates) {
@@ -275,12 +256,6 @@ class UserService extends ChangeNotifier {
           await setUser(effectiveUid, sanitized);
           return sanitized;
         }
-      }
-
-      final sanitizedEmail = sanitizePublicDisplayName(docEmailPrefix);
-      if (isRecognizedPublicDisplayName(sanitizedEmail)) {
-        await setUser(effectiveUid, sanitizedEmail);
-        return sanitizedEmail;
       }
     } catch (e) {
       debugPrint('HARMONY_IDENTITY: failed to recover display name: $e');

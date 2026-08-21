@@ -505,18 +505,6 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
     }
     return false;
   }
-
-  String? _normalizedCurrentEmailPrefix() {
-    final authUser = FirebaseAuth.instance.currentUser;
-    final emailPrefix = (authUser?.email?.contains('@') == true)
-        ? authUser?.email?.split('@').first.trim()
-        : null;
-    if (emailPrefix == null || emailPrefix.isEmpty) {
-      return null;
-    }
-    return UserService.sanitizePublicDisplayName(emailPrefix).toLowerCase();
-  }
-
   Future<String> _fetchBestNameForUserId(String userId, String fallback) async {
     try {
       final userDoc = await FirebaseFirestore.instance
@@ -524,49 +512,20 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
           .doc(userId)
           .get();
       final data = userDoc.data();
-
-      final emailPrefix = (data?['email'] as String?)?.contains('@') == true
-          ? (data!['email'] as String).split('@').first.trim()
-          : null;
-      final normalizedEmailPrefix = emailPrefix == null
-          ? null
-          : UserService.sanitizePublicDisplayName(emailPrefix).toLowerCase();
-
       final candidates = <String?>[
         data?['username'] as String?,
         data?['userName'] as String?,
-        data?['name'] as String?,
-        data?['displayName'] as String?,
-        fallback,
       ];
 
       for (final candidate in candidates) {
         final sanitized = UserService.sanitizePublicDisplayName(candidate);
-        final normalized = sanitized.toLowerCase();
-        final isEmailDerived =
-            normalizedEmailPrefix != null &&
-            normalized == normalizedEmailPrefix;
         if (UserService.isRecognizedPublicDisplayName(sanitized) &&
-            !_looksLikeFallbackName(sanitized) &&
-            !isEmailDerived) {
+            !_looksLikeFallbackName(sanitized)) {
           return sanitized;
         }
       }
     } catch (_) {}
-
-    if (UserService.isRecognizedPublicDisplayName(fallback) &&
-        !_looksLikeFallbackName(fallback)) {
-      final normalizedCurrentEmailPrefix = _normalizedCurrentEmailPrefix();
-      final normalizedFallback = UserService.sanitizePublicDisplayName(
-        fallback,
-      ).toLowerCase();
-      if (normalizedCurrentEmailPrefix != null &&
-          normalizedFallback == normalizedCurrentEmailPrefix) {
-        return 'Member';
-      }
-      return fallback;
-    }
-    return 'Member';
+    return '';
   }
 
   Future<String> _resolveDisplayNameForPost(Map<String, dynamic> post) {
@@ -575,41 +534,28 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
     );
     final userId = (post['userId']?.toString() ?? '').trim();
     final currentUser = UserService();
-    final normalizedEmailPrefix = _normalizedCurrentEmailPrefix();
-    final rawNameIsEmailDerived =
-        normalizedEmailPrefix != null &&
-        rawName.toLowerCase() == normalizedEmailPrefix;
 
     if (userId.isEmpty) {
       final localName = UserService.sanitizePublicDisplayName(
         currentUser.userName,
       );
-      final localNameIsEmailDerived =
-          normalizedEmailPrefix != null &&
-          localName.toLowerCase() == normalizedEmailPrefix;
       if (UserService.isRecognizedPublicDisplayName(localName) &&
-          !_looksLikeFallbackName(localName) &&
-          !localNameIsEmailDerived) {
+          !_looksLikeFallbackName(localName)) {
         return Future.value(localName);
       }
       if (UserService.isRecognizedPublicDisplayName(rawName) &&
-          !_looksLikeFallbackName(rawName) &&
-          !rawNameIsEmailDerived) {
+          !_looksLikeFallbackName(rawName)) {
         return Future.value(rawName);
       }
-      return Future.value('Member');
+      return Future.value('');
     }
 
     if (userId == currentUser.userId) {
       final localName = UserService.sanitizePublicDisplayName(
         currentUser.userName,
       );
-      final localNameIsEmailDerived =
-          normalizedEmailPrefix != null &&
-          localName.toLowerCase() == normalizedEmailPrefix;
       if (UserService.isRecognizedPublicDisplayName(localName) &&
-          !_looksLikeFallbackName(localName) &&
-          !localNameIsEmailDerived) {
+          !_looksLikeFallbackName(localName)) {
         _resolvedNameFutureByUserId[userId] = Future.value(localName);
         return Future.value(localName);
       }
@@ -617,19 +563,12 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       final recovered = currentUser.ensureRecognizedPublicDisplayName().then((
         value,
       ) {
-        final normalizedRecovered = UserService.sanitizePublicDisplayName(
-          value,
-        ).toLowerCase();
-        final recoveredIsEmailDerived =
-            normalizedEmailPrefix != null &&
-            normalizedRecovered == normalizedEmailPrefix;
         if (value != null &&
             UserService.isRecognizedPublicDisplayName(value) &&
-            !_looksLikeFallbackName(value) &&
-            !recoveredIsEmailDerived) {
+            !_looksLikeFallbackName(value)) {
           return value;
         }
-        return 'Member';
+        return '';
       });
       _resolvedNameFutureByUserId[userId] = recovered;
       return recovered;
@@ -677,15 +616,6 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
 
   Future<String?> _canonicalPublicNameForAuthUid(String authUid) async {
     if (authUid.trim().isEmpty) return null;
-
-    final authUser = FirebaseAuth.instance.currentUser;
-    final emailPrefix = (authUser?.email?.contains('@') == true)
-        ? authUser?.email?.split('@').first.trim()
-        : null;
-    final normalizedEmailPrefix = emailPrefix == null
-        ? null
-        : UserService.sanitizePublicDisplayName(emailPrefix).toLowerCase();
-
     try {
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
@@ -697,20 +627,12 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
       final candidates = <String?>[
         data['username'] as String?,
         data['userName'] as String?,
-        data['displayName'] as String?,
-        data['fullName'] as String?,
-        data['name'] as String?,
       ];
 
       for (final candidate in candidates) {
         final sanitized = UserService.sanitizePublicDisplayName(candidate);
-        final normalized = sanitized.toLowerCase();
-        final isEmailDerived =
-            normalizedEmailPrefix != null &&
-            normalized == normalizedEmailPrefix;
         if (UserService.isRecognizedPublicDisplayName(sanitized) &&
-            !_looksLikeFallbackName(sanitized) &&
-            !isEmailDerived) {
+            !_looksLikeFallbackName(sanitized)) {
           await UserService().setUser(authUid, sanitized);
           return sanitized;
         }
@@ -740,16 +662,11 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
   }) {
     if (userId.isEmpty) {
       final sanitized = UserService.sanitizePublicDisplayName(rawName);
-      final normalizedEmailPrefix = _normalizedCurrentEmailPrefix();
-      final isEmailDerived =
-          normalizedEmailPrefix != null &&
-          sanitized.toLowerCase() == normalizedEmailPrefix;
       if (UserService.isRecognizedPublicDisplayName(sanitized) &&
-          !_looksLikeFallbackName(sanitized) &&
-          !isEmailDerived) {
+          !_looksLikeFallbackName(sanitized)) {
         return Future.value(sanitized);
       }
-      return Future.value('Member');
+      return Future.value('');
     }
 
     final existing = _resolvedNameFutureByUserId[userId];
@@ -1770,10 +1687,22 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
         return;
       }
       final userId = authUid;
-      final publicName =
-          await _canonicalPublicNameForAuthUid(authUid) ??
-          await user.ensureRecognizedPublicDisplayName() ??
-          UserService.sanitizePublicDisplayName(user.userName);
+        final publicName =
+            await _canonicalPublicNameForAuthUid(authUid) ??
+            await user.ensureRecognizedPublicDisplayName();
+        if (publicName == null || publicName.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Your account username is not recognized. Messaging is disabled until your profile name is fixed.',
+                ),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
+          return;
+        }
       await FirebaseFirestore.instance.collection('moderation_queue').add({
         'content': content,
         'userId': userId,
@@ -2108,7 +2037,7 @@ class _CommunityFeedScreenState extends State<_CommunityFeedContent>
                     return FutureBuilder<String>(
                       future: _resolveDisplayNameForPost(post),
                       builder: (context, nameSnapshot) {
-                        final displayName = nameSnapshot.data ?? 'Member';
+                        final displayName = nameSnapshot.data ?? '';
                         return Padding(
                           key: ValueKey('community_post_${posts[index].id}'),
                           padding: const EdgeInsets.only(bottom: 6),

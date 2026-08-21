@@ -64,37 +64,33 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final userDocData = userDoc?.data();
 
-      // Resolve the best available public display name from every available source.
-      // Authentication (Firebase Auth) is the gate — name presence is not.
-      // Any authenticated user is allowed in; name enforcement happens at send-time.
-      final emailPrefix = user.email?.contains('@') == true
-          ? user.email!.split('@').first.trim()
-          : null;
-      // Use UID suffix as the absolute last resort so we never produce an empty name.
-      final uidSuffix = 'User${user.uid.length >= 6 ? user.uid.substring(user.uid.length - 6) : user.uid}';
-
+      // Username-only identity resolution for room/public display.
       final candidates = <String?>[
         userDocData?['username'] as String?,
         userDocData?['userName'] as String?,
-        userDocData?['name'] as String?,
-        userDocData?['displayName'] as String?,
-        (user.displayName?.trim().isNotEmpty == true ? user.displayName : null),
       ];
 
       String? effectiveName;
-      if (userDocData?['isSuperAdmin'] == true) {
-        effectiveName = 'Admin 1';
-      }
       for (final candidate in candidates) {
         final sanitized = UserService.sanitizePublicDisplayName(candidate);
-        if (UserService.isRecognizedPublicDisplayName(sanitized)) {
+          if (UserService.isRecognizedPublicDisplayName(sanitized)) {
           effectiveName = sanitized;
           break;
         }
       }
-      effectiveName = UserService.sanitizePublicDisplayName(emailPrefix);
-      if (effectiveName.isEmpty) {
-        effectiveName = uidSuffix;
+      if (effectiveName == null || effectiveName.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Your account username is not recognized. Please set a valid username to continue.',
+              ),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        setState(() => _isLoading = false);
+        return;
       }
       final recognizedName = effectiveName;
 

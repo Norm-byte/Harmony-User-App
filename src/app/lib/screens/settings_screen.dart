@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/event.dart';
 import '../services/favorites_service.dart';
 import '../services/group_service.dart';
@@ -15,6 +16,7 @@ import 'community_groups_screen.dart';
 import 'legal_document_screen.dart';
 import 'personal_information_screen.dart';
 import 'media_vault_screen.dart';
+import 'login_screen.dart';
 import 'welcome_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -657,12 +659,20 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                              ),
                            );
                            if (confirmed == true && context.mounted) {
+                             final authUser = FirebaseAuth.instance.currentUser;
+                             final prefs = await SharedPreferences.getInstance();
+                             await prefs.setBool('has_existing_account', true);
+                             final signedInEmail = authUser?.email?.trim() ?? '';
+                             if (signedInEmail.isNotEmpty) {
+                               await prefs.setString('last_login_email', signedInEmail);
+                             }
+
                              await FirebaseAuth.instance.signOut();
                              await Provider.of<UserService>(context, listen: false).clearUser();
                              if (context.mounted) {
                                Navigator.pushAndRemoveUntil(
                                  context,
-                                 MaterialPageRoute(builder: (_) => const WelcomeScreen()),
+                                 MaterialPageRoute(builder: (_) => const LoginScreen()),
                                  (_) => false,
                                );
                              }
