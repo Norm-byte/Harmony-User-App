@@ -11,12 +11,14 @@ class LiveRoomCounterBadge extends StatefulWidget {
   final String roomId;
   final bool enabled;
   final bool showFlags;
+  final bool showBackground;
 
   const LiveRoomCounterBadge({
     super.key,
     required this.roomId,
     required this.enabled,
     this.showFlags = false,
+    this.showBackground = true,
   });
 
   @override
@@ -248,6 +250,46 @@ class _LiveRoomCounterBadgeState extends State<LiveRoomCounterBadge> {
   Widget build(BuildContext context) {
     if (!widget.enabled) return const SizedBox.shrink();
 
+    final badgeRow = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.groups_2, size: 13, color: Colors.lightGreenAccent),
+        const SizedBox(width: 4),
+        Text(
+          '$_activeCount live',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        if (widget.showFlags && _activeFlags.isNotEmpty) ...[
+          const SizedBox(width: 6),
+          Text(
+            _activeFlags.join(' '),
+            style: const TextStyle(fontSize: 13),
+          ),
+        ] else if (widget.showFlags && _activeZones.isNotEmpty) ...[
+          const SizedBox(width: 6),
+          Text(
+            _activeZones.join(' · '),
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ],
+    );
+
+    if (!widget.showBackground) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: badgeRow,
+      );
+    }
+
     return Container(
       margin: const EdgeInsets.only(right: 8),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -256,38 +298,7 @@ class _LiveRoomCounterBadgeState extends State<LiveRoomCounterBadge> {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white.withValues(alpha: 0.32)),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.groups_2, size: 13, color: Colors.lightGreenAccent),
-          const SizedBox(width: 4),
-          Text(
-            '$_activeCount live',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (widget.showFlags && _activeFlags.isNotEmpty) ...[
-            const SizedBox(width: 6),
-            Text(
-              _activeFlags.join(' '),
-              style: const TextStyle(fontSize: 13),
-            ),
-          ] else if (widget.showFlags && _activeZones.isNotEmpty) ...[
-            const SizedBox(width: 6),
-            Text(
-              _activeZones.join(' · '),
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ],
-      ),
+      child: badgeRow,
     );
   }
 }

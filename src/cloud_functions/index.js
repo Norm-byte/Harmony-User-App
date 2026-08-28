@@ -11,6 +11,10 @@ function logCommunityNotification(event, payload) {
     console.log(`[community_notify] ${event}`, payload || {});
 }
 
+function isNotRegisteredMessagingError(error) {
+    return String(error?.errorInfo?.code || '').trim() === 'messaging/registration-token-not-registered';
+}
+
 async function clearInvalidFcmTokenIfNeeded({ error, ownerUid, context }) {
     const code = String(error?.errorInfo?.code || '').trim();
     if (code !== 'messaging/registration-token-not-registered') {
@@ -468,17 +472,12 @@ exports.notifyOnCommunityPostLike = functions.firestore
         }
 
         const ownerToken = String(ownerData.fcmToken || '').trim();
-        if (!ownerToken) {
-            logCommunityNotification('post_like_skipped_no_token', { postId: context.params.postId, ownerUid });
-            return null;
-        }
 
         const likerDoc = await admin.firestore().collection('users').doc(newlyAddedLikerUid).get();
         const likerData = likerDoc.exists ? likerDoc.data() || {} : {};
         const likerName = String(likerData.name || likerData.username || 'Someone').trim() || 'Someone';
 
         const message = {
-            token: ownerToken,
             notification: {
                 title: 'Your post got a like',
                 body: `${likerName} liked your post in Community.`,
@@ -507,15 +506,45 @@ exports.notifyOnCommunityPostLike = functions.firestore
             },
         };
 
+        if (ownerToken) {
+            message.token = ownerToken;
+        } else {
+            message.topic = `user_${ownerUid}`;
+            logCommunityNotification('post_like_no_direct_token_using_topic', {
+                postId: context.params.postId,
+                ownerUid,
+                topic: message.topic,
+            });
+        }
+
         try {
             await admin.messaging().send(message);
             logCommunityNotification('post_like_sent', {
                 postId: context.params.postId,
                 ownerUid,
                 likerUid: newlyAddedLikerUid,
+                mode: ownerToken ? 'token' : 'topic',
             });
             return null;
         } catch (error) {
+            if (ownerToken && isNotRegisteredMessagingError(error)) {
+                const fallbackMessage = {
+                    ...message,
+                    topic: `user_${ownerUid}`,
+                };
+                delete fallbackMessage.token;
+                try {
+                    await admin.messaging().send(fallbackMessage);
+                    logCommunityNotification('post_like_sent_after_token_fail_topic_fallback', {
+                        postId: context.params.postId,
+                        ownerUid,
+                        likerUid: newlyAddedLikerUid,
+                        topic: fallbackMessage.topic,
+                    });
+                } catch (fallbackError) {
+                    console.error('Error sending community like topic fallback:', fallbackError);
+                }
+            }
             console.error('Error sending community like notification:', error);
             await clearInvalidFcmTokenIfNeeded({
                 error,
@@ -572,10 +601,6 @@ exports.notifyOnCommunityReply = functions.firestore
         }
 
         const ownerToken = String(ownerData.fcmToken || '').trim();
-        if (!ownerToken) {
-            logCommunityNotification('reply_create_skipped_no_token', { postId, ownerUid });
-            return null;
-        }
 
         const replierDoc = await admin.firestore().collection('users').doc(replierUid).get();
         const replierData = replierDoc.exists ? replierDoc.data() || {} : {};
@@ -584,7 +609,6 @@ exports.notifyOnCommunityReply = functions.firestore
         const preview = replyContent.length > 80 ? `${replyContent.slice(0, 77)}...` : replyContent;
 
         const message = {
-            token: ownerToken,
             notification: {
                 title: 'New reply to your comment',
                 body: preview ? `${replierName} replied: ${preview}` : `${replierName} replied to your comment in Community.`,
@@ -614,6 +638,18 @@ exports.notifyOnCommunityReply = functions.firestore
             },
         };
 
+        if (ownerToken) {
+            message.token = ownerToken;
+        } else {
+            message.topic = `user_${ownerUid}`;
+            logCommunityNotification('reply_create_no_direct_token_using_topic', {
+                postId,
+                replyId: context.params.replyId,
+                ownerUid,
+                topic: message.topic,
+            });
+        }
+
         try {
             await admin.messaging().send(message);
             logCommunityNotification('reply_create_sent', {
@@ -621,9 +657,29 @@ exports.notifyOnCommunityReply = functions.firestore
                 replyId: context.params.replyId,
                 ownerUid,
                 replierUid,
+                mode: ownerToken ? 'token' : 'topic',
             });
             return null;
         } catch (error) {
+            if (ownerToken && isNotRegisteredMessagingError(error)) {
+                const fallbackMessage = {
+                    ...message,
+                    topic: `user_${ownerUid}`,
+                };
+                delete fallbackMessage.token;
+                try {
+                    await admin.messaging().send(fallbackMessage);
+                    logCommunityNotification('reply_create_sent_after_token_fail_topic_fallback', {
+                        postId,
+                        replyId: context.params.replyId,
+                        ownerUid,
+                        replierUid,
+                        topic: fallbackMessage.topic,
+                    });
+                } catch (fallbackError) {
+                    console.error('Error sending community reply topic fallback:', fallbackError);
+                }
+            }
             console.error('Error sending community reply notification:', error);
             await clearInvalidFcmTokenIfNeeded({
                 error,
@@ -696,21 +752,12 @@ exports.notifyOnCommunityReplyLike = functions.firestore
         }
 
         const ownerToken = String(ownerData.fcmToken || '').trim();
-        if (!ownerToken) {
-            logCommunityNotification('reply_like_skipped_no_token', {
-                postId: context.params.postId,
-                replyId: context.params.replyId,
-                ownerUid,
-            });
-            return null;
-        }
 
         const likerDoc = await admin.firestore().collection('users').doc(newlyAddedLikerUid).get();
         const likerData = likerDoc.exists ? likerDoc.data() || {} : {};
         const likerName = String(likerData.name || likerData.username || 'Someone').trim() || 'Someone';
 
         const message = {
-            token: ownerToken,
             notification: {
                 title: 'Your reply got a like',
                 body: `${likerName} liked your reply in Community.`,
@@ -740,6 +787,18 @@ exports.notifyOnCommunityReplyLike = functions.firestore
             },
         };
 
+        if (ownerToken) {
+            message.token = ownerToken;
+        } else {
+            message.topic = `user_${ownerUid}`;
+            logCommunityNotification('reply_like_no_direct_token_using_topic', {
+                postId: context.params.postId,
+                replyId: context.params.replyId,
+                ownerUid,
+                topic: message.topic,
+            });
+        }
+
         try {
             await admin.messaging().send(message);
             logCommunityNotification('reply_like_sent', {
@@ -747,9 +806,29 @@ exports.notifyOnCommunityReplyLike = functions.firestore
                 replyId: context.params.replyId,
                 ownerUid,
                 likerUid: newlyAddedLikerUid,
+                mode: ownerToken ? 'token' : 'topic',
             });
             return null;
         } catch (error) {
+            if (ownerToken && isNotRegisteredMessagingError(error)) {
+                const fallbackMessage = {
+                    ...message,
+                    topic: `user_${ownerUid}`,
+                };
+                delete fallbackMessage.token;
+                try {
+                    await admin.messaging().send(fallbackMessage);
+                    logCommunityNotification('reply_like_sent_after_token_fail_topic_fallback', {
+                        postId: context.params.postId,
+                        replyId: context.params.replyId,
+                        ownerUid,
+                        likerUid: newlyAddedLikerUid,
+                        topic: fallbackMessage.topic,
+                    });
+                } catch (fallbackError) {
+                    console.error('Error sending community reply like topic fallback:', fallbackError);
+                }
+            }
             console.error('Error sending community reply like notification:', error);
             await clearInvalidFcmTokenIfNeeded({
                 error,

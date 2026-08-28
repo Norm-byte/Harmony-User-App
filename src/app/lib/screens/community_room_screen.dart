@@ -127,11 +127,55 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
       SnackBar(
         content: Text(
           enabled
-              ? 'Translation is ON for Common Room.'
-              : 'Translation is OFF for Common Room.',
+            ? 'Translation is ON for Common Room (TR-V5).'
+            : 'Translation is OFF for Common Room (TR-V5).',
         ),
         duration: const Duration(seconds: 2),
       ),
+    );
+  }
+
+  Widget _buildTranslateToggle({
+    double hitSize = 96,
+    double iconSize = 20,
+    bool useIconButton = false,
+  }) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: TranslationService.instance.enabledNotifier,
+      builder: (context, enabled, _) {
+        if (useIconButton) {
+          return IconButton(
+            tooltip: enabled ? 'Disable Translation' : 'Enable Translation',
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            onPressed: () => unawaited(_toggleTranslation()),
+            icon: Icon(
+              Icons.translate,
+              size: iconSize,
+              color: enabled ? Colors.greenAccent : Colors.white,
+            ),
+          );
+        }
+        return Semantics(
+          button: true,
+          label: enabled ? 'Disable Translation' : 'Enable Translation',
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _toggleTranslation,
+            child: SizedBox(
+              width: hitSize,
+              height: hitSize,
+              child: Center(
+                child: Icon(
+                  Icons.translate,
+                  size: iconSize,
+                  color: enabled ? Colors.greenAccent : Colors.white,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1197,75 +1241,113 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
 
   @override
   Widget build(BuildContext context) {
+    final liveCounterTop = widget.showAppBar ? 40.0 : -44.0;
+    final translateTop = widget.showAppBar ? 22.0 : -50.0;
     return GradientScaffold(
       appBar: widget.showAppBar
           ? AppBar(
             automaticallyImplyLeading: false,
-              leadingWidth: 0,
-              centerTitle: false,
-            titleSpacing: 0,
-              title: Transform.translate(
-                offset: Offset(-14, 0),
-                child: const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Common Room',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-              foregroundColor: Colors.white,
-              actions: [
-                ValueListenableBuilder<HomeSpeakerUiState>(
-                  valueListenable: homeSpeakerUiStateNotifier,
-                  builder: (context, speakerState, _) {
-                    final toggle = homeSpeakerToggleCallback;
-                    if (!speakerState.visible || toggle == null) {
-                      return const SizedBox.shrink();
-                    }
-                    return IconButton(
-                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                      tooltip: speakerState.muted
-                          ? 'Enable background audio'
-                          : 'Mute background audio',
-                      onPressed: () => unawaited(toggle()),
-                      icon: Icon(
-                        speakerState.muted
-                            ? Icons.volume_off_rounded
-                            : Icons.volume_up_rounded,
-                        color: speakerState.muted ? Colors.white70 : Colors.amberAccent,
-                      ),
-                    );
-                  },
-                ),
-                ValueListenableBuilder<bool>(
-                  valueListenable: TranslationService.instance.enabledNotifier,
-                  builder: (context, enabled, _) {
-                    return IconButton(
-                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      padding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                      tooltip: enabled ? 'Disable Translation' : 'Enable Translation',
-                      onPressed: _toggleTranslation,
-                      icon: Icon(
-                        Icons.translate,
-                        color: enabled ? Colors.greenAccent : Colors.white,
-                      ),
-                    );
-                  },
-                ),
-              ],
+            toolbarHeight: 0,
+            elevation: 0,
+            backgroundColor: Colors.transparent,
             )
           : null,
       body: Stack(
         clipBehavior: Clip.none,
         children: [
+          if (widget.showAppBar)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 6, 10, 6),
+                  child: Row(
+                    children: [
+                      ValueListenableBuilder<bool>(
+                        valueListenable: TranslationService.instance.enabledNotifier,
+                        builder: (context, enabled, _) {
+                          return SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                              visualDensity: VisualDensity.compact,
+                              tooltip: enabled
+                                  ? 'Disable Translation'
+                                  : 'Enable Translation',
+                              onPressed: () => unawaited(_toggleTranslation()),
+                              icon: Icon(
+                                Icons.translate,
+                                size: 20,
+                                color: enabled ? Colors.greenAccent : Colors.white,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      IgnorePointer(
+                        ignoring: true,
+                        child: Transform.scale(
+                          scale: 0.94,
+                          alignment: Alignment.centerLeft,
+                          child: const LiveRoomCounterBadge(
+                            roomId: 'community_room',
+                            enabled: true,
+                            showBackground: false,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Common Room',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      ValueListenableBuilder<HomeSpeakerUiState>(
+                        valueListenable: homeSpeakerUiStateNotifier,
+                        builder: (context, speakerState, _) {
+                          final toggle = homeSpeakerToggleCallback;
+                          if (!speakerState.visible || toggle == null) {
+                            return const SizedBox(width: 36, height: 36);
+                          }
+                          return IconButton(
+                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                            padding: EdgeInsets.zero,
+                            visualDensity: VisualDensity.compact,
+                            tooltip: speakerState.muted
+                                ? 'Enable background audio'
+                                : 'Mute background audio',
+                            onPressed: () => unawaited(toggle()),
+                            icon: Icon(
+                              speakerState.muted
+                                  ? Icons.volume_off_rounded
+                                  : Icons.volume_up_rounded,
+                              color: speakerState.muted ? Colors.white70 : Colors.amberAccent,
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           Column(
             children: [
+          if (widget.showAppBar)
+            const SizedBox(height: 76),
           StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance
                 .collection('app_config')
@@ -1557,45 +1639,35 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
           _buildComposer(),
             ],
           ),
-          Positioned(
-            top: -44,
-            left: 12,
-            child: Transform.scale(
-              scale: 0.94,
-              alignment: Alignment.topLeft,
-              child: const LiveRoomCounterBadge(
-                roomId: 'community_room',
-                enabled: true,
-              ),
-            ),
-          ),
-          Positioned(
-            top: -44,
-            right: 34,
-            child: Transform.scale(
-              scale: 0.94,
-              alignment: Alignment.topRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                ValueListenableBuilder<bool>(
-                  valueListenable: TranslationService.instance.enabledNotifier,
-                  builder: (context, enabled, _) {
-                    return IconButton(
-                      visualDensity: VisualDensity.compact,
-                      tooltip: enabled ? 'Disable Translation' : 'Enable Translation',
-                      onPressed: _toggleTranslation,
-                      icon: Icon(
-                        Icons.translate,
-                        color: enabled ? Colors.greenAccent : Colors.white,
-                      ),
-                    );
-                  },
+          if (!widget.showAppBar)
+            Positioned(
+              top: liveCounterTop,
+              left: 66,
+              child: IgnorePointer(
+                ignoring: true,
+                child: Transform.translate(
+                  offset: const Offset(0, 2),
+                  child: Transform.scale(
+                    scale: 0.94,
+                    alignment: Alignment.topLeft,
+                    child: const LiveRoomCounterBadge(
+                      roomId: 'community_room',
+                      enabled: true,
+                      showBackground: false,
+                    ),
+                  ),
                 ),
-                ],
               ),
             ),
-          ),
+          if (!widget.showAppBar)
+            Positioned(
+              top: translateTop,
+              left: -6,
+              child: Transform.translate(
+                offset: const Offset(0, -28),
+                child: _buildTranslateToggle(hitSize: 96, iconSize: 20),
+              ),
+            ),
         ],
       ),
     );
