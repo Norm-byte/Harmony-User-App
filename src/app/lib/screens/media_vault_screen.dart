@@ -90,7 +90,10 @@ class _MediaVaultScreenState extends State<MediaVaultScreen> {
   void _useInCommonRoom(Map<String, dynamic> image) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => CommunityFeedScreen(preselectedVaultImage: image),
+        builder: (_) => CommunityFeedScreen(
+          preselectedVaultImage: image,
+          showAppBar: true,
+        ),
       ),
     );
   }

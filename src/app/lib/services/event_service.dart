@@ -437,7 +437,6 @@ class EventService extends ChangeNotifier {
     // Listen to National Events
     _eventsSubscription = _firestore
         .collection('events')
-      .where('isPublished', isEqualTo: true)
         .snapshots()
         .listen(
           (snapshot) {
@@ -453,7 +452,6 @@ class EventService extends ChangeNotifier {
     // Listen to Global Events
     _globalEventsSubscription = _firestore
         .collection('global_events')
-      .where('isPublished', isEqualTo: true)
         .snapshots()
         .listen(
           (snapshot) {
@@ -591,8 +589,6 @@ class EventService extends ChangeNotifier {
     _pendingAlarmForceVideo = forceVideo;
     _pendingAlarmVerifiedExists = null;
     _alarmLaunchTransitionTimer?.cancel();
-    _isAlarmLaunchTransitionActive = true;
-    notifyListeners();
     print('HARMONY_ALARM: queued immediate playback for $_pendingAlarmEventId');
     _verifyPendingAlarmEventStillPublished(_pendingAlarmEventId!);
     _attemptPendingAlarmPlayback(forceWindow: true);
@@ -701,8 +697,17 @@ class EventService extends ChangeNotifier {
     }
 
     if (target == null) {
+      if (_isAlarmLaunchTransitionActive) {
+        _alarmLaunchTransitionTimer?.cancel();
+        _isAlarmLaunchTransitionActive = false;
+        notifyListeners();
+      }
       return false;
     }
+
+    _alarmLaunchTransitionTimer?.cancel();
+    _isAlarmLaunchTransitionActive = true;
+    notifyListeners();
 
     if (_isEventActive && _currentEventId == target.id) {
       _currentEventFromAlarmLaunch = true;

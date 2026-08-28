@@ -1,6 +1,148 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const vision = require('@google-cloud/vision');
+const { onObjectFinalized } = require('firebase-functions/v2/storage');
 admin.initializeApp();
+const visionClient = new vision.ImageAnnotatorClient();
+
+const BLOCK_LIKELIHOODS = new Set(['VERY_LIKELY']);
+
+function logCommunityNotification(event, payload) {
+    console.log(`[community_notify] ${event}`, payload || {});
+}
+
+async function clearInvalidFcmTokenIfNeeded({ error, ownerUid, context }) {
+    const code = String(error?.errorInfo?.code || '').trim();
+    if (code !== 'messaging/registration-token-not-registered') {
+        return;
+    }
+
+    const uid = String(ownerUid || '').trim();
+    if (!uid) {
+        return;
+    }
+
+    try {
+        await admin.firestore().collection('users').doc(uid).set(
+            {
+                fcmToken: admin.firestore.FieldValue.delete(),
+                fcmTokenInvalidatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true },
+        );
+        logCommunityNotification('fcm_token_cleared_not_registered', {
+            ownerUid: uid,
+            ...context,
+        });
+    } catch (cleanupError) {
+        console.error('Error clearing invalid FCM token:', cleanupError);
+    }
+}
+
+function parseModeratedPath(objectName) {
+    const normalized = String(objectName || '').trim();
+    if (!normalized) return { supported: false, type: 'unknown' };
+
+    const roomPrefix = 'chat_room_media/community_room/';
+    if (normalized.startsWith(roomPrefix)) {
+        const rest = normalized.slice(roomPrefix.length);
+        const parts = rest.split('/').filter(Boolean);
+        if (parts.length >= 2) {
+            const uid = parts[0];
+            const imageFile = parts.slice(1).join('/');
+            return {
+                supported: true,
+                type: 'common_room',
+                uid,
+                imageFile,
+            };
+        }
+    }
+
+    const vaultPrefix = 'user_vault_media/';
+    if (normalized.startsWith(vaultPrefix)) {
+        const rest = normalized.slice(vaultPrefix.length);
+        const parts = rest.split('/').filter(Boolean);
+        if (parts.length >= 2) {
+            const uid = parts[0];
+            const fileName = parts.slice(1).join('/');
+            const imageId = fileName.toLowerCase().endsWith('.jpg')
+                ? fileName.slice(0, -4)
+                : fileName;
+            return {
+                supported: true,
+                type: 'vault',
+                uid,
+                imageFile: fileName,
+                imageId,
+            };
+        }
+    }
+
+    return { supported: false, type: 'unknown' };
+}
+
+async function logModerationEvent(payload) {
+    const { status, ...rest } = payload || {};
+    await admin.firestore().collection('moderation_queue').add({
+        ...rest,
+        source: 'safe_search_storage_finalize',
+        status: status || 'pending',
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    });
+}
+
+async function clearCommonRoomImageRefs(storagePath) {
+    const db = admin.firestore();
+    const postsSnap = await db
+        .collection('community_posts')
+        .where('imageStoragePath', '==', storagePath)
+        .limit(50)
+        .get();
+
+    if (postsSnap.empty) {
+        return 0;
+    }
+
+    const batch = db.batch();
+    postsSnap.docs.forEach((doc) => {
+        batch.set(
+            doc.ref,
+            {
+                hasImage: false,
+                imageUrl: null,
+                imageStatus: 'moderated_deleted',
+                isModerated: true,
+                moderatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true },
+        );
+    });
+    await batch.commit();
+    return postsSnap.size;
+}
+
+async function clearVaultImageRef(uid, imageId) {
+    if (!uid || !imageId) return false;
+    const vaultRef = admin
+        .firestore()
+        .collection('users')
+        .doc(uid)
+        .collection('vault_images')
+        .doc(imageId);
+
+    await vaultRef.set(
+        {
+            status: 'moderated_deleted',
+            isModerated: true,
+            downloadUrl: null,
+            moderatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+    );
+    return true;
+}
 
 async function assertSuperAdmin(context) {
     if (!context.auth || !context.auth.uid) {
@@ -293,31 +435,41 @@ exports.notifyOnCommunityPostLike = functions.firestore
         const afterLikedBy = Array.isArray(after.likedBy) ? after.likedBy : [];
 
         if (afterLikedBy.length <= beforeLikedBy.length) {
+            logCommunityNotification('post_like_skipped_not_added', { postId: context.params.postId });
             return null;
         }
 
         const newlyAddedLikerUid = afterLikedBy.find((uid) => !beforeLikedBy.includes(uid));
         if (!newlyAddedLikerUid) {
+            logCommunityNotification('post_like_skipped_no_new_uid', { postId: context.params.postId });
             return null;
         }
 
         const ownerUid = String(after.authorUid || after.userId || after.uid || '').trim();
         if (!ownerUid || ownerUid === newlyAddedLikerUid) {
+            logCommunityNotification('post_like_skipped_owner_invalid_or_self', {
+                postId: context.params.postId,
+                ownerUid,
+                likerUid: newlyAddedLikerUid,
+            });
             return null;
         }
 
         const ownerDoc = await admin.firestore().collection('users').doc(ownerUid).get();
         if (!ownerDoc.exists) {
+            logCommunityNotification('post_like_skipped_owner_missing', { postId: context.params.postId, ownerUid });
             return null;
         }
 
         const ownerData = ownerDoc.data() || {};
         if (ownerData.notifyOnCommentLikes === false) {
+            logCommunityNotification('post_like_skipped_opt_out', { postId: context.params.postId, ownerUid });
             return null;
         }
 
         const ownerToken = String(ownerData.fcmToken || '').trim();
         if (!ownerToken) {
+            logCommunityNotification('post_like_skipped_no_token', { postId: context.params.postId, ownerUid });
             return null;
         }
 
@@ -328,11 +480,11 @@ exports.notifyOnCommunityPostLike = functions.firestore
         const message = {
             token: ownerToken,
             notification: {
-                title: 'Your comment got a like',
-                body: `${likerName} liked your comment in Community.`,
+                title: 'Your post got a like',
+                body: `${likerName} liked your post in Community.`,
             },
             data: {
-                type: 'community_comment_like',
+                type: 'community_post_like',
                 postId: context.params.postId,
                 likerUid: String(newlyAddedLikerUid),
             },
@@ -357,9 +509,22 @@ exports.notifyOnCommunityPostLike = functions.firestore
 
         try {
             await admin.messaging().send(message);
+            logCommunityNotification('post_like_sent', {
+                postId: context.params.postId,
+                ownerUid,
+                likerUid: newlyAddedLikerUid,
+            });
             return null;
         } catch (error) {
             console.error('Error sending community like notification:', error);
+            await clearInvalidFcmTokenIfNeeded({
+                error,
+                ownerUid,
+                context: {
+                    trigger: 'notifyOnCommunityPostLike',
+                    postId: context.params.postId,
+                },
+            });
             return null;
         }
     });
@@ -370,11 +535,13 @@ exports.notifyOnCommunityReply = functions.firestore
         const reply = snap.data() || {};
         const postId = String(context.params.postId || '').trim();
         if (!postId) {
+            logCommunityNotification('reply_create_skipped_no_post_id', { replyId: context.params.replyId });
             return null;
         }
 
         const postDoc = await admin.firestore().collection('community_posts').doc(postId).get();
         if (!postDoc.exists) {
+            logCommunityNotification('reply_create_skipped_post_missing', { postId });
             return null;
         }
 
@@ -383,21 +550,30 @@ exports.notifyOnCommunityReply = functions.firestore
         const replierUid = String(reply.authorUid || reply.userId || reply.uid || '').trim();
 
         if (!ownerUid || !replierUid || ownerUid === replierUid) {
+            logCommunityNotification('reply_create_skipped_owner_invalid_or_self', {
+                postId,
+                replyId: context.params.replyId,
+                ownerUid,
+                replierUid,
+            });
             return null;
         }
 
         const ownerDoc = await admin.firestore().collection('users').doc(ownerUid).get();
         if (!ownerDoc.exists) {
+            logCommunityNotification('reply_create_skipped_owner_missing', { postId, ownerUid });
             return null;
         }
 
         const ownerData = ownerDoc.data() || {};
         if (ownerData.notifyOnCommentLikes === false) {
+            logCommunityNotification('reply_create_skipped_opt_out', { postId, ownerUid });
             return null;
         }
 
         const ownerToken = String(ownerData.fcmToken || '').trim();
         if (!ownerToken) {
+            logCommunityNotification('reply_create_skipped_no_token', { postId, ownerUid });
             return null;
         }
 
@@ -440,9 +616,150 @@ exports.notifyOnCommunityReply = functions.firestore
 
         try {
             await admin.messaging().send(message);
+            logCommunityNotification('reply_create_sent', {
+                postId,
+                replyId: context.params.replyId,
+                ownerUid,
+                replierUid,
+            });
             return null;
         } catch (error) {
             console.error('Error sending community reply notification:', error);
+            await clearInvalidFcmTokenIfNeeded({
+                error,
+                ownerUid,
+                context: {
+                    trigger: 'notifyOnCommunityReply',
+                    postId,
+                    replyId: String(context.params.replyId || ''),
+                },
+            });
+            return null;
+        }
+    });
+
+exports.notifyOnCommunityReplyLike = functions.firestore
+    .document('community_posts/{postId}/replies/{replyId}')
+    .onUpdate(async (change, context) => {
+        const before = change.before.data() || {};
+        const after = change.after.data() || {};
+
+        const beforeLikedBy = Array.isArray(before.likedBy) ? before.likedBy : [];
+        const afterLikedBy = Array.isArray(after.likedBy) ? after.likedBy : [];
+
+        if (afterLikedBy.length <= beforeLikedBy.length) {
+            logCommunityNotification('reply_like_skipped_not_added', {
+                postId: context.params.postId,
+                replyId: context.params.replyId,
+            });
+            return null;
+        }
+
+        const newlyAddedLikerUid = afterLikedBy.find((uid) => !beforeLikedBy.includes(uid));
+        if (!newlyAddedLikerUid) {
+            logCommunityNotification('reply_like_skipped_no_new_uid', {
+                postId: context.params.postId,
+                replyId: context.params.replyId,
+            });
+            return null;
+        }
+
+        const ownerUid = String(after.authorUid || after.userId || after.uid || '').trim();
+        if (!ownerUid || ownerUid === newlyAddedLikerUid) {
+            logCommunityNotification('reply_like_skipped_owner_invalid_or_self', {
+                postId: context.params.postId,
+                replyId: context.params.replyId,
+                ownerUid,
+                likerUid: newlyAddedLikerUid,
+            });
+            return null;
+        }
+
+        const ownerDoc = await admin.firestore().collection('users').doc(ownerUid).get();
+        if (!ownerDoc.exists) {
+            logCommunityNotification('reply_like_skipped_owner_missing', {
+                postId: context.params.postId,
+                replyId: context.params.replyId,
+                ownerUid,
+            });
+            return null;
+        }
+
+        const ownerData = ownerDoc.data() || {};
+        if (ownerData.notifyOnCommentLikes === false) {
+            logCommunityNotification('reply_like_skipped_opt_out', {
+                postId: context.params.postId,
+                replyId: context.params.replyId,
+                ownerUid,
+            });
+            return null;
+        }
+
+        const ownerToken = String(ownerData.fcmToken || '').trim();
+        if (!ownerToken) {
+            logCommunityNotification('reply_like_skipped_no_token', {
+                postId: context.params.postId,
+                replyId: context.params.replyId,
+                ownerUid,
+            });
+            return null;
+        }
+
+        const likerDoc = await admin.firestore().collection('users').doc(newlyAddedLikerUid).get();
+        const likerData = likerDoc.exists ? likerDoc.data() || {} : {};
+        const likerName = String(likerData.name || likerData.username || 'Someone').trim() || 'Someone';
+
+        const message = {
+            token: ownerToken,
+            notification: {
+                title: 'Your reply got a like',
+                body: `${likerName} liked your reply in Community.`,
+            },
+            data: {
+                type: 'community_reply_like',
+                postId: context.params.postId,
+                replyId: context.params.replyId,
+                likerUid: String(newlyAddedLikerUid),
+            },
+            android: {
+                priority: 'high',
+                notification: {
+                    channelId: 'high_importance_channel',
+                    sound: 'default',
+                },
+            },
+            apns: {
+                headers: {
+                    'apns-priority': '10',
+                },
+                payload: {
+                    aps: {
+                        sound: 'default',
+                    },
+                },
+            },
+        };
+
+        try {
+            await admin.messaging().send(message);
+            logCommunityNotification('reply_like_sent', {
+                postId: context.params.postId,
+                replyId: context.params.replyId,
+                ownerUid,
+                likerUid: newlyAddedLikerUid,
+            });
+            return null;
+        } catch (error) {
+            console.error('Error sending community reply like notification:', error);
+            await clearInvalidFcmTokenIfNeeded({
+                error,
+                ownerUid,
+                context: {
+                    trigger: 'notifyOnCommunityReplyLike',
+                    postId: String(context.params.postId || ''),
+                    replyId: String(context.params.replyId || ''),
+                },
+            });
             return null;
         }
     });
@@ -604,6 +921,9 @@ exports.publishCommunityFeaturedCarousel = functions.pubsub
         }
 
         const settings = settingsSnap.data() || {};
+        if (settings.showPinnedAdminMessage === false) {
+            return null;
+        }
         const enabled = settings.featuredCarouselEnabled === true;
         const autoPublish = settings.featuredAutoPublish === true;
         if (!enabled || !autoPublish) {
@@ -768,6 +1088,80 @@ exports.publishCommunityFeaturedCarousel = functions.pubsub
 
         return null;
     });
+
+exports.moderateUploadedImageWithSafeSearch = onObjectFinalized(
+    { region: 'europe-west4' },
+    async (event) => {
+        const object = event.data || {};
+        const objectName = String(object.name || '').trim();
+        const contentType = String(object.contentType || '').toLowerCase();
+        const bucketName = String(object.bucket || '').trim();
+
+        if (!objectName || !bucketName) return null;
+        if (!contentType.startsWith('image/')) return null;
+
+        const parsed = parseModeratedPath(objectName);
+        if (!parsed.supported) return null;
+
+        const gcsUri = `gs://${bucketName}/${objectName}`;
+
+        let safeSearch;
+        try {
+            const [result] = await visionClient.safeSearchDetection({
+                image: { source: { imageUri: gcsUri } },
+            });
+            safeSearch = result.safeSearchAnnotation || {};
+        } catch (error) {
+            console.error('SAFESEARCH_ERROR', { objectName, error: error?.message || error });
+            await logModerationEvent({
+                type: 'safe_search_error',
+                objectName,
+                bucketName,
+                uid: parsed.uid || null,
+                status: 'resolved',
+                reason: 'SafeSearch processing error',
+                details: error?.message || String(error),
+            });
+            return null;
+        }
+
+        const adult = String(safeSearch.adult || 'UNKNOWN');
+        const violence = String(safeSearch.violence || 'UNKNOWN');
+        const racy = String(safeSearch.racy || 'UNKNOWN');
+        const adultCritical = BLOCK_LIKELIHOODS.has(adult);
+        const violenceCritical = BLOCK_LIKELIHOODS.has(violence);
+        const isFlagged = adultCritical || (violenceCritical && adult !== 'VERY_UNLIKELY');
+
+        const imageUrl = objectName
+            ? `https://storage.googleapis.com/${bucketName}/${encodeURIComponent(objectName).replace(/%2F/g, '/')}`
+            : null;
+
+        if (!isFlagged) {
+            console.log('SAFESEARCH_PASS', {
+                objectName,
+                bucketName,
+                uid: parsed.uid || null,
+                safeSearch: { adult, violence, racy },
+            });
+            return null;
+        }
+
+        await logModerationEvent({
+            type: 'safe_search_flagged_review',
+            objectName,
+            bucketName,
+            uid: parsed.uid || null,
+            storageType: parsed.type,
+            reason: 'SafeSearch flagged image',
+            content: `Image flagged by SafeSearch (adult=${adult}, violence=${violence}, racy=${racy})`,
+            imageUrl,
+            status: 'pending',
+            safeSearch: { adult, violence, racy },
+        });
+
+        return null;
+    },
+);
 
 exports.autoSystemWeeklyRollover = functions.pubsub
     .schedule('every 5 minutes')

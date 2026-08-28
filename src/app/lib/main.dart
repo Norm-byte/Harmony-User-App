@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:io' show Platform;
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -132,7 +133,11 @@ class _AppLifecycleManagerState extends State<AppLifecycleManager>
             widget.child,
             if (eventService.isAlarmLaunchTransitionActive &&
                 !eventService.isEventActive)
-              const Positioned.fill(child: ColoredBox(color: Colors.black)),
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Platform.isIOS ? Colors.white : Colors.black,
+                ),
+              ),
             if (eventService.isEventActive)
               Positioned.fill(
                 child: EventOverlayScreen(
@@ -326,9 +331,13 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     if (!_launchCheckResolved || _suppressSplashVisuals) {
-      return const Scaffold(
-        backgroundColor: Colors.black,
-        body: SizedBox.expand(),
+      return Scaffold(
+        backgroundColor: Platform.isIOS ? Colors.white : Colors.black,
+        body: Platform.isIOS
+            ? const Center(
+                child: CircularProgressIndicator(color: Colors.indigo),
+              )
+            : const SizedBox.expand(),
       );
     }
 

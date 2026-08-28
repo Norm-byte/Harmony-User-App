@@ -112,10 +112,17 @@ class MediaVaultService {
 
   Future<PreparedImageData> prepareImage(XFile file) async {
     final sourceBytes = await file.readAsBytes();
+    final originalDimensions = await _readDimensions(sourceBytes);
 
     Uint8List compressed = sourceBytes;
     if (!kIsWeb) {
-      compressed = await _compressFromPath(file.path, sourceBytes);
+      compressed = await _compressFromPath(
+        file.path,
+        sourceBytes,
+        originalWidth: originalDimensions.$1,
+        originalHeight: originalDimensions.$2,
+      );
+      compressed = await _ensureJpegBytes(compressed, sourceBytes);
     }
 
     final dimensions = await _readDimensions(compressed);
@@ -223,19 +230,30 @@ class MediaVaultService {
     return 'img_${now}_$rand';
   }
 
-  Future<Uint8List> _compressFromPath(String path, Uint8List fallback) async {
+  Future<Uint8List> _compressFromPath(
+    String path,
+    Uint8List fallback, {
+    required int originalWidth,
+    required int originalHeight,
+  }) async {
     const qualities = <int>[75, 65, 55, 45];
     Uint8List best = fallback;
+    final target = _scaledDimensions(originalWidth, originalHeight);
 
     for (final q in qualities) {
-      final candidate = await FlutterImageCompress.compressWithFile(
-        path,
-        quality: q,
-        minWidth: _maxDimension,
-        minHeight: _maxDimension,
-        format: CompressFormat.jpeg,
-        keepExif: false,
-      );
+      Uint8List? candidate;
+      try {
+        candidate = await FlutterImageCompress.compressWithFile(
+          path,
+          quality: q,
+          minWidth: target.$1,
+          minHeight: target.$2,
+          format: CompressFormat.jpeg,
+          keepExif: false,
+        );
+      } catch (_) {
+        candidate = null;
+      }
       if (candidate == null) continue;
       best = candidate;
       if (best.length <= _maxTargetBytes) {
@@ -246,11 +264,70 @@ class MediaVaultService {
     return best;
   }
 
+  (int, int) _scaledDimensions(int width, int height) {
+    if (width <= 0 || height <= 0) {
+      return (_maxDimension, _maxDimension);
+    }
+
+    final maxEdge = width > height ? width : height;
+    if (maxEdge <= _maxDimension) {
+      return (width, height);
+    }
+
+    final scale = _maxDimension / maxEdge;
+    final scaledWidth = (width * scale).round().clamp(1, _maxDimension);
+    final scaledHeight = (height * scale).round().clamp(1, _maxDimension);
+    return (scaledWidth, scaledHeight);
+  }
+
+  Future<Uint8List> _ensureJpegBytes(Uint8List primary, Uint8List fallback) async {
+    if (_looksLikeJpeg(primary)) {
+      return primary;
+    }
+
+    try {
+      final converted = await FlutterImageCompress.compressWithList(
+        primary,
+        quality: 72,
+        minWidth: _maxDimension,
+        minHeight: _maxDimension,
+        format: CompressFormat.jpeg,
+        keepExif: false,
+      );
+      if (converted.isNotEmpty && _looksLikeJpeg(converted)) {
+        return converted;
+      }
+    } catch (_) {}
+
+    try {
+      final convertedFallback = await FlutterImageCompress.compressWithList(
+        fallback,
+        quality: 72,
+        minWidth: _maxDimension,
+        minHeight: _maxDimension,
+        format: CompressFormat.jpeg,
+        keepExif: false,
+      );
+      if (convertedFallback.isNotEmpty && _looksLikeJpeg(convertedFallback)) {
+        return convertedFallback;
+      }
+    } catch (_) {}
+
+    return primary;
+  }
+
+  bool _looksLikeJpeg(Uint8List bytes) {
+    if (bytes.length < 4) return false;
+    return bytes[0] == 0xFF && bytes[1] == 0xD8;
+  }
+
   Future<(int, int)> _readDimensions(Uint8List data) async {
-    final completer = Completer<(int, int)>();
-    ui.decodeImageFromList(data, (image) {
-      completer.complete((image.width, image.height));
-    });
-    return completer.future;
+    try {
+      final codec = await ui.instantiateImageCodec(data);
+      final frame = await codec.getNextFrame();
+      return (frame.image.width, frame.image.height);
+    } catch (_) {
+      return (0, 0);
+    }
   }
 }
