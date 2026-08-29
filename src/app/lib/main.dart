@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -19,6 +20,30 @@ import 'services/group_service.dart';
 import 'services/usage_service.dart';
 import 'services/profanity_service.dart';
 
+Future<void> _initializeAppServices(
+  SubscriptionService subscriptionService,
+) async {
+  try {
+    await subscriptionService
+        .init()
+        .timeout(const Duration(seconds: 12));
+  } catch (e) {
+    debugPrint('HARMONY_APP_SUBSCRIPTION_INIT_ERROR: $e');
+  }
+
+  try {
+    await NotificationService().init();
+  } catch (e) {
+    debugPrint('HARMONY_APP_NOTIFICATION_INIT_ERROR: $e');
+  }
+
+  try {
+    await ProfanityService().init().timeout(const Duration(seconds: 12));
+  } catch (e) {
+    debugPrint('HARMONY_APP_PROFANITY_INIT_ERROR: $e');
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint("HARMONY_APP_STARTING: This is the correct app!");
@@ -29,11 +54,6 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     debugPrint("HARMONY_APP_FIREBASE: Initialized successfully");
-
-    // Initialize Services
-    await subscriptionService.init();
-    await NotificationService().init();
-    await ProfanityService().init();
   } catch (e) {
     debugPrint("HARMONY_APP_FIREBASE_ERROR: $e");
   }
@@ -58,6 +78,9 @@ void main() async {
       child: const HarmonyUserApp(),
     ),
   );
+
+  // Keep launch responsive on iOS by initializing non-critical services after UI boot.
+  unawaited(_initializeAppServices(subscriptionService));
 }
 
 class HarmonyUserApp extends StatelessWidget {

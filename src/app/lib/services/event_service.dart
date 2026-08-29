@@ -272,6 +272,11 @@ class EventService extends ChangeNotifier {
 
   void setAppInForegroundState(bool isForeground) {
     _isAppInForeground = isForeground;
+    if (isForeground) {
+      // Strict behavior: clear queued dormant alerts when user is actively in-app.
+      unawaited(NotificationService().cancelDormantPlaybackReminders());
+      _scheduleDormantPlaybackSync();
+    }
   }
 
   // Track Auto-Join processing to prevent spamming Firestore
@@ -705,10 +710,6 @@ class EventService extends ChangeNotifier {
       return false;
     }
 
-    _alarmLaunchTransitionTimer?.cancel();
-    _isAlarmLaunchTransitionActive = true;
-    notifyListeners();
-
     if (_isEventActive && _currentEventId == target.id) {
       _currentEventFromAlarmLaunch = true;
       _clearPendingAlarmPlayback(
@@ -730,6 +731,10 @@ class EventService extends ChangeNotifier {
     if (!forceWindow && !inWindow) {
       return false;
     }
+
+    _alarmLaunchTransitionTimer?.cancel();
+    _isAlarmLaunchTransitionActive = true;
+    notifyListeners();
 
     // ── MISSED = MISSED enforcement ─────────────────────────────────────────
     // Compute how much of the event window is still remaining. The event ends

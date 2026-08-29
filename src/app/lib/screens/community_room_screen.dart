@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/home_speaker_state.dart';
 import '../services/media_vault_service.dart';
+import '../services/notification_service.dart';
 import '../services/profanity_service.dart';
 import '../services/translation_service.dart';
 import '../services/usage_service.dart';
@@ -59,6 +60,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     TranslationService.instance.init();
+    unawaited(NotificationService().refreshCommunityNotificationBindings());
     if (widget.preselectedVaultImage != null) {
       _pendingVaultImage = Map<String, dynamic>.from(
         widget.preselectedVaultImage!,
@@ -82,6 +84,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_calculateRemaining());
+      unawaited(NotificationService().refreshCommunityNotificationBindings());
     }
   }
 
@@ -114,9 +117,9 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   }
 
   String _effectiveCurrentUserId() {
-    final userId = UserService().userId.trim();
-    if (userId.isNotEmpty) return userId;
-    return _currentAuthUid();
+    final authUid = _currentAuthUid().trim();
+    if (authUid.isNotEmpty) return authUid;
+    return UserService().userId.trim();
   }
 
   Future<void> _toggleTranslation() async {

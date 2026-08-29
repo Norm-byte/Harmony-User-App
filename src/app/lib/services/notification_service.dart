@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'package:android_intent_plus/android_intent.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -46,8 +49,76 @@ class NotificationService {
   final MethodChannel _dormantAlarmChannel = const MethodChannel(
     _methodChannelName,
   );
+  StreamSubscription<User?>? _authStateSubscription;
 
   bool _isInitialized = false;
+
+  String _resolvedUserId() {
+    final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (authUid.trim().isNotEmpty) return authUid.trim();
+    return UserService().userId.trim();
+  }
+
+  Future<void> _syncFcmTokenToUserDoc(String? rawToken) async {
+    final token = (rawToken ?? '').trim();
+    if (token.isEmpty) return;
+
+    final uid = _resolvedUserId();
+    if (uid.isEmpty) {
+      debugPrint('FCM_TOKEN_SYNC_SKIPPED: uid unavailable');
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'fcmToken': token,
+        'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+        'notifyOnCommentLikes': true,
+        'notificationTopic': 'user_$uid',
+      }, SetOptions(merge: true));
+      debugPrint('FCM_TOKEN_SYNC_OK: uid=$uid');
+    } catch (e) {
+      debugPrint('FCM_TOKEN_SYNC_ERROR: $e');
+    }
+  }
+
+  Future<void> _subscribeToUserTopic() async {
+    final uid = _resolvedUserId();
+    if (uid.isEmpty) {
+      debugPrint('FCM_SUBSCRIPTION_SKIPPED: uid unavailable for user topic');
+      return;
+    }
+
+    final topic = 'user_$uid';
+    try {
+      await _firebaseMessaging.subscribeToTopic(topic);
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
+        'notificationTopic': topic,
+        'notificationTopicSubscribedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      debugPrint('FCM_SUBSCRIPTION: Subscribed to topic "$topic"');
+    } catch (e) {
+      debugPrint('FCM_SUBSCRIPTION_ERROR: Could not subscribe to topic $topic: $e');
+    }
+  }
+
+  Future<void> refreshCommunityNotificationBindings() async {
+    await _subscribeToTopics();
+    await _subscribeToUserTopic();
+
+    try {
+      final token = await _firebaseMessaging.getToken();
+      debugPrint('FCM_TOKEN: $token');
+      await _syncFcmTokenToUserDoc(token);
+    } catch (e) {
+      final message = e.toString();
+      if (Platform.isIOS && message.contains('apns-token-not-set')) {
+        debugPrint('FCM_BINDING_DEFERRED_IOS: APNS token not ready yet.');
+      } else {
+        debugPrint('FCM_BINDING_REFRESH_ERROR: $e');
+      }
+    }
+  }
 
   Future<void> init() async {
     if (_isInitialized) return;
@@ -146,22 +217,19 @@ class NotificationService {
       }
     });
 
-    // 4. Subscribe to Topics
-    await _subscribeToTopics();
+    // 4/5. Bind topic + token routing for community notifications.
+    await refreshCommunityNotificationBindings();
 
+    _authStateSubscription ??= FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user == null) return;
+      unawaited(refreshCommunityNotificationBindings());
+    });
 
-    // 5. Get Token (for debugging). On iOS this can fail early before APNS token is ready.
-    try {
-      final token = await _firebaseMessaging.getToken();
-      debugPrint('FCM_TOKEN: $token');
-    } catch (e) {
-      final message = e.toString();
-      if (Platform.isIOS && message.contains('apns-token-not-set')) {
-        debugPrint('FCM_TOKEN_DEFERRED_IOS: APNS token not ready yet; continuing startup.');
-      } else {
-        debugPrint('FCM_TOKEN_ERROR: $e');
-      }
-    }
+    _firebaseMessaging.onTokenRefresh.listen((token) async {
+      debugPrint('FCM_TOKEN_REFRESH: $token');
+      await _syncFcmTokenToUserDoc(token);
+      await _subscribeToUserTopic();
+    });
 
     _isInitialized = true;
   }
