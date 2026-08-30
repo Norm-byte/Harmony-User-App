@@ -237,7 +237,13 @@ class _ChatScreenState extends State<ChatScreen> {
          'content': text,
          'userId': userService.userId,
          'userName': senderName,
-         'source': 'Chat Room (${widget.eventTitle})',
+         'source': 'Chat Room',
+         'context': widget.eventTitle,
+         'type': 'content_flag',
+         'targetKind': 'chat_message',
+         'metadata': {
+           'eventTitle': widget.eventTitle,
+         },
          'timestamp': FieldValue.serverTimestamp(),
          'reason': 'Profanity Detected',
          'status': 'pending',
@@ -554,7 +560,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                         color: const Color(0xFF2A2A2A),
                                         onSelected: (value) async {
                                           if (value == 'report') {
-                                             await UserService().reportContent(senderId, text, 'User Reported', widget.eventTitle);
+                                            await UserService().reportContent(senderId, text, 'User Reported', widget.eventTitle);
                                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report sent to moderation.')));
                                           } else if (value == 'block') {
                                              await UserService().blockUser(senderId);

@@ -77,11 +77,12 @@ class _SupportChatScreenState extends State<SupportChatScreen> {
           'content': content,
           'userId': user.userId,
           'userName': publicName,
-          // 'userEmail': user.userEmail, // Removed as not available
           'source': 'Support Chat',
+          'type': 'content_flag',
+          'targetKind': 'support_message',
           'timestamp': FieldValue.serverTimestamp(),
           'reason': 'Profanity Detected',
-          'status': 'pending', // pending, resolved, rejected
+          'status': 'pending',
         });
       } catch (e) {
         // Silent fail
