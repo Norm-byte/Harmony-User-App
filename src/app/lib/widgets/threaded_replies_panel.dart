@@ -54,26 +54,36 @@ class ThreadedRepliesPanel extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                GestureDetector(
-                  onTap: onToggleExpanded,
-                  child: Row(
-                    children: [
-                      Icon(
-                        isExpanded
-                            ? Icons.chat_bubble
-                            : Icons.chat_bubble_outline,
-                        size: 13,
-                        color: Colors.white54,
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: onToggleExpanded,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '$replyCount',
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 11,
-                        ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isExpanded
+                                ? Icons.chat_bubble
+                                : Icons.chat_bubble_outline,
+                            size: 15,
+                            color: Colors.white54,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Replies $replyCount',
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -353,17 +363,38 @@ class _RepliesList extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 14),
-                        GestureDetector(
-                          onTap: () async => onReportReply(replyDoc.id, reply),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.more_horiz,
-                                color: Colors.white.withValues(alpha: 0.55),
-                                size: 16,
-                              ),
-                            ],
+                        PopupMenuButton<String>(
+                          padding: EdgeInsets.zero,
+                          icon: Icon(
+                            Icons.more_horiz,
+                            color: Colors.white.withValues(alpha: 0.55),
+                            size: 16,
                           ),
+                          color: Colors.grey.shade900,
+                          onSelected: (value) async {
+                            if (value == 'report') {
+                              await onReportReply(replyDoc.id, reply);
+                            }
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem<String>(
+                              value: 'report',
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.flag_outlined,
+                                    color: Colors.white70,
+                                    size: 16,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Report user',
+                                    style: TextStyle(color: Colors.white70),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),

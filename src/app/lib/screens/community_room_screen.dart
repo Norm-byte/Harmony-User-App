@@ -43,6 +43,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   final MediaVaultService _mediaVaultService = MediaVaultService();
   final Map<String, Future<String>> _resolvedNameFutureByUserId = {};
   final Set<String> _expandedReplyPostIds = {};
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _communityPostsStream;
 
   UsageService? _usageService;
   XFile? _pendingPickedImage;
@@ -59,6 +60,10 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _communityPostsStream = FirebaseFirestore.instance
+        .collection('community_posts')
+        .orderBy('timestamp', descending: true)
+        .snapshots();
     TranslationService.instance.init();
     unawaited(NotificationService().refreshCommunityNotificationBindings());
     if (widget.preselectedVaultImage != null) {
@@ -83,8 +88,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_calculateRemaining());
-      unawaited(NotificationService().refreshCommunityNotificationBindings());
+      return;
     }
   }
 
@@ -802,12 +806,25 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   }
 
   void _toggleRepliesExpanded(String postId) {
+    final priorOffset = _feedScrollController.hasClients
+        ? _feedScrollController.offset
+        : 0.0;
+
     setState(() {
       if (_expandedReplyPostIds.contains(postId)) {
         _expandedReplyPostIds.remove(postId);
       } else {
         _expandedReplyPostIds.add(postId);
       }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_feedScrollController.hasClients) return;
+      final maxOffset = _feedScrollController.position.maxScrollExtent;
+      if (maxOffset <= 0) return;
+      final safeOffset = priorOffset.clamp(0.0, maxOffset);
+      if ((_feedScrollController.offset - safeOffset).abs() < 1.0) return;
+      _feedScrollController.jumpTo(safeOffset);
     });
   }
 
@@ -926,35 +943,88 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     required String replyId,
     required List<dynamic> likedBy,
   }) async {
-    final uid = _effectiveCurrentUserId();
-    if (uid.isEmpty) return;
+    final authUid = _currentAuthUid().trim();
+    final userServiceUid = UserService().userId.trim();
+    final actorIds = <String>{
+      if (authUid.isNotEmpty) authUid,
+      if (userServiceUid.isNotEmpty) userServiceUid,
+    };
+    if (actorIds.isEmpty) return;
+
+    final actorId = authUid.isNotEmpty ? authUid : userServiceUid;
+    final likedBySet = likedBy
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    final alreadyLiked = actorIds.any(likedBySet.contains);
+
     final replyRef = _repliesCollection(postId).doc(replyId);
-    if (likedBy.contains(uid)) {
-      await replyRef.update({
-        'likes': FieldValue.increment(-1),
-        'likedBy': FieldValue.arrayRemove([uid]),
-      });
-    } else {
-      await replyRef.update({
-        'likes': FieldValue.increment(1),
-        'likedBy': FieldValue.arrayUnion([uid]),
-      });
+    try {
+      if (alreadyLiked) {
+        await replyRef.update({
+          'likes': FieldValue.increment(-1),
+          'likedBy': FieldValue.arrayRemove(actorIds.toList()),
+        });
+      } else {
+        await replyRef.update({
+          'likes': FieldValue.increment(1),
+          'likedBy': FieldValue.arrayUnion([actorId]),
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update reply like: $e')),
+      );
     }
   }
 
   Future<void> _reportReply(String postId, String replyId, Map<String, dynamic> reply) async {
     final reporter = UserService();
-    final reportedUserId = (reply['userId'] ?? '').toString().trim();
-    final content = (reply['content'] ?? '').toString().trim();
-    if (reportedUserId.isEmpty || reportedUserId == reporter.userId.trim()) {
+    final reportedUserId = (
+      reply['authorUid'] ??
+      reply['userId'] ??
+      reply['uid'] ??
+      reply['authorId'] ??
+      reply['senderId'] ??
+      ''
+    ).toString().trim();
+    final content = (
+      reply['content'] ??
+      reply['text'] ??
+      reply['message'] ??
+      reply['body'] ??
+      ''
+    ).toString().trim();
+
+    final authUid = _currentAuthUid().trim();
+    final userServiceUid = reporter.userId.trim();
+    final actorIds = <String>{
+      if (authUid.isNotEmpty) authUid,
+      if (userServiceUid.isNotEmpty) userServiceUid,
+    };
+
+    if (reportedUserId.isEmpty || actorIds.contains(reportedUserId)) {
       return;
     }
-    await reporter.reportContent(
-      reportedUserId,
-      content,
-      'User Reported',
-      'Community Room Reply',
-    );
+
+    try {
+      await reporter.reportContent(
+        reportedUserId,
+        content,
+        'User Reported',
+        'Community Room Reply',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report sent to moderation.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not report reply: $e')),
+      );
+    }
   }
 
   Future<String> _resolveDisplayNameForPost(Map<String, dynamic> post) {
@@ -962,6 +1032,23 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
         UserService.sanitizePublicDisplayName(post['userName']?.toString());
     final userId = (post['authorUid'] ?? post['userId'] ?? '').toString().trim();
     return _resolveDisplayNameForUser(userId, rawName);
+  }
+
+  String _initialDisplayNameForPost(Map<String, dynamic> post) {
+    final candidates = [
+      post['userName'],
+      post['displayName'],
+      post['name'],
+      post['username'],
+    ];
+    for (final candidate in candidates) {
+      final sanitized =
+          UserService.sanitizePublicDisplayName(candidate?.toString());
+      if (sanitized.isNotEmpty && sanitized.toLowerCase() != 'member') {
+        return sanitized;
+      }
+    }
+    return 'Member';
   }
 
   Future<String> _resolveDisplayNameForUser(String userId, String rawName) {
@@ -1397,10 +1484,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
           ),
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('community_posts')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots(),
+              stream: _communityPostsStream,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -1434,6 +1518,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
 
                     return FutureBuilder<String>(
                       future: _resolveDisplayNameForPost(post),
+                      initialData: _initialDisplayNameForPost(post),
                       builder: (context, nameSnapshot) {
                         final displayName = nameSnapshot.data ?? 'Member';
                         return Container(

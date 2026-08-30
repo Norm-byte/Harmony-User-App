@@ -71,7 +71,7 @@ void main() async {
           create: (context) =>
               UsageService(context.read<SubscriptionService>()),
           update: (context, subscription, previous) =>
-              UsageService(subscription),
+            previous ?? UsageService(subscription),
         ),
         ChangeNotifierProvider(create: (_) => GroupService(), lazy: false),
       ],

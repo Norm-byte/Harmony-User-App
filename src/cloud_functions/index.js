@@ -15,6 +15,13 @@ function isNotRegisteredMessagingError(error) {
     return String(error?.errorInfo?.code || '').trim() === 'messaging/registration-token-not-registered';
 }
 
+function messagingErrorDetails(error) {
+    return {
+        code: String(error?.errorInfo?.code || error?.code || '').trim() || 'unknown',
+        message: String(error?.errorInfo?.message || error?.message || '').trim() || 'unknown',
+    };
+}
+
 function collectOwnerTokens(ownerData) {
     const tokenSet = new Set();
 
@@ -83,40 +90,58 @@ async function sendCommunityNotificationToOwner({ ownerUid, ownerData, message, 
     }
 
     if (tokens.length === 1) {
-        const topicMessage = {
+        const tokenMessage = {
             ...message,
-            topic: userTopic,
+            token: tokens[0],
         };
 
         try {
-            await admin.messaging().send(topicMessage);
-            return { mode: 'topic_single_token', count: 0, topic: topicMessage.topic, total: 1 };
+            await admin.messaging().send(tokenMessage);
+            return { mode: 'token', count: 1, total: 1 };
         } catch (error) {
-            const tokenMessage = {
+            const topicMessage = {
                 ...message,
-                token: tokens[0],
+                topic: userTopic,
             };
 
             if (isNotRegisteredMessagingError(error)) {
                 await pruneInvalidOwnerTokens({ ownerUid, invalidTokens: [tokens[0]] });
 
-                await admin.messaging().send(topicMessage);
+                const topicMessageId = await admin.messaging().send(topicMessage);
                 return {
                     mode: 'topic_after_token_invalid',
                     count: 0,
                     topic: topicMessage.topic,
                     total: 1,
+                    tokenError: messagingErrorDetails(error),
+                    topicMessageId,
                 };
             }
 
             try {
-                await admin.messaging().send(tokenMessage);
-                return { mode: 'token_after_topic_error', count: 1, total: 1 };
-            } catch (tokenError) {
-                if (isNotRegisteredMessagingError(tokenError)) {
+                const topicMessageId = await admin.messaging().send(topicMessage);
+                return {
+                    mode: 'topic_after_token_error',
+                    count: 0,
+                    topic: topicMessage.topic,
+                    total: 1,
+                    tokenError: messagingErrorDetails(error),
+                    topicMessageId,
+                };
+            } catch (topicError) {
+                if (isNotRegisteredMessagingError(topicError)) {
                     await pruneInvalidOwnerTokens({ ownerUid, invalidTokens: [tokens[0]] });
                 }
-                throw tokenError;
+                const wrapped = new Error('Token send failed and topic fallback failed');
+                wrapped.details = {
+                    tokenError: messagingErrorDetails(error),
+                    topicError: messagingErrorDetails(topicError),
+                    ownerUid,
+                    tokenTotal: tokens.length,
+                    topic: topicMessage.topic,
+                    context,
+                };
+                throw wrapped;
             }
         }
     }
@@ -694,6 +719,9 @@ exports.notifyOnCommunityPostLike = functions.firestore
                 mode: delivery.mode,
                 successCount: delivery.count,
                 tokenTotal: delivery.total || undefined,
+                tokenErrorCode: delivery.tokenError?.code,
+                tokenErrorMessage: delivery.tokenError?.message,
+                topicMessageId: delivery.topicMessageId,
             });
             return null;
         } catch (error) {
@@ -813,6 +841,9 @@ exports.notifyOnCommunityReply = functions.firestore
                 mode: delivery.mode,
                 successCount: delivery.count,
                 tokenTotal: delivery.total || undefined,
+                tokenErrorCode: delivery.tokenError?.code,
+                tokenErrorMessage: delivery.tokenError?.message,
+                topicMessageId: delivery.topicMessageId,
             });
             return null;
         } catch (error) {
@@ -946,6 +977,9 @@ exports.notifyOnCommunityReplyLike = functions.firestore
                 mode: delivery.mode,
                 successCount: delivery.count,
                 tokenTotal: delivery.total || undefined,
+                tokenErrorCode: delivery.tokenError?.code,
+                tokenErrorMessage: delivery.tokenError?.message,
+                topicMessageId: delivery.topicMessageId,
             });
             return null;
         } catch (error) {
@@ -2295,5 +2329,61 @@ exports.lockMonthlyFxSnapshot = functions.pubsub
     .timeZone('UTC')
     .onRun(async () => {
         await lockMonthSnapshot(currentMonthKeyUtc(), 'scheduler:monthly');
+        return null;
+    });
+
+exports.cleanupExpiredCommunityFeedImages = functions.pubsub
+    .schedule('every 15 minutes')
+    .timeZone('UTC')
+    .onRun(async () => {
+        const db = admin.firestore();
+        const nowTs = admin.firestore.Timestamp.now();
+        const querySnap = await db
+            .collection('community_posts')
+            .where('imageExpiresAt', '<=', nowTs)
+            .limit(250)
+            .get();
+
+        if (querySnap.empty) {
+            return null;
+        }
+
+        const batch = db.batch();
+        let expiredCount = 0;
+
+        querySnap.docs.forEach((doc) => {
+            const data = doc.data() || {};
+            const hasImage = data.hasImage === true;
+            const imageUrl = String(data.imageUrl || '').trim();
+            if (!hasImage || !imageUrl) {
+                return;
+            }
+
+            expiredCount += 1;
+            batch.set(doc.ref, {
+                hasImage: false,
+                imageStatus: 'expired_auto',
+                imageExpiredAt: admin.firestore.FieldValue.serverTimestamp(),
+                imageUrl: admin.firestore.FieldValue.delete(),
+                imageStoragePath: admin.firestore.FieldValue.delete(),
+                imageBytes: admin.firestore.FieldValue.delete(),
+                imageWidth: admin.firestore.FieldValue.delete(),
+                imageHeight: admin.firestore.FieldValue.delete(),
+                imageCreatedAt: admin.firestore.FieldValue.delete(),
+                imageExpiresAt: admin.firestore.FieldValue.delete(),
+                imageSource: admin.firestore.FieldValue.delete(),
+            }, { merge: true });
+        });
+
+        if (expiredCount === 0) {
+            return null;
+        }
+
+        await batch.commit();
+        console.log('[community_cleanup] expired_images_removed', {
+            scanned: querySnap.size,
+            expiredCount,
+        });
+
         return null;
     });

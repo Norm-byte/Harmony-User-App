@@ -318,6 +318,14 @@ class UsageService extends ChangeNotifier {
   }
 
   void _setDefaults() {
+    final changed = _maxDailySends != _defaultMaxDailySends ||
+        _maxActiveForums != _defaultMaxActiveForums ||
+        _maxMediaStorageMb != _defaultMaxMediaStorageMb ||
+        _allowVideoUploads != _defaultAllowVideoUploads ||
+        _monthlyImageUploadLimit != _defaultMonthlyImageUploadLimit ||
+        _myHarmonyVaultMaxImages != _defaultMyHarmonyVaultMaxImages ||
+        _feedImageExpiryDays != _defaultFeedImageExpiryDays;
+
     _maxDailySends = _defaultMaxDailySends;
     _maxActiveForums = _defaultMaxActiveForums;
     _maxMediaStorageMb = _defaultMaxMediaStorageMb;
@@ -325,7 +333,10 @@ class UsageService extends ChangeNotifier {
     _monthlyImageUploadLimit = _defaultMonthlyImageUploadLimit;
     _myHarmonyVaultMaxImages = _defaultMyHarmonyVaultMaxImages;
     _feedImageExpiryDays = _defaultFeedImageExpiryDays;
-    notifyListeners();
+
+    if (changed) {
+      notifyListeners();
+    }
   }
 
   void _applyLimitsFromMap(Map<String, dynamic> limits) {
@@ -341,43 +352,49 @@ class UsageService extends ChangeNotifier {
        newMaxDailySends = _toInt(limits['maxMonthlySends'], fallback: 300) ~/ 30; 
     }
 
-    // Only notify if something changed
-    if (_maxDailySends != newMaxDailySends) {
-      _maxDailySends = newMaxDailySends;
-    }
-    
+    final nextMaxMediaStorageMb = _toInt(
+      limits['maxMediaStorageMb'],
+      fallback: _defaultMaxMediaStorageMb,
+    );
     final nextMaxActiveForums = _toInt(
       limits['maxActiveForums'],
       fallback: _defaultMaxActiveForums,
     );
-    if (_maxActiveForums != nextMaxActiveForums) {
-      _maxActiveForums = nextMaxActiveForums;
-    }
-    
-    // ... ignoring others for brevity unless easy
-    // Actually better to just set them and let notifyListeners handle it (if we optimized)
-    // But basic check is fine.
-    
-    _maxMediaStorageMb = _toInt(
-      limits['maxMediaStorageMb'],
-      fallback: _defaultMaxMediaStorageMb,
-    );
-    _allowVideoUploads = limits['allowVideoUploads'] ?? _defaultAllowVideoUploads;
-    _monthlyImageUploadLimit = _toInt(
+    final nextAllowVideoUploads =
+        limits['allowVideoUploads'] ?? _defaultAllowVideoUploads;
+    final nextMonthlyImageUploadLimit = _toInt(
       limits['monthlyImageUploadLimit'],
       fallback: _defaultMonthlyImageUploadLimit,
     );
-    _myHarmonyVaultMaxImages = _toInt(
+    final nextMyHarmonyVaultMaxImages = _toInt(
       limits['myHarmonyVaultMaxImages'],
       fallback: _defaultMyHarmonyVaultMaxImages,
     );
-    _feedImageExpiryDays = _toInt(
+    final nextFeedImageExpiryDays = _toInt(
       limits['feedImageExpiryDays'],
       fallback: _defaultFeedImageExpiryDays,
     );
-    
-    // Always notify if we are reapplying limits, UI might need refresh
-    notifyListeners();
+
+    final changed =
+        _maxDailySends != newMaxDailySends ||
+        _maxActiveForums != nextMaxActiveForums ||
+        _maxMediaStorageMb != nextMaxMediaStorageMb ||
+        _allowVideoUploads != nextAllowVideoUploads ||
+        _monthlyImageUploadLimit != nextMonthlyImageUploadLimit ||
+        _myHarmonyVaultMaxImages != nextMyHarmonyVaultMaxImages ||
+        _feedImageExpiryDays != nextFeedImageExpiryDays;
+
+    _maxDailySends = newMaxDailySends;
+    _maxActiveForums = nextMaxActiveForums;
+    _maxMediaStorageMb = nextMaxMediaStorageMb;
+    _allowVideoUploads = nextAllowVideoUploads;
+    _monthlyImageUploadLimit = nextMonthlyImageUploadLimit;
+    _myHarmonyVaultMaxImages = nextMyHarmonyVaultMaxImages;
+    _feedImageExpiryDays = nextFeedImageExpiryDays;
+
+    if (changed) {
+      notifyListeners();
+    }
   }
 
   int _toInt(dynamic value, {required int fallback}) {
