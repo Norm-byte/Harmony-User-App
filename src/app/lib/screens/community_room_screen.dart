@@ -781,18 +781,161 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     await FirebaseFirestore.instance.collection('community_posts').doc(postId).delete();
   }
 
-  Future<void> _reportPost(Map<String, dynamic> post) async {
+  Future<Map<String, String>?> _promptReportDetails({required String label}) async {
+    final reasons = [
+      'Inappropriate content',
+      'Misleading or false information',
+      'Harmful or dangerous',
+      'Spam',
+      'Other',
+    ];
+    String? selectedReason;
+    final detailsController = TextEditingController();
+
+    try {
+      final result = await showModalBottomSheet<Map<String, String>>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.grey.shade900,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final explanation = detailsController.text.trim();
+            final canSubmit = selectedReason != null && explanation.length >= 8;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                20 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Report this $label',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Select a reason and add a short explanation for moderators.',
+                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    ...reasons.map(
+                      (reason) => RadioListTile<String>(
+                        value: reason,
+                        groupValue: selectedReason,
+                        title: Text(reason, style: const TextStyle(color: Colors.white70)),
+                        activeColor: Colors.redAccent,
+                        onChanged: (value) => setModalState(() => selectedReason = value),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: detailsController,
+                      maxLines: 3,
+                      style: const TextStyle(color: Colors.white),
+                      onChanged: (_) => setModalState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Required: brief details (min 8 characters)',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: Colors.black.withValues(alpha: 0.25),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      explanation.length < 8
+                          ? 'Please add at least 8 characters so moderators have context.'
+                          : 'Looks good.',
+                      style: TextStyle(
+                        color: explanation.length < 8 ? Colors.orangeAccent : Colors.greenAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: canSubmit
+                            ? () {
+                                Navigator.pop(ctx, {
+                                  'reason': selectedReason!,
+                                  'explanation': explanation,
+                                });
+                              }
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Submit Report'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      return result;
+    } finally {
+      detailsController.dispose();
+    }
+  }
+
+  String? _extractImageUrlForReport(Map<String, dynamic> item) {
+    final candidates = [
+      item['imageUrl'],
+      item['downloadUrl'],
+      item['mediaUrl'],
+      item['thumbnailUrl'],
+      item['image'],
+    ];
+    for (final candidate in candidates) {
+      final url = candidate?.toString().trim() ?? '';
+      if (url.isNotEmpty) return url;
+    }
+    return null;
+  }
+
+  Future<void> _reportPost(String postId, Map<String, dynamic> post) async {
     final reporter = UserService();
-    final reportedUserId = (post['userId'] ?? '').toString().trim();
+    final reportedUserId =
+        (post['authorUid'] ?? post['userId'] ?? '').toString().trim();
     final content = (post['content'] ?? '').toString().trim();
     if (reportedUserId.isEmpty || reportedUserId == reporter.userId.trim()) {
       return;
     }
+    final reportDetails = await _promptReportDetails(label: 'post');
+    if (reportDetails == null) return;
+
+    final imageUrl = _extractImageUrlForReport(post);
     await reporter.reportContent(
       reportedUserId,
       content,
-      'User Reported',
+      reportDetails['reason']!,
       'Community Room',
+      metadata: {
+        'targetKind': 'community_post',
+        'targetId': postId,
+        if (imageUrl != null) 'imageUrl': imageUrl,
+        if (imageUrl != null) 'thumbnailUrl': imageUrl,
+        'reportExplanation': reportDetails['explanation']!,
+      },
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1015,12 +1158,22 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
       return;
     }
 
+    final reportDetails = await _promptReportDetails(label: 'reply');
+    if (reportDetails == null) return;
+
     try {
       await reporter.reportContent(
         reportedUserId,
         content,
-        'User Reported',
+        reportDetails['reason']!,
         'Community Room Reply',
+        metadata: {
+          'targetKind': 'community_reply',
+          'targetId': replyId,
+          'postId': postId,
+          'replyId': replyId,
+          'reportExplanation': reportDetails['explanation']!,
+        },
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1674,7 +1827,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                                       icon: const Icon(Icons.flag_outlined, color: Colors.white54),
                                       onSelected: (value) async {
                                         if (value == 'report') {
-                                          await _reportPost(post);
+                                          await _reportPost(postId, post);
                                         }
                                       },
                                       itemBuilder: (_) => const [

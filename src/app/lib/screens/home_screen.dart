@@ -1037,83 +1037,146 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
       'Other',
     ];
     String? selected;
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.grey.shade900,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModalState) => Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Report this Reel',
-                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              const Text('Why are you reporting this content?',
-                  style: TextStyle(color: Colors.white54, fontSize: 13)),
-              const SizedBox(height: 16),
-              ...reasons.map((r) => RadioListTile<String>(
-                    value: r,
-                    groupValue: selected,
-                    title: Text(r, style: const TextStyle(color: Colors.white70)),
-                    activeColor: Colors.redAccent,
-                    onChanged: (v) => setModalState(() => selected = v),
-                  )),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.redAccent,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: selected == null
-                      ? null
-                      : () async {
-                          Navigator.pop(ctx);
-                          final title = (item['title'] as String?)?.trim() ?? 'Untitled Reel';
-                          final reelUrl = (item['url'] as String?)?.trim() ?? '';
-                          final reelType = (item['type'] as String?)?.trim() ?? _resolveType(item);
-                          final ok = await UserService().reportContent(
-                            'admin_media',
-                            title,
-                            selected!,
-                            'Reel',
-                            metadata: {
-                              'contentType': 'reel',
-                              'reelTitle': title,
-                              'reelUrl': reelUrl,
-                              'reelType': reelType,
-                              'reelCaption': (item['caption'] as String?)?.trim() ?? '',
-                            },
-                          );
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  ok
-                                      ? 'Report submitted. Thank you.'
-                                      : 'Could not submit report. Please try again.',
-                                ),
-                                backgroundColor: ok ? Colors.green : Colors.red,
-                              ),
-                            );
-                          }
-                        },
-                  child: const Text('Submit Report'),
+    final detailsController = TextEditingController();
+    try {
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.grey.shade900,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final reportExplanation = detailsController.text.trim();
+            final canSubmit = selected != null && reportExplanation.length >= 8;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                20 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Report this Reel',
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Why are you reporting this content?',
+                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    ...reasons.map(
+                      (r) => RadioListTile<String>(
+                        value: r,
+                        groupValue: selected,
+                        title: Text(r, style: const TextStyle(color: Colors.white70)),
+                        activeColor: Colors.redAccent,
+                        onChanged: (v) => setModalState(() => selected = v),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: detailsController,
+                      maxLines: 3,
+                      style: const TextStyle(color: Colors.white),
+                      onChanged: (_) => setModalState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Required: brief details (min 8 characters)',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: Colors.black.withValues(alpha: 0.25),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      reportExplanation.length < 8
+                          ? 'Please add at least 8 characters so moderators have context.'
+                          : 'Looks good.',
+                      style: TextStyle(
+                        color: reportExplanation.length < 8 ? Colors.orangeAccent : Colors.greenAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: !canSubmit
+                            ? null
+                            : () async {
+                                Navigator.pop(ctx);
+                                final title = (item['title'] as String?)?.trim() ?? 'Untitled Reel';
+                                final reelUrl = (item['url'] as String?)?.trim() ?? '';
+                                final reelType = (item['type'] as String?)?.trim() ?? _resolveType(item);
+                                final reelThumb =
+                                    (item['thumbnailUrl'] as String?)?.trim() ??
+                                    (item['imageUrl'] as String?)?.trim() ??
+                                    (item['posterUrl'] as String?)?.trim() ??
+                                    '';
+
+                                final ok = await UserService().reportContent(
+                                  'admin_media',
+                                  title,
+                                  selected!,
+                                  'Reel',
+                                  metadata: {
+                                    'targetKind': 'reel_item',
+                                    'targetId': reelUrl.isNotEmpty ? reelUrl : title,
+                                    if (reelThumb.isNotEmpty) 'imageUrl': reelThumb,
+                                    if (reelThumb.isNotEmpty) 'thumbnailUrl': reelThumb,
+                                    if (reelUrl.isNotEmpty) 'mediaUrl': reelUrl,
+                                    'contentType': 'reel',
+                                    'reelTitle': title,
+                                    'reelUrl': reelUrl,
+                                    'reelType': reelType,
+                                    'reelCaption': (item['caption'] as String?)?.trim() ?? '',
+                                    'reportExplanation': reportExplanation,
+                                  },
+                                );
+
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        ok
+                                            ? 'Report submitted. Thank you.'
+                                            : 'Could not submit report. Please try again.',
+                                      ),
+                                      backgroundColor: ok ? Colors.green : Colors.red,
+                                    ),
+                                  );
+                                }
+                              },
+                        child: const Text('Submit Report'),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            );
+          },
         ),
-      ),
-    );
+      );
+    } finally {
+      detailsController.dispose();
+    }
   }
+
 }
 
 class _FullscreenVideoReel extends StatefulWidget {

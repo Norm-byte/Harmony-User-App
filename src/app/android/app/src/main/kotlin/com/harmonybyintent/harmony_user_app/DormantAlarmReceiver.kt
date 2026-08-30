@@ -11,7 +11,9 @@ import android.content.Context
 import android.content.Intent
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.Handler
 import android.os.PowerManager
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
@@ -23,6 +25,7 @@ class DormantAlarmReceiver : BroadcastReceiver() {
         private const val DEDUPE_WINDOW_MS = 90_000L
         private const val ALARM_REGISTRY_KEY = "registered_alarm_entries"
         private const val STALE_ALARM_WINDOW_MS = 2 * 60 * 60 * 1000L
+        private const val EVENT_NOTIFICATION_AUTO_DISMISS_MS = 7_000L
 
         private fun loadRegistry(context: Context): MutableMap<Int, Long> {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -337,6 +340,7 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                 .setContentTitle(eventTitle)
                 .setContentText(eventBody)
                 .setAutoCancel(true)
+                .setTimeoutAfter(EVENT_NOTIFICATION_AUTO_DISMISS_MS)
                 .setContentIntent(contentPendingIntent)
                 .setSound(soundUri)
                 .setVibrate(longArrayOf(0, 500, 250, 500))
@@ -354,6 +358,17 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                 notify(notificationId, notification)
                 android.util.Log.d("DormantAlarmReceiver", "Notification posted for $eventId")
             }
+
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            try {
+                                NotificationManagerCompat.from(context).cancel(notificationId)
+                                android.util.Log.d(
+                                    "DormantAlarmReceiver",
+                                    "Notification auto-dismissed for $eventId",
+                                )
+                            } catch (_: Exception) {
+                            }
+                        }, EVENT_NOTIFICATION_AUTO_DISMISS_MS)
 
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()

@@ -22,6 +22,122 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final TextEditingController _intentController = TextEditingController();
+
+  Future<Map<String, String>?> _promptReportDetails() async {
+    final reasons = [
+      'Inappropriate content',
+      'Misleading or false information',
+      'Harmful or dangerous',
+      'Spam',
+      'Other',
+    ];
+    String? selectedReason;
+    final detailsController = TextEditingController();
+
+    try {
+      final result = await showModalBottomSheet<Map<String, String>>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.grey.shade900,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final explanation = detailsController.text.trim();
+            final canSubmit = selectedReason != null && explanation.length >= 8;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                20 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Report this Message',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Select a reason and add a short explanation for moderators.',
+                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    ...reasons.map(
+                      (reason) => RadioListTile<String>(
+                        value: reason,
+                        groupValue: selectedReason,
+                        title: Text(reason, style: const TextStyle(color: Colors.white70)),
+                        activeColor: Colors.redAccent,
+                        onChanged: (value) => setModalState(() => selectedReason = value),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: detailsController,
+                      maxLines: 3,
+                      style: const TextStyle(color: Colors.white),
+                      onChanged: (_) => setModalState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Required: brief details (min 8 characters)',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: Colors.black.withValues(alpha: 0.25),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      explanation.length < 8
+                          ? 'Please add at least 8 characters so moderators have context.'
+                          : 'Looks good.',
+                      style: TextStyle(
+                        color: explanation.length < 8 ? Colors.orangeAccent : Colors.greenAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: canSubmit
+                            ? () {
+                                Navigator.pop(ctx, {
+                                  'reason': selectedReason!,
+                                  'explanation': explanation,
+                                });
+                              }
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Submit Report'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      return result;
+    } finally {
+      detailsController.dispose();
+    }
+  }
   
   // Daily Message Limit State
   int _messagesRemaining = 50;
@@ -560,8 +676,24 @@ class _ChatScreenState extends State<ChatScreen> {
                                         color: const Color(0xFF2A2A2A),
                                         onSelected: (value) async {
                                           if (value == 'report') {
-                                            await UserService().reportContent(senderId, text, 'User Reported', widget.eventTitle);
-                                             if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report sent to moderation.')));
+                                            final reportDetails = await _promptReportDetails();
+                                            if (reportDetails == null) return;
+                                            await UserService().reportContent(
+                                              senderId,
+                                              text,
+                                              reportDetails['reason']!,
+                                              widget.eventTitle,
+                                              metadata: {
+                                                'targetKind': 'chat_message',
+                                                'targetId': docId,
+                                                'reportExplanation': reportDetails['explanation']!,
+                                              },
+                                            );
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Report sent to moderation.')),
+                                              );
+                                            }
                                           } else if (value == 'block') {
                                              await UserService().blockUser(senderId);
                                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User blocked.')));
