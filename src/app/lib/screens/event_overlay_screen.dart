@@ -226,11 +226,14 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
           .collection('sessions')
           .where('lastSeenAt', isGreaterThan: Timestamp.fromDate(cutoff))
           .get();
+      final realActiveSessions = active.docs.where((doc) {
+        return doc.data()['source'] != 'backend_live_counter_bridge_v3';
+      }).toList();
 
       final Map<String, int> flagHits = {};
       final Map<String, int> zoneHits = {};
 
-      for (final doc in active.docs) {
+      for (final doc in realActiveSessions) {
         final data = doc.data();
         final directFlag = (data['flagEmoji'] as String?)?.trim();
         String? flag =
@@ -263,7 +266,7 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
 
       if (!mounted) return;
       setState(() {
-        _liveViewers = active.docs.length;
+        _liveViewers = realActiveSessions.length;
         _activeFlags = nextFlags;
         _activeZones = nextZones;
       });
@@ -416,23 +419,10 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
         final position = (data['statsOverlayPosition'] as String? ?? 'bottom')
             .trim()
             .toLowerCase();
-        final metric =
-            (data['statsParticipantMetric'] as String? ?? 'all_viewers')
-                .trim()
-                .toLowerCase();
-        final includeDormant = data['statsIncludeDormantOverrides'] == true;
         final showFlags = data['statsShowTimezoneFlags'] == true;
-
-        int displayCount =
-            metric == 'participants_only' ? widget.participantCount : _liveViewers;
-        if (includeDormant && widget.participantCount > displayCount) {
-          displayCount = widget.participantCount;
-        }
 
         final alignment =
           position == 'right' ? Alignment.bottomRight : Alignment.bottomLeft;
-        final label =
-            metric == 'participants_only' ? 'participants' : 'live viewers';
 
         return Align(
           alignment: alignment,
@@ -453,7 +443,7 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '$displayCount $label',
+                    '$_liveViewers live viewers',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,

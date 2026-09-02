@@ -1001,7 +1001,8 @@ class EventService extends ChangeNotifier {
     for (int i = 0; i < a.length; i++) {
       if (a[i].id != b[i].id ||
           a[i].startTime != b[i].startTime ||
-          a[i].endTime != b[i].endTime)
+          a[i].endTime != b[i].endTime ||
+          a[i].participantCount != b[i].participantCount)
         return false;
     }
     return true;

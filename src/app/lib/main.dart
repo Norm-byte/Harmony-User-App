@@ -232,7 +232,9 @@ class _SplashScreenState extends State<SplashScreen> {
             .timeout(const Duration(seconds: 1), onTimeout: () => null);
       }
 
-      if (launchEventId != null && launchEventId.isNotEmpty) {
+      if (launchEventId != null &&
+          launchEventId.isNotEmpty &&
+          !Platform.isIOS) {
         launchedFromAlarm = true;
         context.read<EventService>().requestImmediateAlarmPlayback(
           launchEventId,

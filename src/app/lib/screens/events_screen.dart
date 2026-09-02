@@ -114,7 +114,9 @@ class EventsScreen extends StatelessWidget {
               children: [
                 const SizedBox(height: 20),
                 Text(
-                  event.type == EventType.national ? 'National Notice Board' : 'Notice Board',
+                  event.type == EventType.national
+                      ? 'National Notice Board'
+                      : 'International Notice Board',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 24,
@@ -217,7 +219,15 @@ class EventsScreen extends StatelessWidget {
                 Row(
                   children: [
                     Expanded(
-                      child: _TimezoneStatCard(),
+                      child: event.type == EventType.global
+                          ? _buildStatCard(
+                              'Joined Worldwide',
+                              NumberFormat.decimalPattern().format(
+                                event.participantCount,
+                              ),
+                              Icons.public,
+                            )
+                          : _TimezoneStatCard(),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -231,41 +241,7 @@ class EventsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
 
-                // National Users Stat
-                if (event.type == EventType.national)
-                  _NationalUserCount(),
-                if (event.type == EventType.global)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 8,
-                      horizontal: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.blue.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.public,
-                          color: Colors.lightBlueAccent,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '${NumberFormat.decimalPattern().format(event.participantCount)} users joined worldwide',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              fontSize: 11,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                _WorldwideUserTotal(),
 
 
                 const SizedBox(height: 24),
@@ -740,23 +716,22 @@ class EventsScreen extends StatelessWidget {
   }
 }
 
-class _NationalUserCount extends StatelessWidget {
+class _WorldwideUserTotal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final userService = Provider.of<UserService>(context, listen: false);
-
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
-          .collection('users')
-          .where('timeZone', isEqualTo: userService.timeZone)
+          .collection('app_config')
+          .doc('home_screen')
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const SizedBox.shrink();
         }
 
-        final count = snapshot.data!.docs.length;
-        final timeZone = userService.timeZone;
+        final count = (snapshot.data!.data()?['worldwideUserTotal'] as num?)
+                ?.toInt() ??
+            0;
 
         return Container(
           padding: const EdgeInsets.symmetric(
@@ -778,7 +753,7 @@ class _NationalUserCount extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '$count National users in $timeZone',
+                  '${NumberFormat.decimalPattern().format(count)} users worldwide',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 11,

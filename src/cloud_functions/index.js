@@ -5,7 +5,55 @@ const { onObjectFinalized } = require('firebase-functions/v2/storage');
 admin.initializeApp();
 const visionClient = new vision.ImageAnnotatorClient();
 
-const BLOCK_LIKELIHOODS = new Set(['VERY_LIKELY']);
+const SAFE_SEARCH_LEVEL_RANK = {
+    UNKNOWN: 0,
+    VERY_UNLIKELY: 1,
+    UNLIKELY: 2,
+    POSSIBLE: 3,
+    LIKELY: 4,
+    VERY_LIKELY: 5,
+};
+
+function normalizeLikelihood(value, fallback) {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (!normalized) return fallback;
+    if (normalized === 'DISABLED') return 'DISABLED';
+    return Object.prototype.hasOwnProperty.call(SAFE_SEARCH_LEVEL_RANK, normalized)
+        ? normalized
+        : fallback;
+}
+
+function isAtOrAboveLikelihood(actual, threshold) {
+    if (threshold === 'DISABLED') return false;
+    const actualRank = SAFE_SEARCH_LEVEL_RANK[actual] || 0;
+    const thresholdRank = SAFE_SEARCH_LEVEL_RANK[threshold] || 99;
+    return actualRank >= thresholdRank;
+}
+
+async function loadModerationPolicy() {
+    const defaults = {
+        adultThreshold: 'VERY_LIKELY',
+        violenceThreshold: 'VERY_LIKELY',
+        racyThreshold: 'DISABLED',
+        requireAdultNotVeryUnlikelyForViolence: true,
+    };
+
+    try {
+        const doc = await admin.firestore().collection('system_settings').doc('moderation_policy').get();
+        const data = doc.exists ? (doc.data() || {}) : {};
+        return {
+            adultThreshold: normalizeLikelihood(data.adultThreshold, defaults.adultThreshold),
+            violenceThreshold: normalizeLikelihood(data.violenceThreshold, defaults.violenceThreshold),
+            racyThreshold: normalizeLikelihood(data.racyThreshold, defaults.racyThreshold),
+            requireAdultNotVeryUnlikelyForViolence:
+                data.requireAdultNotVeryUnlikelyForViolence !== false,
+        };
+    } catch (error) {
+        console.error('MODERATION_POLICY_LOAD_ERROR', error?.message || error);
+        return defaults;
+    }
+}
+
 
 function logCommunityNotification(event, payload) {
     console.log(`[community_notify] ${event}`, payload || {});
@@ -997,6 +1045,163 @@ exports.notifyOnCommunityReplyLike = functions.firestore
         }
     });
 
+function isWorldwideAutoJoinEnabled(userData) {
+    // Auto-join is on by default; only an explicit false opts an account out.
+    return userData.autoJoinWorldwide !== false;
+}
+
+function isActiveMemberAccount(userId, userData, firebaseAccountIds) {
+    if (!firebaseAccountIds.has(userId) || userId.startsWith('$RCAnonymousID:')) {
+        return false;
+    }
+
+    return userData.isVip === true ||
+        userData.isActive === true ||
+        String(userData.status || '').trim().toLowerCase() === 'active';
+}
+
+async function listFirebaseAccountIds() {
+    const accountIds = new Set();
+    let pageToken;
+
+    do {
+        const page = await admin.auth().listUsers(1000, pageToken);
+        page.users.forEach((user) => accountIds.add(user.uid));
+        pageToken = page.pageToken;
+    } while (pageToken);
+
+    return accountIds;
+}
+
+function isWorldwideEventCurrentOrFuture(eventData, now = new Date()) {
+    const start = parseEventDate(eventData.startTimeUTC) || parseEventDate(eventData.startTime);
+    if (!start) return false;
+
+    const configuredEnd = parseEventDate(eventData.endTime);
+    const durationSeconds = Number(eventData.durationSeconds);
+    const end = configuredEnd || new Date(
+        start.getTime() + (Number.isFinite(durationSeconds) && durationSeconds > 0
+            ? durationSeconds
+            : 60 * 60) * 1000,
+    );
+    const visibilityAfterMinutes = Math.max(0, Number(eventData.noticeBoardVisibilityAfterMinutes || 0));
+    return end.getTime() + visibilityAfterMinutes * 60 * 1000 >= now.getTime();
+}
+
+async function syncWorldwideParticipantCount(eventId) {
+    const db = admin.firestore();
+    const eventRef = db.collection('global_events').doc(eventId);
+    const [eventSnap, usersSnap, registrationsSnap, firebaseAccountIds] = await Promise.all([
+        eventRef.get(),
+        db.collection('users').get(),
+        db.collectionGroup('registered_events').where('eventId', '==', eventId).get(),
+        listFirebaseAccountIds(),
+    ]);
+
+    if (!eventSnap.exists) return null;
+
+    const eventData = eventSnap.data() || {};
+    if (eventData.isPublished !== true ||
+        eventData.isDraft === true ||
+        !isWorldwideEventCurrentOrFuture(eventData)) {
+        return null;
+    }
+
+    const activeMemberIds = new Set();
+    usersSnap.docs.forEach((userDoc) => {
+        const userData = userDoc.data() || {};
+        if (isActiveMemberAccount(userDoc.id, userData, firebaseAccountIds)) {
+            activeMemberIds.add(userDoc.id);
+        }
+    });
+
+    const participantIds = new Set();
+    usersSnap.docs.forEach((userDoc) => {
+        const userData = userDoc.data() || {};
+        if (activeMemberIds.has(userDoc.id) &&
+            isWorldwideAutoJoinEnabled(userData)) {
+            participantIds.add(userDoc.id);
+        }
+    });
+
+    registrationsSnap.docs.forEach((registrationDoc) => {
+        const userId = registrationDoc.ref.parent.parent?.id;
+        if (userId && activeMemberIds.has(userId)) participantIds.add(userId);
+    });
+
+    await eventRef.set(
+        {
+            participantCount: participantIds.size,
+            participantCountUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+    );
+    await db.collection('app_config').doc('home_screen').set(
+        {
+            worldwideUserTotal: activeMemberIds.size,
+            worldwideUserTotalUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+    );
+    console.log('WORLDWIDE_PARTICIPANT_COUNT_SYNC', {
+        eventId,
+        activeMemberCount: activeMemberIds.size,
+        joinedMemberCount: participantIds.size,
+    });
+    return participantIds.size;
+}
+
+exports.syncWorldwideParticipantCountOnPublish = functions.firestore
+    .document('global_events/{eventId}')
+    .onWrite(async (change, context) => {
+        if (!change.after.exists) return null;
+
+        const after = change.after.data() || {};
+        if (after.isPublished !== true ||
+            after.isDraft === true ||
+            !isWorldwideEventCurrentOrFuture(after)) return null;
+
+        const before = change.before.exists ? (change.before.data() || {}) : {};
+        const relevantFields = [
+            'isPublished',
+            'isDraft',
+            'startTimeUTC',
+            'startTime',
+            'endTime',
+            'durationSeconds',
+        ];
+        const shouldSync = !change.before.exists || relevantFields.some(
+            (field) => JSON.stringify(before[field] ?? null) !== JSON.stringify(after[field] ?? null),
+        );
+
+        if (!shouldSync) return null;
+        return syncWorldwideParticipantCount(context.params.eventId);
+    });
+
+exports.syncWorldwideParticipantCountOnAutoJoinChange = functions.firestore
+    .document('users/{userId}')
+    .onWrite(async (change) => {
+        const before = change.before.exists ? (change.before.data() || {}) : {};
+        const after = change.after.exists ? (change.after.data() || {}) : {};
+        if (change.before.exists &&
+            isWorldwideAutoJoinEnabled(before) === isWorldwideAutoJoinEnabled(after)) {
+            return null;
+        }
+
+        const globalEvents = await admin.firestore().collection('global_events').get();
+        await Promise.all(
+            globalEvents.docs
+                .filter((eventDoc) => {
+                    const data = eventDoc.data() || {};
+                    return data.isPublished === true &&
+                        data.isDraft !== true &&
+                        isWorldwideEventCurrentOrFuture(data);
+                })
+                .map((eventDoc) => syncWorldwideParticipantCount(eventDoc.id)),
+        );
+        return null;
+    });
+
 exports.aggregateTrendingIntent = functions.firestore
     .document('users/{userId}/registered_events/{registrationId}')
     .onCreate(async (snap, context) => {
@@ -1013,7 +1218,7 @@ exports.aggregateTrendingIntent = functions.firestore
         
         const eventRef = admin.firestore().collection(collectionName).doc(eventId);
 
-        return admin.firestore().runTransaction(async (transaction) => {
+        const eventExists = await admin.firestore().runTransaction(async (transaction) => {
             const eventDoc = await transaction.get(eventRef);
             if (!eventDoc.exists) {
                 // Fallback: Check the other collection if not found (just in case)
@@ -1024,10 +1229,11 @@ exports.aggregateTrendingIntent = functions.firestore
             const eventData = eventDoc.data();
             
             // 1. Increment Participant Count
-            const currentCount = eventData.participantCount || 0;
-            const updates = {
-                participantCount: currentCount + 1
-            };
+            const updates = {};
+            if (!isGlobal) {
+                const currentCount = eventData.participantCount || 0;
+                updates.participantCount = currentCount + 1;
+            }
 
             // 2. Handle Trending Intent (if configured)
             if (eventData.useTrendingIntent === true && newIntent) {
@@ -1053,8 +1259,16 @@ exports.aggregateTrendingIntent = functions.firestore
                 }
             }
             
-            transaction.update(eventRef, updates);
+            if (Object.keys(updates).length > 0) {
+                transaction.update(eventRef, updates);
+            }
+            return true;
         });
+
+        if (isGlobal && eventExists) {
+            await syncWorldwideParticipantCount(eventId);
+        }
+        return null;
     });
 
 function toUtcDayStart(date) {
@@ -1361,9 +1575,14 @@ exports.moderateUploadedImageWithSafeSearch = onObjectFinalized(
         const adult = String(safeSearch.adult || 'UNKNOWN');
         const violence = String(safeSearch.violence || 'UNKNOWN');
         const racy = String(safeSearch.racy || 'UNKNOWN');
-        const adultCritical = BLOCK_LIKELIHOODS.has(adult);
-        const violenceCritical = BLOCK_LIKELIHOODS.has(violence);
-        const isFlagged = adultCritical || (violenceCritical && adult !== 'VERY_UNLIKELY');
+        const policy = await loadModerationPolicy();
+        const adultCritical = isAtOrAboveLikelihood(adult, policy.adultThreshold);
+        const violenceCriticalBase = isAtOrAboveLikelihood(violence, policy.violenceThreshold);
+        const violenceCritical = policy.requireAdultNotVeryUnlikelyForViolence
+            ? (violenceCriticalBase && adult !== 'VERY_UNLIKELY')
+            : violenceCriticalBase;
+        const racyCritical = isAtOrAboveLikelihood(racy, policy.racyThreshold);
+        const isFlagged = adultCritical || violenceCritical || racyCritical;
 
         const imageUrl = objectName
             ? `https://storage.googleapis.com/${bucketName}/${encodeURIComponent(objectName).replace(/%2F/g, '/')}`
@@ -1375,6 +1594,7 @@ exports.moderateUploadedImageWithSafeSearch = onObjectFinalized(
                 bucketName,
                 uid: parsed.uid || null,
                 safeSearch: { adult, violence, racy },
+                policy,
             });
             return null;
         }
@@ -1390,6 +1610,7 @@ exports.moderateUploadedImageWithSafeSearch = onObjectFinalized(
             imageUrl,
             status: 'pending',
             safeSearch: { adult, violence, racy },
+            moderationPolicy: policy,
         });
 
         return null;

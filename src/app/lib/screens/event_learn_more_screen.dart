@@ -11,61 +11,58 @@ class EventLearnMoreScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Column(
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            color: Colors.white,
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.black),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    event.title,
-                    style: const TextStyle(
+      body: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              color: Colors.white,
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.black),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      event.title,
+                      style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
-                        color: Colors.black),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                        color: Colors.black,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-
-          // Content (3/4) - Visual Only
-          Expanded(
-            flex: 3,
-            child: Container(
-              color: Colors.black,
-              child: _buildMainContent(context),
-            ),
-          ),
-
-          // YouTube Thumbnail / Secondary Content (1/4)
-          if (event.learnMoreYoutubeUrl != null && event.learnMoreYoutubeUrl!.isNotEmpty)
-            Expanded(
-              flex: 1,
-              child: GestureDetector(
-                onTap: () {
-                  if (event.learnMoreYoutubeUrl != null) {
-                    _showExpandedContent(context, event.learnMoreYoutubeUrl!);
-                  }
-                },
-                child: Container(
-                  color: Colors.black,
-                  child: _buildSecondaryContent(context),
-                ),
+                ],
               ),
             ),
-        ],
+            const Divider(height: 1),
+            Expanded(
+              flex: 3,
+              child: Container(
+                color: Colors.black,
+                child: _buildMainContent(context),
+              ),
+            ),
+            if (event.learnMoreYoutubeUrl != null &&
+                event.learnMoreYoutubeUrl!.isNotEmpty)
+              Expanded(
+                flex: 1,
+                child: GestureDetector(
+                  onTap: () {
+                    _showExpandedContent(context, event.learnMoreYoutubeUrl!);
+                  },
+                  child: Container(
+                    color: Colors.black,
+                    child: _buildSecondaryContent(context),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
