@@ -20,6 +20,7 @@ import 'community_feed_screen.dart';
 import 'interesting_topics_screen.dart';
 import 'settings_screen.dart';
 import 'app_settings_screen.dart';
+import 'fullscreen_content_screen.dart';
 import 'video_player_screen.dart';
 
 const int kMaxActiveReels = 30;
@@ -1464,6 +1465,19 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
     _scheduleNextAutoRotate();
   }
 
+  // Documents and images use the plain viewer, not the video player chrome.
+  Future<void> _openContentFullscreen(String url) async {
+    _autoRotateTimer?.cancel();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FullscreenContentScreen(url: url),
+      ),
+    );
+    if (!mounted) return;
+    _scheduleNextAutoRotate();
+  }
+
   void _goToPreviousPage(int totalItems) {
     if (!_pageController.hasClients || totalItems < 2) return;
     final prevPage = (_currentPage - 1 + totalItems) % totalItems;
@@ -1521,19 +1535,23 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
     }
 
     final isExpandableVideo = type == 'video' || type == 'youtube';
+    final isExpandableDoc = type == 'pdf' || type == 'image';
 
     return Stack(
       children: [
         Positioned.fill(
-          child: ContentViewer(
-            url: url,
-            fit: BoxFit.cover,
-            controls: type != 'image',
-            autoPlay: true,
-            loop: type != 'video' && type != 'youtube',
+          child: GestureDetector(
+            onTap: isExpandableDoc ? () => _openContentFullscreen(url) : null,
+            child: ContentViewer(
+              url: url,
+              fit: BoxFit.cover,
+              controls: type != 'image',
+              autoPlay: true,
+              loop: type != 'video' && type != 'youtube',
+            ),
           ),
         ),
-        if (isExpandableVideo)
+        if (isExpandableVideo || isExpandableDoc)
           Positioned(
             right: 10,
             bottom: 10,
@@ -1545,7 +1563,9 @@ class _HomeReelCarouselState extends State<_HomeReelCarousel> {
               child: IconButton(
                 tooltip: 'Expand',
                 icon: const Icon(Icons.zoom_out_map, color: Colors.white, size: 18),
-                onPressed: () => _openFullscreen(url),
+                onPressed: () => isExpandableDoc
+                    ? _openContentFullscreen(url)
+                    : _openFullscreen(url),
               ),
             ),
           ),
@@ -2050,16 +2070,24 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
         );
 
       case 'image':
-        return Container(
-          height: 200,
-          width: double.infinity,
-          margin: const EdgeInsets.only(bottom: 24),
-          decoration: BoxDecoration(
-            color: Colors.black54,
-            borderRadius: BorderRadius.circular(16),
-            image: DecorationImage(
-              image: NetworkImage(widget.url),
-              fit: BoxFit.cover,
+        return GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FullscreenContentScreen(url: widget.url),
+            ),
+          ),
+          child: Container(
+            height: 200,
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(16),
+              image: DecorationImage(
+                image: NetworkImage(widget.url),
+                fit: BoxFit.cover,
+              ),
             ),
           ),
         );
@@ -2106,7 +2134,11 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
 
       case 'pdf':
         return GestureDetector(
-          onTap: () => launchUrl(Uri.parse(widget.url)),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => FullscreenContentScreen(url: widget.url),
+            ),
+          ),
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.all(24),
@@ -2143,7 +2175,7 @@ class _FeaturedContentWidgetState extends State<_FeaturedContentWidget> {
                     ],
                   ),
                 ),
-                Icon(Icons.open_in_new, color: Colors.grey.shade400),
+                Icon(Icons.open_in_full, color: Colors.grey.shade400),
               ],
             ),
           ),

@@ -1088,6 +1088,43 @@ function isWorldwideEventCurrentOrFuture(eventData, now = new Date()) {
     return end.getTime() + visibilityAfterMinutes * 60 * 1000 >= now.getTime();
 }
 
+async function syncActiveMemberTotals() {
+    const db = admin.firestore();
+    const [usersSnap, firebaseAccountIds] = await Promise.all([
+        db.collection('users').get(),
+        listFirebaseAccountIds(),
+    ]);
+    const activeMemberRegionTotals = {};
+    const activeMemberRegionOffsets = {};
+    let activeMemberCount = 0;
+
+    usersSnap.docs.forEach((userDoc) => {
+        const userData = userDoc.data() || {};
+        if (!isActiveMemberAccount(userDoc.id, userData, firebaseAccountIds)) {
+            return;
+        }
+        activeMemberCount++;
+        const timeZone = String(userData.timeZone || 'Unknown').trim() || 'Unknown';
+        activeMemberRegionTotals[timeZone] = (activeMemberRegionTotals[timeZone] || 0) + 1;
+        const offset = Number(userData.timeZoneOffset);
+        if (Number.isFinite(offset)) {
+            activeMemberRegionOffsets[timeZone] = offset;
+        }
+    });
+
+    await db.collection('app_config').doc('home_screen').set(
+        {
+            worldwideUserTotal: activeMemberCount,
+            worldwideUserTotalUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            regionalUserTotals: activeMemberRegionTotals,
+            regionalUserOffsets: activeMemberRegionOffsets,
+            regionalUserTotalsUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+    );
+    return { activeMemberCount, activeMemberRegionTotals };
+}
+
 async function syncWorldwideParticipantCount(eventId) {
     const db = admin.firestore();
     const eventRef = db.collection('global_events').doc(eventId);
@@ -1101,12 +1138,6 @@ async function syncWorldwideParticipantCount(eventId) {
     if (!eventSnap.exists) return null;
 
     const eventData = eventSnap.data() || {};
-    if (eventData.isPublished !== true ||
-        eventData.isDraft === true ||
-        !isWorldwideEventCurrentOrFuture(eventData)) {
-        return null;
-    }
-
     const activeMemberIds = new Set();
     usersSnap.docs.forEach((userDoc) => {
         const userData = userDoc.data() || {};
@@ -1114,6 +1145,12 @@ async function syncWorldwideParticipantCount(eventId) {
             activeMemberIds.add(userDoc.id);
         }
     });
+
+    if (eventData.isPublished !== true ||
+        eventData.isDraft === true ||
+        !isWorldwideEventCurrentOrFuture(eventData)) {
+        return null;
+    }
 
     const participantIds = new Set();
     usersSnap.docs.forEach((userDoc) => {
@@ -1133,13 +1170,6 @@ async function syncWorldwideParticipantCount(eventId) {
         {
             participantCount: participantIds.size,
             participantCountUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-    );
-    await db.collection('app_config').doc('home_screen').set(
-        {
-            worldwideUserTotal: activeMemberIds.size,
-            worldwideUserTotalUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true },
     );
@@ -1183,6 +1213,7 @@ exports.syncWorldwideParticipantCountOnAutoJoinChange = functions.firestore
     .onWrite(async (change) => {
         const before = change.before.exists ? (change.before.data() || {}) : {};
         const after = change.after.exists ? (change.after.data() || {}) : {};
+        await syncActiveMemberTotals();
         if (change.before.exists &&
             isWorldwideAutoJoinEnabled(before) === isWorldwideAutoJoinEnabled(after)) {
             return null;

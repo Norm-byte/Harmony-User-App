@@ -420,6 +420,8 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
             .trim()
             .toLowerCase();
         final showFlags = data['statsShowTimezoneFlags'] == true;
+        final adjustment =
+          (data['eventLiveViewerAdjustment'] as num?)?.toInt() ?? 0;
 
         final alignment =
           position == 'right' ? Alignment.bottomRight : Alignment.bottomLeft;
@@ -443,7 +445,7 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '$_liveViewers live viewers',
+                    '${_liveViewers + adjustment} live viewers',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,

@@ -220,12 +220,8 @@ class EventsScreen extends StatelessWidget {
                   children: [
                     Expanded(
                       child: event.type == EventType.global
-                          ? _buildStatCard(
-                              'Joined Worldwide',
-                              NumberFormat.decimalPattern().format(
-                                event.participantCount,
-                              ),
-                              Icons.public,
+                          ? _InternationalJoinedStatCard(
+                              participantCount: event.participantCount,
                             )
                           : _TimezoneStatCard(),
                     ),
@@ -729,9 +725,11 @@ class _WorldwideUserTotal extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final count = (snapshot.data!.data()?['worldwideUserTotal'] as num?)
-                ?.toInt() ??
-            0;
+        final data = snapshot.data!.data() ?? const <String, dynamic>{};
+        final liveCount = (data['worldwideUserTotal'] as num?)?.toInt() ?? 0;
+        final adjustment =
+          (data['worldwideUserTotalAdjustment'] as num?)?.toInt() ?? 0;
+        final count = liveCount + adjustment;
 
         return Container(
           padding: const EdgeInsets.symmetric(
@@ -769,18 +767,94 @@ class _WorldwideUserTotal extends StatelessWidget {
   }
 }
 
+class _InternationalJoinedStatCard extends StatelessWidget {
+  final int participantCount;
+
+  const _InternationalJoinedStatCard({required this.participantCount});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('app_config')
+          .doc('home_screen')
+          .snapshots(),
+      builder: (context, snapshot) {
+        final adjustment =
+            (snapshot.data?.data()?['internationalJoinedAdjustment'] as num?)
+                    ?.toInt() ??
+                0;
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.public, color: Colors.white70, size: 18),
+              const SizedBox(height: 6),
+              Text(
+                NumberFormat.decimalPattern().format(
+                  participantCount + adjustment,
+                ),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                'Joined Worldwide',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _TimezoneStatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final userService = Provider.of<UserService>(context, listen: false);
 
-    return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
-          .collection('users')
-          .where('timeZone', isEqualTo: userService.timeZone)
+          .collection('app_config')
+          .doc('home_screen')
           .snapshots(),
       builder: (context, snapshot) {
-        final count = snapshot.hasData ? snapshot.data!.docs.length : 0;
+        final data = snapshot.data?.data() ?? const <String, dynamic>{};
+        final totals = Map<String, dynamic>.from(
+          data['regionalUserTotals'] as Map? ?? const <String, dynamic>{},
+        );
+        final adjustments = Map<String, dynamic>.from(
+          data['regionalUserCountAdjustments'] as Map? ?? const <String, dynamic>{},
+        );
+        final offsets = Map<String, dynamic>.from(
+          data['regionalUserOffsets'] as Map? ?? const <String, dynamic>{},
+        );
+        // iOS and Android report different timezone names, so fall back to UTC offset.
+        var region = userService.timeZone;
+        if (!totals.containsKey(region)) {
+          final deviceOffset = DateTime.now().timeZoneOffset.inHours;
+          for (final entry in offsets.entries) {
+            if ((entry.value as num?)?.toInt() == deviceOffset &&
+                totals.containsKey(entry.key)) {
+              region = entry.key;
+              break;
+            }
+          }
+        }
+        final liveCount = (totals[region] as num?)?.toInt() ?? 0;
+        final adjustment = (adjustments[region] as num?)?.toInt() ?? 0;
         return Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -793,7 +867,7 @@ class _TimezoneStatCard extends StatelessWidget {
               const Icon(Icons.people, color: Colors.white70, size: 18),
               const SizedBox(height: 6),
               Text(
-                NumberFormat.decimalPattern().format(count),
+                NumberFormat.decimalPattern().format(liveCount + adjustment),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 18,

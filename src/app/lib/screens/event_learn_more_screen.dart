@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/event.dart';
 import '../widgets/media/content_viewer.dart';
+import 'fullscreen_content_screen.dart';
 
 class EventLearnMoreScreen extends StatelessWidget {
   final Event event;
@@ -9,55 +10,97 @@ class EventLearnMoreScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Landscape drops the title bar so the content can use the full screen.
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.black,
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              color: Colors.white,
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.black),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Text(
-                      event.title,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: Colors.black,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+            Column(
+              children: [
+                if (!isLandscape) ...[
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    color: Colors.white,
+                    child: Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back, color: Colors.black),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Text(
+                            event.title,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                              color: Colors.black,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  const Divider(height: 1),
                 ],
-              ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              flex: 3,
-              child: Container(
-                color: Colors.black,
-                child: _buildMainContent(context),
-              ),
-            ),
-            if (event.learnMoreYoutubeUrl != null &&
-                event.learnMoreYoutubeUrl!.isNotEmpty)
-              Expanded(
-                flex: 1,
-                child: GestureDetector(
-                  onTap: () {
-                    _showExpandedContent(context, event.learnMoreYoutubeUrl!);
-                  },
+                Expanded(
+                  flex: 3,
                   child: Container(
                     color: Colors.black,
-                    child: _buildSecondaryContent(context),
+                    child: GestureDetector(
+                      onTap: () {
+                        final url = event.learnMoreContent;
+                        if (url != null && url.isNotEmpty) {
+                          _showExpandedContent(context, url);
+                        }
+                      },
+                      child: _buildMainContent(context),
+                    ),
+                  ),
+                ),
+                if (event.learnMoreYoutubeUrl != null &&
+                    event.learnMoreYoutubeUrl!.isNotEmpty)
+                  Expanded(
+                    flex: 1,
+                    child: GestureDetector(
+                      onTap: () {
+                        _showExpandedContent(
+                          context,
+                          event.learnMoreYoutubeUrl!,
+                        );
+                      },
+                      child: Container(
+                        color: Colors.black,
+                        child: _buildSecondaryContent(context),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            if (isLandscape)
+              Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Material(
+                    color: Colors.black54,
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      tooltip: 'Back',
+                      icon: const Icon(
+                        Icons.arrow_back,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
                   ),
                 ),
               ),
@@ -68,28 +111,9 @@ class EventLearnMoreScreen extends StatelessWidget {
   }
 
   void _showExpandedContent(BuildContext context, String url) {
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.black,
-        insetPadding: EdgeInsets.zero,
-        child: Stack(
-          children: [
-            ContentViewer(
-              url: url,
-              fit: BoxFit.contain,
-              controls: true,
-            ),
-            Positioned(
-              top: 16,
-              right: 16,
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white, size: 30),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ),
-          ],
-        ),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => FullscreenContentScreen(url: url),
       ),
     );
   }
@@ -111,10 +135,21 @@ class EventLearnMoreScreen extends StatelessWidget {
       );
     }
 
-    return ContentViewer(
+    final viewer = ContentViewer(
       url: url,
       fit: BoxFit.contain,
       controls: true,
+    );
+
+    // PDFs bring their own zoom; images need InteractiveViewer to pinch zoom.
+    if (url.toLowerCase().contains('.pdf')) {
+      return viewer;
+    }
+
+    return InteractiveViewer(
+      minScale: 1,
+      maxScale: 5,
+      child: Center(child: viewer),
     );
   }
 
