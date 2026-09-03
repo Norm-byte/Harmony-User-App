@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../services/favorites_service.dart';
+import '../services/user_service.dart';
+import '../constants/report_reasons.dart';
 import 'generic_video_player_screen.dart';
 import '../widgets/media/content_viewer.dart';
 
@@ -267,10 +269,10 @@ class TopicsLandingScreen extends StatelessWidget {
     };
   }
 
-  static void _showVideoDialog(BuildContext context, String url) {
+  static void _showVideoDialog(BuildContext context, String url, {String title = ''}) {
     Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
-        builder: (_) => _TopicsFullscreenYoutubeScreen(url: url),
+        builder: (_) => _TopicsFullscreenYoutubeScreen(url: url, title: title),
       ),
     );
   }
@@ -287,7 +289,7 @@ class TopicsLandingScreen extends StatelessWidget {
         return GestureDetector(
           onTap: () {
             if (topic['type'] == 'youtube') {
-              _showVideoDialog(context, topic['youtubeUrl']!);
+              _showVideoDialog(context, topic['youtubeUrl']!, title: topic['title'] ?? '');
             } else {
               Navigator.of(context, rootNavigator: true).push(
                 MaterialPageRoute(
@@ -727,7 +729,7 @@ class _FeaturedTopicViewerState extends State<FeaturedTopicViewer> {
                       child: isYoutube
                           ? GestureDetector(
                               onTap: () {
-                                TopicsLandingScreen._showVideoDialog(context, widget.topic['youtubeUrl']!);
+                                TopicsLandingScreen._showVideoDialog(context, widget.topic['youtubeUrl']!, title: widget.topic['title'] ?? '');
                               },
                               child: Stack(
                                 alignment: Alignment.center,
@@ -842,8 +844,154 @@ class _FeaturedTopicViewerState extends State<FeaturedTopicViewer> {
 
 class _TopicsFullscreenYoutubeScreen extends StatelessWidget {
   final String url;
+  final String title;
 
-  const _TopicsFullscreenYoutubeScreen({required this.url});
+  const _TopicsFullscreenYoutubeScreen({required this.url, this.title = ''});
+
+  Future<void> _showReportSheet(BuildContext context) async {
+    final reasons = kReportReasons;
+    String? selected;
+    final detailsController = TextEditingController();
+    try {
+      await showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.grey.shade900,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final explanation = detailsController.text.trim();
+            final canSubmit = selected != null && explanation.length >= 8;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                20 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Report this Topic Video',
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Select a reason and add a short explanation for moderators.',
+                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    ...reasons.map(
+                      (r) => RadioListTile<String>(
+                        value: r.label,
+                        groupValue: selected,
+                        title: Text(r.label, style: const TextStyle(color: Colors.white70)),
+                        subtitle: Text(r.caption, style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                        activeColor: Colors.redAccent,
+                        onChanged: (v) => setModalState(() => selected = v),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: detailsController,
+                      maxLines: 3,
+                      style: const TextStyle(color: Colors.white),
+                      onChanged: (_) => setModalState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Required: brief details (min 8 characters)',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: Colors.black.withValues(alpha: 0.25),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      explanation.length < 8
+                          ? 'Please add at least 8 characters so moderators have context.'
+                          : 'Looks good.',
+                      style: TextStyle(
+                        color: explanation.length < 8 ? Colors.orangeAccent : Colors.greenAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: const BorderSide(color: Colors.white30),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: !canSubmit
+                                ? null
+                                : () async {
+                                    Navigator.pop(ctx);
+                                    final reportTitle = title.trim().isNotEmpty ? title.trim() : 'Untitled Topic Video';
+                                    final ok = await UserService().reportContent(
+                                      'admin_media',
+                                      reportTitle,
+                                      selected!,
+                                      'Topic',
+                                      metadata: {
+                                        'targetKind': 'topic_video',
+                                        'targetId': url.isNotEmpty ? url : reportTitle,
+                                        'contentType': 'topic_video',
+                                        'topicTitle': reportTitle,
+                                        'topicUrl': url,
+                                        'reportExplanation': explanation,
+                                      },
+                                    );
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            ok
+                                                ? 'Report submitted. Thank you.'
+                                                : 'Could not submit report. Please try again.',
+                                          ),
+                                          backgroundColor: ok ? Colors.green : Colors.red,
+                                        ),
+                                      );
+                                    }
+                                  },
+                            child: const Text('Submit Report'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    } finally {
+      detailsController.dispose();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -862,6 +1010,34 @@ class _TopicsFullscreenYoutubeScreen extends StatelessWidget {
               child: IconButton(
                 icon: const Icon(Icons.arrow_back, color: Colors.white),
                 onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            right: 14,
+            child: CircleAvatar(
+              backgroundColor: Colors.black.withOpacity(0.45),
+              child: PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert, color: Colors.white),
+                color: Colors.grey.shade900,
+                onSelected: (value) {
+                  if (value == 'report') {
+                    _showReportSheet(context);
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'report',
+                    child: Row(
+                      children: [
+                        Icon(Icons.flag_outlined, color: Colors.redAccent, size: 18),
+                        SizedBox(width: 8),
+                        Text('Report', style: TextStyle(color: Colors.white)),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

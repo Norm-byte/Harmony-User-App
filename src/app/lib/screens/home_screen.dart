@@ -13,6 +13,7 @@ import 'package:intl/intl.dart';
 import '../services/event_service.dart';
 import '../services/user_service.dart';
 import '../services/home_speaker_state.dart';
+import '../constants/report_reasons.dart';
 import '../widgets/media/content_viewer.dart';
 import '../widgets/gradient_scaffold.dart';
 import 'events_screen.dart';
@@ -1030,13 +1031,7 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
   }
 
   Future<void> _showReportSheet(BuildContext context, Map<String, dynamic> item) async {
-    final reasons = [
-      'Inappropriate content',
-      'Misleading or false information',
-      'Harmful or dangerous',
-      'Spam',
-      'Other',
-    ];
+    final reasons = kReportReasons;
     String? selected;
     final detailsController = TextEditingController();
     try {
@@ -1075,9 +1070,10 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
                     const SizedBox(height: 16),
                     ...reasons.map(
                       (r) => RadioListTile<String>(
-                        value: r,
+                        value: r.label,
                         groupValue: selected,
-                        title: Text(r, style: const TextStyle(color: Colors.white70)),
+                        title: Text(r.label, style: const TextStyle(color: Colors.white70)),
+                        subtitle: Text(r.caption, style: const TextStyle(color: Colors.white38, fontSize: 12)),
                         activeColor: Colors.redAccent,
                         onChanged: (v) => setModalState(() => selected = v),
                       ),
@@ -1109,17 +1105,30 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: const BorderSide(color: Colors.white30),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Cancel'),
+                          ),
                         ),
-                        onPressed: !canSubmit
-                            ? null
-                            : () async {
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: !canSubmit
+                                ? null
+                                : () async {
                                 Navigator.pop(ctx);
                                 final title = (item['title'] as String?)?.trim() ?? 'Untitled Reel';
                                 final reelUrl = (item['url'] as String?)?.trim() ?? '';
@@ -1163,8 +1172,10 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
                                   );
                                 }
                               },
-                        child: const Text('Submit Report'),
-                      ),
+                            child: const Text('Submit Report'),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

@@ -20,6 +20,7 @@ import '../widgets/gradient_scaffold.dart';
 import '../widgets/live_room_counter_badge.dart';
 import '../widgets/threaded_replies_panel.dart';
 import '../widgets/translatable_text.dart';
+import '../constants/report_reasons.dart';
 
 class CommunityRoomScreen extends StatefulWidget {
   final Map<String, dynamic>? preselectedVaultImage;
@@ -782,13 +783,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   }
 
   Future<Map<String, String>?> _promptReportDetails({required String label}) async {
-    final reasons = [
-      'Inappropriate content',
-      'Misleading or false information',
-      'Harmful or dangerous',
-      'Spam',
-      'Other',
-    ];
+    final reasons = kReportReasons;
     String? selectedReason;
     final detailsController = TextEditingController();
 
@@ -832,9 +827,10 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                     const SizedBox(height: 16),
                     ...reasons.map(
                       (reason) => RadioListTile<String>(
-                        value: reason,
+                        value: reason.label,
                         groupValue: selectedReason,
-                        title: Text(reason, style: const TextStyle(color: Colors.white70)),
+                        title: Text(reason.label, style: const TextStyle(color: Colors.white70)),
+                        subtitle: Text(reason.caption, style: const TextStyle(color: Colors.white38, fontSize: 12)),
                         activeColor: Colors.redAccent,
                         onChanged: (value) => setModalState(() => selectedReason = value),
                       ),
@@ -866,23 +862,37 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                       ),
                     ),
                     const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: canSubmit
-                            ? () {
-                                Navigator.pop(ctx, {
-                                  'reason': selectedReason!,
-                                  'explanation': explanation,
-                                });
-                              }
-                            : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent,
-                          foregroundColor: Colors.white,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: const BorderSide(color: Colors.white30),
+                            ),
+                            onPressed: () => Navigator.pop(ctx, null),
+                            child: const Text('Cancel'),
+                          ),
                         ),
-                        child: const Text('Submit Report'),
-                      ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: canSubmit
+                                ? () {
+                                    Navigator.pop(ctx, {
+                                      'reason': selectedReason!,
+                                      'explanation': explanation,
+                                    });
+                                  }
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent,
+                              foregroundColor: Colors.white,
+                            ),
+                            child: const Text('Submit Report'),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
