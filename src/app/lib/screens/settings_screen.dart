@@ -35,8 +35,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
-    _totalUsersFuture = _fetchEstimatedActiveUsers();
-    _timeZoneUsersFuture = UserService().countUsersInSameTimeZone();
+    _totalUsersFuture = _fetchWorldwideUserTotal();
+    _timeZoneUsersFuture = _fetchRegionalUserTotal();
   }
 
   @override
@@ -100,7 +100,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                                   children: [
-                                    _buildStatItem('Intents Added', '${eventService.myEvents.where((e) => e['source'] == 'user').length}'), 
+                                    _buildStatItem('Intents Added', '${eventService.myEvents.length}'), 
                                     _buildTimeZoneUsersStatItem(),
                                     _buildTotalUsersStatItem(),
                                   ],
@@ -824,26 +824,57 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     );
   }
 
-  Future<int> _fetchEstimatedActiveUsers() async {
+  Future<int> _fetchWorldwideUserTotal() async {
     try {
-      final usersSnap = await FirebaseFirestore.instance
-          .collection('users')
+      final doc = await FirebaseFirestore.instance
+          .collection('app_config')
+          .doc('home_screen')
           .get()
           .timeout(const Duration(seconds: 8));
-      if (usersSnap.docs.isNotEmpty) return usersSnap.docs.length;
-
-      // Fallback: count unique userIds from community_posts
-      final postsSnap = await FirebaseFirestore.instance
-          .collection('community_posts')
-          .get()
-          .timeout(const Duration(seconds: 8));
-      final ids = postsSnap.docs
-          .map((d) => (d.data()['userId']?.toString() ?? '').trim())
-          .where((id) => id.isNotEmpty)
-          .toSet();
-      return ids.length;
+      final data = doc.data() ?? const <String, dynamic>{};
+      final liveCount = (data['worldwideUserTotal'] as num?)?.toInt() ?? 0;
+      final adjustment = (data['worldwideUserTotalAdjustment'] as num?)?.toInt() ?? 0;
+      return liveCount + adjustment;
     } catch (e) {
       debugPrint('[TotalUsers] fetch error: $e');
+      return 0;
+    }
+  }
+
+  Future<int> _fetchRegionalUserTotal() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('app_config')
+          .doc('home_screen')
+          .get()
+          .timeout(const Duration(seconds: 8));
+      final data = doc.data() ?? const <String, dynamic>{};
+      final totals = Map<String, dynamic>.from(
+        data['regionalUserTotals'] as Map? ?? const <String, dynamic>{},
+      );
+      final adjustments = Map<String, dynamic>.from(
+        data['regionalUserCountAdjustments'] as Map? ?? const <String, dynamic>{},
+      );
+      final offsets = Map<String, dynamic>.from(
+        data['regionalUserOffsets'] as Map? ?? const <String, dynamic>{},
+      );
+      // iOS and Android report different timezone names, so fall back to UTC offset.
+      var region = UserService().timeZone;
+      if (!totals.containsKey(region)) {
+        final deviceOffset = DateTime.now().timeZoneOffset.inHours;
+        for (final entry in offsets.entries) {
+          if ((entry.value as num?)?.toInt() == deviceOffset &&
+              totals.containsKey(entry.key)) {
+            region = entry.key;
+            break;
+          }
+        }
+      }
+      final liveCount = (totals[region] as num?)?.toInt() ?? 0;
+      final adjustment = (adjustments[region] as num?)?.toInt() ?? 0;
+      return liveCount + adjustment;
+    } catch (e) {
+      debugPrint('[TimeZoneUsers] fetch error: $e');
       return 0;
     }
   }
