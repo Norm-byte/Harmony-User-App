@@ -1896,69 +1896,11 @@ exports.cleanupExpiredRegisteredEvents = functions.pubsub
     .schedule('every 15 minutes')
     .timeZone('UTC')
     .onRun(async () => {
-        const db = admin.firestore();
-        const settingsRef = db.collection('system_settings').doc('maintenance_jobs');
-        const settingsSnap = await settingsRef.get();
-        const settings = settingsSnap.exists ? settingsSnap.data() || {} : {};
-
-        const lastCursor = typeof settings.registeredEventsPruneCursor === 'string'
-            ? settings.registeredEventsPruneCursor
-            : null;
-
-        const pageSize = 2000;
-        const now = new Date();
-        let query = db
-            .collectionGroup('registered_events')
-            .orderBy(admin.firestore.FieldPath.documentId())
-            .limit(pageSize);
-
-        if (lastCursor) {
-            query = query.startAfter(lastCursor);
-        }
-
-        const snap = await query.get();
-        if (snap.empty) {
-            await settingsRef.set(
-                {
-                    registeredEventsPruneCursor: null,
-                    registeredEventsPruneLastRunAt: admin.firestore.FieldValue.serverTimestamp(),
-                    registeredEventsPruneScanned: 0,
-                    registeredEventsPruneRemoved: 0,
-                },
-                { merge: true },
-            );
-            return null;
-        }
-
-        const batch = db.batch();
-        let removed = 0;
-
-        snap.docs.forEach((doc) => {
-            const data = doc.data() || {};
-            const expiry = calculateRegistrationExpiry(data);
-            if (!expiry) return;
-
-            if (expiry.getTime() < now.getTime()) {
-                batch.delete(doc.ref);
-                removed++;
-            }
-        });
-
-        if (removed > 0) {
-            await batch.commit();
-        }
-
-        const nextCursor = snap.docs[snap.docs.length - 1].ref.path;
-        await settingsRef.set(
-            {
-                registeredEventsPruneCursor: nextCursor,
-                registeredEventsPruneLastRunAt: admin.firestore.FieldValue.serverTimestamp(),
-                registeredEventsPruneScanned: snap.docs.length,
-                registeredEventsPruneRemoved: removed,
-            },
-            { merge: true },
-        );
-
+        // Disabled 2026-09-03: registered_events is now the source for the
+        // lifetime "Intents Added" counter on My Harmony, so we must stop
+        // deleting rows once an event's visibility window closes. The My
+        // Events carousel already filters expired entries client-side by
+        // time, so no display regression from keeping old rows around.
         return null;
     });
 
