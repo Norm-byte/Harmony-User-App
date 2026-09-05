@@ -9,7 +9,6 @@ class LiveHubScreen extends StatefulWidget {
 }
 
 class _LiveHubScreenState extends State<LiveHubScreen> {
-  static const _genres = ['All', 'Acoustic Bathing', 'Ambient DJ', 'Mindful Talks'];
   String _selectedGenre = 'All';
 
   DateTime? _asDate(dynamic value) {
@@ -27,7 +26,29 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance.collection('app_config').doc('live_hub').snapshots(),
+        builder: (context, settingsSnapshot) {
+          final settings = settingsSnapshot.data?.data() ?? const <String, dynamic>{};
+          final configuredGenres = (settings['genres'] as List<dynamic>? ?? const [])
+              .map((value) => value.toString().trim())
+              .where((value) => value.isNotEmpty)
+              .toList();
+          final genres = ['All', ...configuredGenres];
+          if (!genres.contains(_selectedGenre)) _selectedGenre = 'All';
+          final backgroundUrl = (settings['backgroundImageUrl'] ?? '').toString().trim();
+          return Stack(
+            children: [
+              if (backgroundUrl.isNotEmpty)
+                Positioned.fill(
+                  child: Image.network(
+                    backgroundUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                ),
+              Positioned.fill(child: ColoredBox(color: Colors.black.withValues(alpha: 0.55))),
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
             .collection('live_events')
             .where('isPublished', isEqualTo: true)
@@ -64,10 +85,10 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  itemCount: _genres.length,
+                  itemCount: genres.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 8),
                   itemBuilder: (context, index) {
-                    final genre = _genres[index];
+                    final genre = genres[index];
                     return ChoiceChip(
                       label: Text(genre),
                       selected: _selectedGenre == genre,
@@ -94,6 +115,10 @@ class _LiveHubScreenState extends State<LiveHubScreen> {
                         ),
                       ),
               ),
+            ],
+          );
+              },
+            ),
             ],
           );
         },
@@ -134,12 +159,18 @@ class _LiveEventCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  alignment: WrapAlignment.spaceBetween,
                   children: [
                     if (isLive)
                       const Chip(label: Text('LIVE NOW'), backgroundColor: Colors.redAccent),
-                    const Spacer(),
-                    Text(genre, style: const TextStyle(color: Colors.white60)),
+                    Text(
+                      genre,
+                      style: const TextStyle(color: Colors.white60),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
                 Text(title, style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold)),

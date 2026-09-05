@@ -58,7 +58,7 @@ class EventOverlayScreen extends StatelessWidget {
               child: ContentViewer(
                 url: mediaUrl!,
                 fit: BoxFit.cover,
-                controls: true,
+                controls: false,
                 autoPlay: true,
                 loop: true,
               ),
