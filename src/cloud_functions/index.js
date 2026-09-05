@@ -1,6 +1,7 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const vision = require('@google-cloud/vision');
+const nodemailer = require('nodemailer');
 const { onObjectFinalized } = require('firebase-functions/v2/storage');
 admin.initializeApp();
 const visionClient = new vision.ImageAnnotatorClient();
@@ -413,6 +414,89 @@ async function assertAdminPermission(context, permission, purpose) {
 
     return callerData;
 }
+
+function alertNotificationConfigRef() {
+    return admin.firestore().collection('admin_alert_settings').doc('notifications');
+}
+
+function normalizedAlertRecipients(rawRecipients) {
+    if (!Array.isArray(rawRecipients)) return [];
+    return [...new Set(rawRecipients
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))];
+}
+
+exports.saveAlertNotificationSettings = functions.https.onCall(async (data, context) => {
+    await assertAdminPermission(context, 'alert_notifications', 'manage alert notifications');
+
+    const enabled = data.enabled === true;
+    const recipients = normalizedAlertRecipients(data.recipients);
+    if (enabled && recipients.length === 0) {
+        throw new functions.https.HttpsError('invalid-argument', 'Add at least one recipient before enabling alert notifications.');
+    }
+
+    await alertNotificationConfigRef().set({
+        enabled,
+        recipients,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: context.auth.uid,
+    }, { merge: true });
+    return { ok: true, enabled, recipients };
+});
+
+async function sendAlertNotification({ subject, text }) {
+    const configSnap = await alertNotificationConfigRef().get();
+    const config = configSnap.exists ? (configSnap.data() || {}) : {};
+    const recipients = normalizedAlertRecipients(config.recipients);
+    const smtpPassword = String(process.env.IONOS_SMTP_PASSWORD || '').trim();
+    if (config.enabled !== true || recipients.length === 0 || !smtpPassword) return null;
+
+    const transporter = nodemailer.createTransport({
+        host: 'smtp.ionos.co.uk',
+        port: 587,
+        secure: false,
+        auth: { user: 'admin@auralogical.com', pass: smtpPassword },
+    });
+
+    await transporter.sendMail({
+        from: 'Harmony by Intent Alerts <admin@auralogical.com>',
+        to: recipients.join(','),
+        replyTo: 'admin@auralogical.com',
+        subject,
+        text,
+    });
+    return null;
+}
+
+exports.notifyAdminsOnModerationAlert = functions.runWith({ secrets: ['IONOS_SMTP_PASSWORD'] }).firestore
+    .document('moderation_queue/{reportId}')
+    .onCreate(async (snap) => {
+        const report = snap.data() || {};
+        if (String(report.status || '').toLowerCase() !== 'pending') return null;
+        if (String(report.type || '').toLowerCase() === 'safe_search_passed') return null;
+
+        const reason = String(report.reason || 'Not specified').trim();
+        const context = String(report.context || report.source || 'User report').trim();
+        const reporter = String(report.reporterName || report.userName || 'Unknown user').trim();
+        const explanation = String(report.reportExplanation || '').trim();
+        return sendAlertNotification({
+            subject: `Harmony alert: ${context}`,
+            text: `A new moderation alert is waiting.\n\nReporter: ${reporter}\nReason: ${reason}\nExplanation: ${explanation || 'Not provided'}\n\nOpen the Harmony Admin dashboard to review it.`,
+        });
+    });
+
+exports.notifyAdminsOnSupportAlert = functions.runWith({ secrets: ['IONOS_SMTP_PASSWORD'] }).firestore
+    .document('support_inbox/{messageId}')
+    .onCreate(async (snap) => {
+        const message = snap.data() || {};
+        if (message.read === true) return null;
+        const sender = String(message.userName || message.name || 'User').trim();
+        const content = String(message.content || message.message || message.text || '').trim();
+        return sendAlertNotification({
+            subject: 'Harmony alert: new support message',
+            text: `A new support message is waiting.\n\nFrom: ${sender}\nMessage: ${content || 'Open the Harmony Admin dashboard to review it.'}`,
+        });
+    });
 
 exports.provisionAdminOperator = functions.https.onCall(async (data, context) => {
     const callerData = await assertSuperAdmin(context);
