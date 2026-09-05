@@ -19,6 +19,7 @@ import '../widgets/gradient_scaffold.dart';
 import 'events_screen.dart';
 import 'community_feed_screen.dart';
 import 'interesting_topics_screen.dart';
+import 'live_hub_screen.dart';
 import 'settings_screen.dart';
 import 'app_settings_screen.dart';
 import 'fullscreen_content_screen.dart';
@@ -477,6 +478,36 @@ class _HomeScreenState extends State<HomeScreen> {
                           textAlign: TextAlign.center,
                         ),
 
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute(builder: (_) => const LiveHubScreen()),
+                              ),
+                              icon: const Icon(Icons.live_tv_outlined),
+                              label: const Text('Live Hub'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: const BorderSide(color: Colors.white54),
+                              ),
+                            ),
+                            if (reelItems.isNotEmpty) ...[
+                              const SizedBox(width: 16),
+                              OutlinedButton.icon(
+                                onPressed: () => _openReelsFullscreen(reelItems),
+                                icon: const Icon(Icons.play_circle_outline),
+                                label: const Text('Reels'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(color: Colors.white54),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+
                         const SizedBox(height: 32),
 
                         // Bulletin Board
@@ -596,37 +627,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                   ],
                                 ),
-                                if (reelItems.isNotEmpty)
-                                  Positioned(
-                                    top: 0,
-                                    right: 0,
-                                    child: Tooltip(
-                                      message: 'Open Reels',
-                                      child: GestureDetector(
-                                        onTap: () =>
-                                            _openReelsFullscreen(reelItems),
-                                        child: const Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.play_circle_fill_rounded,
-                                              color: Colors.white70,
-                                              size: 26,
-                                            ),
-                                            SizedBox(width: 4),
-                                            Text(
-                                              'Reels',
-                                              style: TextStyle(
-                                                color: Colors.white70,
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
                               ],
                             ),
                           )
@@ -871,6 +871,12 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
     return 'link';
   }
 
+  bool _isYoutubeShort(Map<String, dynamic> item) {
+    final type = _resolveType(item);
+    final url = (item['url'] as String?)?.toLowerCase() ?? '';
+    return type == 'youtube' && url.contains('/shorts/');
+  }
+
   @override
   Widget build(BuildContext context) {
     final resumeText = _lastViewedAt == null
@@ -913,7 +919,7 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
               return Stack(
                 children: [
                   Positioned.fill(child: media),
-                  if (title.isNotEmpty || caption.isNotEmpty)
+                  if (type != 'youtube' && (title.isNotEmpty || caption.isNotEmpty))
                     Positioned(
                       left: 0,
                       right: 0,
@@ -1000,27 +1006,33 @@ class _ReelsFullscreenScreenState extends State<_ReelsFullscreenScreen> {
                 const SizedBox(width: 8),
                 CircleAvatar(
                   backgroundColor: Colors.black.withOpacity(0.45),
-                  child: PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert, color: Colors.white),
-                    color: Colors.grey.shade900,
-                    onSelected: (value) {
-                      if (value == 'report') {
-                        _showReportSheet(context, widget.items[_currentPage]);
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: 'report',
-                        child: Row(
-                          children: [
-                            Icon(Icons.flag_outlined, color: Colors.redAccent, size: 18),
-                            SizedBox(width: 8),
-                            Text('Report', style: TextStyle(color: Colors.white)),
+                  child: _isYoutubeShort(widget.items[_currentPage])
+                      ? IconButton(
+                          tooltip: 'Report this YouTube Short',
+                          icon: const Icon(Icons.flag_outlined, color: Colors.redAccent),
+                          onPressed: () => _showReportSheet(context, widget.items[_currentPage]),
+                        )
+                      : PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert, color: Colors.white),
+                          color: Colors.grey.shade900,
+                          onSelected: (value) {
+                            if (value == 'report') {
+                              _showReportSheet(context, widget.items[_currentPage]);
+                            }
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: 'report',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.flag_outlined, color: Colors.redAccent, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Report', style: TextStyle(color: Colors.white)),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
                 ),
               ],
             ),
@@ -1322,6 +1334,16 @@ class _FullscreenYoutubeReel extends StatefulWidget {
 class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
   YoutubePlayerController? _controller;
 
+  void _togglePlayback() {
+    final controller = _controller;
+    if (controller == null) return;
+    if (controller.value.isPlaying) {
+      controller.pause();
+    } else {
+      controller.play();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1340,6 +1362,7 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
         disableDragSeek: true,
         hideControls: true,
         controlsVisibleAtStart: false,
+        enableCaption: false,
       ),
     );
   }
@@ -1373,14 +1396,7 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
     }
 
     return GestureDetector(
-      onTap: () {
-        final c = _controller!;
-        if (c.value.isPlaying) {
-          c.pause();
-        } else {
-          c.play();
-        }
-      },
+      onTap: _togglePlayback,
       child: SizedBox.expand(
         child: YoutubePlayerBuilder(
           player: YoutubePlayer(
