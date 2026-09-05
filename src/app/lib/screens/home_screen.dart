@@ -19,7 +19,6 @@ import '../widgets/gradient_scaffold.dart';
 import 'events_screen.dart';
 import 'community_feed_screen.dart';
 import 'interesting_topics_screen.dart';
-import 'live_hub_screen.dart';
 import 'settings_screen.dart';
 import 'app_settings_screen.dart';
 import 'fullscreen_content_screen.dart';
@@ -478,35 +477,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           textAlign: TextAlign.center,
                         ),
 
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () => Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => const LiveHubScreen()),
-                              ),
-                              icon: const Icon(Icons.live_tv_outlined),
-                              label: const Text('Live Hub'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: const BorderSide(color: Colors.white54),
-                              ),
+                        if (reelItems.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: () => _openReelsFullscreen(reelItems),
+                            icon: const Icon(Icons.play_circle_outline),
+                            label: const Text('Reels'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white54),
                             ),
-                            if (reelItems.isNotEmpty) ...[
-                              const SizedBox(width: 16),
-                              OutlinedButton.icon(
-                                onPressed: () => _openReelsFullscreen(reelItems),
-                                icon: const Icon(Icons.play_circle_outline),
-                                label: const Text('Reels'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: const BorderSide(color: Colors.white54),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
+                          ),
+                        ],
 
                         const SizedBox(height: 32),
 
