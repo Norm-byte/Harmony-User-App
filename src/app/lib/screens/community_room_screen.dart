@@ -38,6 +38,7 @@ class CommunityRoomScreen extends StatefulWidget {
 
 class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     with WidgetsBindingObserver {
+  static const int _maximumImagesPerPost = 5;
   final TextEditingController _postController = TextEditingController();
   final ScrollController _feedScrollController = ScrollController();
   final ImagePicker _imagePicker = ImagePicker();
@@ -47,11 +48,12 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _communityPostsStream;
 
   UsageService? _usageService;
-  XFile? _pendingPickedImage;
-  Map<String, dynamic>? _pendingVaultImage;
-  Uint8List? _pendingPreviewBytes;
+  final List<XFile> _pendingPickedImages = <XFile>[];
+  final List<Map<String, dynamic>> _pendingVaultImages = <Map<String, dynamic>>[];
+  final Map<String, Future<Uint8List>> _pendingPreviewFutureByPath = {};
   bool _saveCameraToVault = true;
   bool _isPosting = false;
+  String? _postingStatus;
   bool _isLoadingImageUsage = false;
   int _messagesRemaining = 0;
   int _dailyLimit = 5;
@@ -68,9 +70,9 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     TranslationService.instance.init();
     unawaited(NotificationService().refreshCommunityNotificationBindings());
     if (widget.preselectedVaultImage != null) {
-      _pendingVaultImage = Map<String, dynamic>.from(
+      _pendingVaultImages.add(Map<String, dynamic>.from(
         widget.preselectedVaultImage!,
-      );
+      ));
     }
   }
 
@@ -263,6 +265,26 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     await _calculateRemaining();
   }
 
+  Future<void> _recordImageQuotaAlert({
+    required String userId,
+    required int monthlyLimit,
+    required int used,
+  }) async {
+    final monthKey = DateFormat('yyyy-MM').format(DateTime.now());
+    await FirebaseFirestore.instance
+        .collection('quota_alerts')
+        .doc('${userId}_$monthKey')
+        .set({
+      'userId': userId,
+      'alertType': 'community_image_uploads',
+      'status': 'open',
+      'monthlyLimit': monthlyLimit,
+      'usedThisMonth': used,
+      'lastSeenAt': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   Future<bool> _canUploadMoreImages(String userId) async {
     final limit = _usageService?.monthlyImageUploadLimit ?? 0;
     if (limit < 0) return true;
@@ -292,13 +314,18 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
         DateTime.now(),
       );
       if (used >= limit) {
+        unawaited(_recordImageQuotaAlert(
+          userId: userId,
+          monthlyLimit: limit,
+          used: used,
+        ));
         if (!mounted) return false;
         await showDialog<void>(
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Monthly Image Limit Reached'),
             content: const Text(
-              'You have used your monthly photo upload limit. Upgrade your tier for more uploads.',
+              'We are sorry, but your monthly image allowance has been reached. We have let the Harmony team know so we can keep improving the allowance for everyone. Thank you for your patience.',
             ),
             actions: [
               TextButton(
@@ -322,14 +349,123 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     return null;
   }
 
+  bool get _hasPendingImages =>
+      _pendingPickedImages.isNotEmpty || _pendingVaultImages.isNotEmpty;
+
+    int get _pendingImageCount =>
+      _pendingPickedImages.length + _pendingVaultImages.length;
+
+    int _remainingImageSlots() {
+    final monthlyLimit = _usageService?.monthlyImageUploadLimit ?? 0;
+    final monthlyRemaining = monthlyLimit < 0
+      ? _maximumImagesPerPost
+      : (monthlyLimit - _imageUploadsUsedThisMonth).clamp(0, monthlyLimit);
+    return (_maximumImagesPerPost - _pendingImageCount)
+      .clamp(0, monthlyRemaining);
+    }
+
+  List<String> _extractMediaUrls(Map<String, dynamic> post) {
+    final directUrls = post['mediaUrls'];
+    if (directUrls is List) {
+      final urls = directUrls
+          .whereType<String>()
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList(growable: false);
+      if (urls.isNotEmpty) return urls;
+    }
+
+    final legacyUrl = (post['imageUrl'] ?? '').toString().trim();
+    if (legacyUrl.isNotEmpty) {
+      return <String>[legacyUrl];
+    }
+
+    return const <String>[];
+  }
+
   void _clearPendingImage() {
     if (!mounted) return;
     setState(() {
-      _pendingPickedImage = null;
-      _pendingVaultImage = null;
-      _pendingPreviewBytes = null;
+      _pendingPickedImages.clear();
+      _pendingVaultImages.clear();
+      _pendingPreviewFutureByPath.clear();
       _saveCameraToVault = true;
     });
+  }
+
+  void _removePendingImageAt(int index) {
+    if (!mounted) return;
+    setState(() {
+      final total = _pendingPickedImages.length + _pendingVaultImages.length;
+      if (index < 0 || index >= total) return;
+      if (index < _pendingPickedImages.length) {
+        _pendingPickedImages.removeAt(index);
+      } else {
+        final vaultIndex = index - _pendingPickedImages.length;
+        _pendingVaultImages.removeAt(vaultIndex);
+      }
+      if (_pendingPickedImages.isEmpty && _pendingVaultImages.isEmpty) {
+        _saveCameraToVault = true;
+      }
+    });
+  }
+
+  Future<Uint8List> _previewBytesFor(XFile image) {
+    final key = image.path.isNotEmpty ? image.path : image.name;
+    return _pendingPreviewFutureByPath.putIfAbsent(key, image.readAsBytes);
+  }
+
+  Future<PreparedImageData> _prepareImageWithRetry(
+    XFile image,
+    int imageNumber,
+    int totalImages,
+  ) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      try {
+        if (!mounted) throw StateError('Posting was cancelled');
+        setState(() {
+          _postingStatus = attempt == 1
+              ? 'Preparing image $imageNumber of $totalImages...'
+              : 'Retrying image $imageNumber of $totalImages...';
+        });
+        return await _mediaVaultService.prepareImage(image).timeout(
+          const Duration(minutes: 2),
+        );
+      } catch (error) {
+        lastError = error;
+        if (attempt == 2) rethrow;
+      }
+    }
+    throw lastError ?? StateError('Image preparation failed');
+  }
+
+  Future<UploadedMediaRef> _uploadRoomImageWithRetry({
+    required String userId,
+    required PreparedImageData prepared,
+    required int imageNumber,
+    required int totalImages,
+  }) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      try {
+        if (!mounted) throw StateError('Posting was cancelled');
+        setState(() {
+          _postingStatus = attempt == 1
+              ? 'Uploading image $imageNumber of $totalImages...'
+              : 'Retrying upload $imageNumber of $totalImages...';
+        });
+        return await _mediaVaultService.uploadToRoom(
+          roomId: 'community_room',
+          uid: userId,
+          prepared: prepared,
+        );
+      } catch (error) {
+        lastError = error;
+        if (attempt == 2) rethrow;
+      }
+    }
+    throw lastError ?? StateError('Image upload failed');
   }
 
   Future<void> _pickFromCamera() async {
@@ -337,12 +473,10 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     if (userId == null || !await _canUploadMoreImages(userId)) return;
     final picked = await _imagePicker.pickImage(source: ImageSource.camera);
     if (picked == null) return;
-    final preview = await picked.readAsBytes();
     if (!mounted) return;
     setState(() {
-      _pendingPickedImage = picked;
-      _pendingVaultImage = null;
-      _pendingPreviewBytes = preview;
+      _pendingPickedImages.add(picked);
+      _pendingVaultImages.clear();
       _saveCameraToVault = true;
     });
   }
@@ -350,15 +484,21 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   Future<void> _pickFromGallery() async {
     final userId = _requireCurrentUserId();
     if (userId == null || !await _canUploadMoreImages(userId)) return;
-    final picked = await _imagePicker.pickImage(source: ImageSource.gallery);
-    if (picked == null) return;
-    final preview = await picked.readAsBytes();
+    final remainingSlots = _remainingImageSlots();
+    if (remainingSlots <= 0) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No image slots remain for this post.')),
+      );
+      return;
+    }
+    final picked = await _imagePicker.pickMultiImage(limit: remainingSlots);
+    if (picked.isEmpty) return;
     if (!mounted) return;
     setState(() {
-      _pendingPickedImage = picked;
-      _pendingVaultImage = null;
-      _pendingPreviewBytes = preview;
-      _saveCameraToVault = false;
+      _pendingPickedImages.addAll(picked);
+      _pendingVaultImages.clear();
+      _saveCameraToVault = true;
     });
   }
 
@@ -411,17 +551,17 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                     return InkWell(
                       onTap: () {
                         if (!mounted) return;
+                        final vaultEntry = {
+                          'imageId': doc.id,
+                          'downloadUrl': url,
+                          'storagePath': (data['storagePath'] ?? '').toString(),
+                          'bytes': (data['bytes'] as num?)?.toInt() ?? 0,
+                          'width': (data['width'] as num?)?.toInt() ?? 0,
+                          'height': (data['height'] as num?)?.toInt() ?? 0,
+                        };
                         setState(() {
-                          _pendingVaultImage = {
-                            'imageId': doc.id,
-                            'downloadUrl': url,
-                            'storagePath': (data['storagePath'] ?? '').toString(),
-                            'bytes': (data['bytes'] as num?)?.toInt() ?? 0,
-                            'width': (data['width'] as num?)?.toInt() ?? 0,
-                            'height': (data['height'] as num?)?.toInt() ?? 0,
-                          };
-                          _pendingPickedImage = null;
-                          _pendingPreviewBytes = null;
+                          _pendingVaultImages.add(vaultEntry);
+                          _pendingPickedImages.clear();
                         });
                         Navigator.of(sheetContext).pop();
                       },
@@ -449,7 +589,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     final choice = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Attach Image'),
+        title: const Text('Attach Images'),
         contentPadding: const EdgeInsets.only(top: 8, bottom: 8),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -499,7 +639,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
 
   Future<void> _submitPost() async {
     final content = _postController.text.trim();
-    final hasPendingImage = _pendingPickedImage != null || _pendingVaultImage != null;
+    final hasPendingImage = _hasPendingImages;
     if (content.isEmpty && !hasPendingImage) return;
 
     await _calculateRemaining();
@@ -556,7 +696,35 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
       return;
     }
 
-    setState(() => _isPosting = true);
+    final pendingPickedCount = _pendingPickedImages.length;
+    final monthlyLimit = _usageService?.monthlyImageUploadLimit ?? 0;
+    final monthlyRemaining = monthlyLimit < 0
+        ? pendingPickedCount
+        : (monthlyLimit - _imageUploadsUsedThisMonth).clamp(0, monthlyLimit);
+    if (pendingPickedCount > monthlyRemaining) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'This post has $pendingPickedCount device images, but only '
+            '$monthlyRemaining monthly image uploads remain.',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isPosting = true;
+      _postingStatus = pendingPickedCount > 0
+          ? 'Preparing $pendingPickedCount image${pendingPickedCount == 1 ? '' : 's'}...'
+          : 'Sharing post...';
+    });
+
+    final uploadedRoomStoragePaths = <String>[];
+    var uploadedRoomImageCount = 0;
+    var postCreated = false;
 
     try {
       final authUid = _currentAuthUid();
@@ -587,82 +755,149 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
         'timestamp': FieldValue.serverTimestamp(),
       };
 
-      if (_pendingVaultImage != null) {
+      final allPendingVaultImages = <Map<String, dynamic>>[..._pendingVaultImages];
+      final allPendingPickedImages = <XFile>[..._pendingPickedImages];
+      final preparedImagesForVault = <PreparedImageData>[];
+
+      if (allPendingVaultImages.isNotEmpty || allPendingPickedImages.isNotEmpty) {
+        final mediaUrls = <String>[];
+        final mediaMetadata = <Map<String, dynamic>>[];
         final expiryDays = (_usageService?.feedImageExpiryDays ?? 5).clamp(1, 90);
+
+        for (final item in allPendingVaultImages) {
+          final url = (item['downloadUrl'] ?? '').toString();
+          if (url.isEmpty) continue;
+          mediaUrls.add(url);
+          mediaMetadata.add({
+            'url': url,
+            'storagePath': (item['storagePath'] ?? '').toString(),
+            'bytes': (item['bytes'] as num?)?.toInt() ?? 0,
+            'width': (item['width'] as num?)?.toInt() ?? 0,
+            'height': (item['height'] as num?)?.toInt() ?? 0,
+            'source': 'vault',
+            'status': 'active',
+            'createdAt': Timestamp.now(),
+            'expiresAt': Timestamp.fromDate(
+              DateTime.now().add(Duration(days: expiryDays)),
+            ),
+          });
+        }
+
+        for (var imageIndex = 0;
+            imageIndex < allPendingPickedImages.length;
+            imageIndex++) {
+          final picked = allPendingPickedImages[imageIndex];
+          final imageNumber = imageIndex + 1;
+          if (!mounted) return;
+          if (!await _canUploadMoreImages(userId)) return;
+          final prepared = await _prepareImageWithRetry(
+            picked,
+            imageNumber,
+            allPendingPickedImages.length,
+          );
+          if (_saveCameraToVault) {
+            preparedImagesForVault.add(prepared);
+          }
+          final roomUpload = await _uploadRoomImageWithRetry(
+            userId: userId,
+            prepared: prepared,
+            imageNumber: imageNumber,
+            totalImages: allPendingPickedImages.length,
+          );
+
+          mediaUrls.add(roomUpload.downloadUrl);
+          uploadedRoomStoragePaths.add(roomUpload.storagePath);
+          uploadedRoomImageCount++;
+          mediaMetadata.add({
+            'url': roomUpload.downloadUrl,
+            'storagePath': roomUpload.storagePath,
+            'bytes': roomUpload.bytes,
+            'width': roomUpload.width,
+            'height': roomUpload.height,
+            'source': 'upload',
+            'status': 'active',
+            'createdAt': Timestamp.now(),
+            'expiresAt': Timestamp.fromDate(
+              DateTime.now().add(Duration(days: expiryDays)),
+            ),
+          });
+
+          unawaited(_refreshImageUsageCounter());
+        }
+
         postData.addAll({
           'hasImage': true,
-          'imageUrl': _pendingVaultImage!['downloadUrl'],
-          'imageStoragePath': _pendingVaultImage!['storagePath'],
-          'imageBytes': _pendingVaultImage!['bytes'],
-          'imageWidth': _pendingVaultImage!['width'],
-          'imageHeight': _pendingVaultImage!['height'],
+          'imageUrl': mediaUrls.first,
+          'mediaUrls': mediaUrls,
+          'mediaMetadata': mediaMetadata,
+          'imageStoragePath': mediaMetadata.first['storagePath'],
+          'imageBytes': mediaMetadata.first['bytes'],
+          'imageWidth': mediaMetadata.first['width'],
+          'imageHeight': mediaMetadata.first['height'],
           'imageCreatedAt': FieldValue.serverTimestamp(),
           'imageExpiresAt': Timestamp.fromDate(
             DateTime.now().add(Duration(days: expiryDays)),
           ),
           'imageStatus': 'active',
-          'imageSource': 'vault',
+          'imageSource': mediaMetadata.first['source'],
         });
-      } else if (_pendingPickedImage != null) {
-        if (!await _canUploadMoreImages(userId)) return;
-        final prepared = await _mediaVaultService.prepareImage(_pendingPickedImage!);
-        final roomUpload = await _mediaVaultService.uploadToRoom(
-          roomId: 'community_room',
-          uid: userId,
-          prepared: prepared,
-        );
+      }
 
-        final expiryDays = (_usageService?.feedImageExpiryDays ?? 5).clamp(1, 90);
-        postData.addAll({
-          'hasImage': true,
-          'imageUrl': roomUpload.downloadUrl,
-          'imageStoragePath': roomUpload.storagePath,
-          'imageBytes': roomUpload.bytes,
-          'imageWidth': roomUpload.width,
-          'imageHeight': roomUpload.height,
-          'imageCreatedAt': FieldValue.serverTimestamp(),
-          'imageExpiresAt': Timestamp.fromDate(
-            DateTime.now().add(Duration(days: expiryDays)),
-          ),
-          'imageStatus': 'active',
-          'imageSource': 'upload',
-        });
-
+      await FirebaseFirestore.instance.collection('community_posts').add(postData);
+      postCreated = true;
+      if (uploadedRoomImageCount > 0) {
         await _mediaVaultService.incrementSharedRoomUploadsForMonth(
           userId,
           DateTime.now(),
+          count: uploadedRoomImageCount,
         );
-
-        if (_saveCameraToVault) {
+      }
+      var vaultSaveFailures = 0;
+      for (final prepared in preparedImagesForVault) {
+        try {
           await _mediaVaultService.uploadToVault(
             uid: userId,
             prepared: prepared,
-            source: 'camera_auto_save',
+            source: 'community_post_auto_save',
           );
           await _mediaVaultService.incrementVaultUploadsForMonth(
             userId,
             DateTime.now(),
           );
+        } catch (_) {
+          vaultSaveFailures++;
         }
-
-        unawaited(_refreshImageUsageCounter());
       }
-
-      await FirebaseFirestore.instance.collection('community_posts').add(postData);
       await _decrementMessageLimit();
       _postController.clear();
       _clearPendingImage();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Post shared with the community!')),
+        SnackBar(
+          content: Text(
+            vaultSaveFailures == 0
+                ? 'Post shared with the community and saved to My Harmony Vault.'
+                : 'Post shared, but $vaultSaveFailures image${vaultSaveFailures == 1 ? '' : 's'} could not be saved to My Harmony Vault.',
+          ),
+        ),
       );
     } catch (e) {
+      if (!postCreated) {
+        for (final storagePath in uploadedRoomStoragePaths) {
+          await _mediaVaultService.deleteRoomMedia(storagePath);
+        }
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error posting: $e')),
       );
     } finally {
-      if (mounted) setState(() => _isPosting = false);
+      if (mounted) {
+        setState(() {
+          _isPosting = false;
+          _postingStatus = null;
+        });
+      }
     }
   }
 
@@ -832,7 +1067,11 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                         title: Text(reason.label, style: const TextStyle(color: Colors.white70)),
                         subtitle: Text(reason.caption, style: const TextStyle(color: Colors.white38, fontSize: 12)),
                         activeColor: Colors.redAccent,
-                        onChanged: (value) => setModalState(() => selectedReason = value),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setModalState(() => selectedReason = value);
+                          }
+                        },
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1253,17 +1492,109 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     return future;
   }
 
-  double _imagePreviewHeight(BuildContext context, Map<String, dynamic> post) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final width = (post['imageWidth'] as num?)?.toDouble() ?? 0;
-    final height = (post['imageHeight'] as num?)?.toDouble() ?? 0;
-    if (width > 0 && height > 0) {
-      if (height >= width) {
-        return (screenHeight * 0.58).clamp(360.0, 640.0);
-      }
-      return (screenHeight * 0.42).clamp(280.0, 420.0);
+  Widget _buildMediaGallery(Map<String, dynamic> post) {
+    final mediaUrls = _extractMediaUrls(post);
+    if (mediaUrls.isEmpty) {
+      return const SizedBox.shrink();
     }
-    return (screenHeight * 0.56).clamp(340.0, 600.0);
+
+    final showGallery = mediaUrls.length > 1;
+    final imageUrl = mediaUrls.first;
+    final imageWidth = (post['imageWidth'] as num?)?.toDouble() ?? 0;
+    final imageHeight = (post['imageHeight'] as num?)?.toDouble() ?? 0;
+    final previewHeight = imageWidth > 0 && imageHeight > 0
+        ? (imageHeight >= imageWidth
+            ? (MediaQuery.of(context).size.height * 0.58).clamp(360.0, 640.0)
+            : (MediaQuery.of(context).size.height * 0.42).clamp(280.0, 420.0))
+        : (MediaQuery.of(context).size.height * 0.56).clamp(340.0, 600.0);
+
+    if (!showGallery) {
+      return GestureDetector(
+        onTap: () => _showExpandedImage(imageUrl),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            width: double.infinity,
+            color: Colors.black.withValues(alpha: 0.22),
+            child: SizedBox(
+              height: previewHeight,
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.contain,
+                alignment: Alignment.center,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(20),
+                      child: Text(
+                        'Image could not be displayed.',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: previewHeight,
+          child: PageView.builder(
+            itemCount: mediaUrls.length,
+            itemBuilder: (context, index) {
+              final url = mediaUrls[index];
+              return GestureDetector(
+                onTap: () => _showExpandedImage(url),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    width: double.infinity,
+                    color: Colors.black.withValues(alpha: 0.22),
+                    child: Image.network(
+                      url,
+                      fit: BoxFit.contain,
+                      alignment: Alignment.center,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(20),
+                            child: Text(
+                              'Image could not be displayed.',
+                              style: TextStyle(color: Colors.white70),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(mediaUrls.length, (index) {
+            return Container(
+              width: 7,
+              height: 7,
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.5),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
   }
 
   Future<void> _showExpandedImage(String imageUrl) async {
@@ -1311,7 +1642,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_pendingPreviewBytes != null || _pendingVaultImage != null) ...[
+          if (_hasPendingImages) ...[
             Container(
               padding: const EdgeInsets.all(10),
               margin: const EdgeInsets.only(bottom: 10),
@@ -1320,72 +1651,169 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.white24),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: SizedBox(
-                      width: 88,
-                      height: 132,
-                      child: Container(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        child: _pendingPreviewBytes != null
-                            ? Image.memory(_pendingPreviewBytes!, fit: BoxFit.contain)
-                            : Image.network(
-                                (_pendingVaultImage?['downloadUrl'] ?? '').toString(),
-                                fit: BoxFit.contain,
-                              ),
+                  Row(
+                    children: [
+                      const Text(
+                        'Photos attached',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
                       ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: _clearPendingImage,
+                        icon: const Icon(Icons.close, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    '$_pendingImageCount of $_maximumImagesPerPost selected • '
+                    '${_remainingImageSlots()} more can be added to this post',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  if (_postingStatus != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      _postingStatus!,
+                      style: const TextStyle(color: Colors.amberAccent, fontSize: 12),
+                    ),
+                  ],
+                  if ((_usageService?.monthlyImageUploadLimit ?? 0) > 0) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '${((_usageService?.monthlyImageUploadLimit ?? 0) - _imageUploadsUsedThisMonth).clamp(0, _usageService?.monthlyImageUploadLimit ?? 0)} monthly image uploads remaining',
+                      style: const TextStyle(color: Colors.white54, fontSize: 11),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 120,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: (_pendingPickedImages.length + _pendingVaultImages.length),
+                      itemBuilder: (context, index) {
+                        if (index < _pendingPickedImages.length) {
+                          final image = _pendingPickedImages[index];
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: SizedBox(
+                                    width: 92,
+                                    height: 120,
+                                    child: FutureBuilder<Uint8List>(
+                                      future: _previewBytesFor(image),
+                                      builder: (context, snapshot) {
+                                        if (snapshot.hasData) {
+                                          return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                                        }
+                                        return Container(
+                                          color: Colors.black.withValues(alpha: 0.2),
+                                          child: const Center(
+                                            child: SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(strokeWidth: 2),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 4,
+                                  right: 4,
+                                  child: GestureDetector(
+                                    onTap: () => _removePendingImageAt(index),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(alpha: 0.7),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      padding: const EdgeInsets.all(4),
+                                      child: const Icon(Icons.close, size: 14, color: Colors.white),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+
+                        final vaultIndex = index - _pendingPickedImages.length;
+                        final item = _pendingVaultImages[vaultIndex];
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: SizedBox(
+                                  width: 92,
+                                  height: 120,
+                                  child: Image.network(
+                                    (item['downloadUrl'] ?? '').toString(),
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: 4,
+                                right: 4,
+                                child: GestureDetector(
+                                  onTap: () => _removePendingImageAt(index),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.7),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    padding: const EdgeInsets.all(4),
+                                    child: const Icon(Icons.close, size: 14, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  if (_pendingPickedImages.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Row(
                       children: [
-                        const Text(
-                          'Photo attached',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                        Checkbox(
+                          value: _saveCameraToVault,
+                          onChanged: (value) {
+                            if (!mounted) return;
+                            setState(() => _saveCameraToVault = value ?? false);
+                          },
+                          activeColor: Colors.amber,
+                          checkColor: Colors.black,
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _pendingVaultImage != null
-                              ? 'Using image from My Harmony Vault'
-                              : 'Using new image from this device',
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        const Expanded(
+                          child: Text(
+                            'Save selected images to My Harmony Vault as well',
+                            style: TextStyle(color: Colors.white70, fontSize: 12),
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                  IconButton(
-                    onPressed: _clearPendingImage,
-                    icon: const Icon(Icons.close, color: Colors.white70),
-                  ),
+                  ],
+                  if ((_pendingPickedImages.length + _pendingVaultImages.length) > 1) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Remove any image before posting, or clear all selections.',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
                 ],
               ),
             ),
-            if (_pendingPickedImage != null) ...[
-              Row(
-                children: [
-                  Checkbox(
-                    value: _saveCameraToVault,
-                    onChanged: (value) {
-                      if (!mounted) return;
-                      setState(() => _saveCameraToVault = value ?? false);
-                    },
-                    activeColor: Colors.amber,
-                    checkColor: Colors.black,
-                  ),
-                  const Expanded(
-                    child: Text(
-                      'Save this image to My Harmony Vault as well',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-            ],
           ],
           Row(
             children: [
@@ -1482,12 +1910,13 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
               IconButton(
                 onPressed: _isPosting ? null : _submitPost,
                 icon: _isPosting
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 24,
                         height: 24,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           color: Colors.white,
+                          semanticsLabel: _postingStatus ?? 'Sharing post',
                         ),
                       )
                     : const Icon(Icons.send, color: Colors.amber),
@@ -1743,35 +2172,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                               ],
                               if (hasImage) ...[
                                 const SizedBox(height: 12),
-                                GestureDetector(
-                                  onTap: () => _showExpandedImage(imageUrl),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: Container(
-                                      width: double.infinity,
-                                      color: Colors.black.withValues(alpha: 0.22),
-                                      child: SizedBox(
-                                        height: _imagePreviewHeight(context, post),
-                                        child: Image.network(
-                                          imageUrl,
-                                          fit: BoxFit.contain,
-                                          alignment: Alignment.center,
-                                          errorBuilder: (context, error, stackTrace) {
-                                            return const Center(
-                                              child: Padding(
-                                                padding: EdgeInsets.all(20),
-                                                child: Text(
-                                                  'Image could not be displayed.',
-                                                  style: TextStyle(color: Colors.white70),
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                                _buildMediaGallery(post),
                               ],
                               const SizedBox(height: 12),
                               Row(

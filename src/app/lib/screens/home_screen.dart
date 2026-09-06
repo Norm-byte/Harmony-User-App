@@ -1386,7 +1386,35 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
             showVideoProgressIndicator: false,
             onEnded: (_) => widget.onEnded(),
           ),
-          builder: (context, player) => player,
+          builder: (context, player) {
+            final iOSLowerLayer = Theme.of(context).platform == TargetPlatform.iOS;
+
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                player,
+                if (iOSLowerLayer)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              Color(0x99000000),
+                              Color(0x55000000),
+                              Color(0x00000000),
+                              Color(0x00000000),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );

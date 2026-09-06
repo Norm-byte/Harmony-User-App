@@ -82,7 +82,11 @@ class MediaVaultService {
     return (data['sharedRoomUploads'] as num?)?.toInt() ?? 0;
   }
 
-  Future<void> incrementSharedRoomUploadsForMonth(String uid, DateTime now) async {
+  Future<void> incrementSharedRoomUploadsForMonth(
+    String uid,
+    DateTime now, {
+    int count = 1,
+  }) async {
     final key = monthKey(now);
     await _firestore
         .collection('users')
@@ -90,10 +94,19 @@ class MediaVaultService {
         .collection('usage_media')
         .doc(key)
         .set({
-      'sharedRoomUploads': FieldValue.increment(1),
-      'totalUploads': FieldValue.increment(1),
+      'sharedRoomUploads': FieldValue.increment(count),
+      'totalUploads': FieldValue.increment(count),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+  }
+
+  Future<void> deleteRoomMedia(String storagePath) async {
+    if (storagePath.isEmpty) return;
+    try {
+      await _storage.ref(storagePath).delete();
+    } catch (_) {
+      // Best effort cleanup after a post fails before creation.
+    }
   }
 
   Future<void> incrementVaultUploadsForMonth(String uid, DateTime now) async {
@@ -111,7 +124,10 @@ class MediaVaultService {
   }
 
   Future<PreparedImageData> prepareImage(XFile file) async {
-    final sourceBytes = await file.readAsBytes();
+    final sourceBytes = await file.readAsBytes().timeout(
+      const Duration(seconds: 90),
+      onTimeout: () => throw TimeoutException('Reading image timed out'),
+    );
     final originalDimensions = await _readDimensions(sourceBytes);
 
     Uint8List compressed = sourceBytes;
@@ -145,8 +161,10 @@ class MediaVaultService {
     await ref.putData(
       prepared.bytes,
       SettableMetadata(contentType: 'image/jpeg'),
+    ).timeout(const Duration(minutes: 2));
+    final downloadUrl = await ref.getDownloadURL().timeout(
+      const Duration(seconds: 30),
     );
-    final downloadUrl = await ref.getDownloadURL();
 
     await _firestore
         .collection('users')
@@ -187,8 +205,10 @@ class MediaVaultService {
     await ref.putData(
       prepared.bytes,
       SettableMetadata(contentType: 'image/jpeg'),
+    ).timeout(const Duration(minutes: 2));
+    final downloadUrl = await ref.getDownloadURL().timeout(
+      const Duration(seconds: 30),
     );
-    final downloadUrl = await ref.getDownloadURL();
 
     return UploadedMediaRef(
       storagePath: storagePath,

@@ -491,7 +491,13 @@ class EventService extends ChangeNotifier {
             print(
               "HARMONY_DEBUGGING: Received ${snapshot.docs.length} my_events docs for user $userId",
             );
-            _myEvents = snapshot.docs.map((doc) => doc.data()).toList();
+            _myEvents = snapshot.docs.map((doc) {
+              final data = doc.data();
+              return {
+                ...data,
+                'registeredEventId': doc.id,
+              };
+            }).toList();
             // Manual sort since we removed orderBy
             _myEvents.sort((a, b) {
               final tA = a['timestamp'] as Timestamp?; // Using Timestamp? cast
