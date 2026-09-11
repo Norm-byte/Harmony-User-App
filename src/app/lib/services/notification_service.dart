@@ -37,6 +37,30 @@ class NotificationService {
   factory NotificationService() => _instance;
   NotificationService._internal();
 
+  /// Set when a community like/reply notification is tapped (background or
+  /// terminated launch). HomeScreen and CommunityRoomScreen listen to this to
+  /// switch tabs and scroll to the target post/reply, then clear it.
+  static final ValueNotifier<Map<String, String>?> communityNotificationTarget =
+      ValueNotifier<Map<String, String>?>(null);
+
+  static const Set<String> _communityNotificationTypes = {
+    'community_post_like',
+    'community_reply_like',
+    'community_comment_reply',
+  };
+
+  static void _handleCommunityNotificationTap(RemoteMessage message) {
+    final type = message.data['type'];
+    if (type == null || !_communityNotificationTypes.contains(type)) return;
+    final postId = message.data['postId'];
+    if (postId == null || postId.isEmpty) return;
+    communityNotificationTarget.value = {
+      'postId': postId,
+      if ((message.data['replyId'] ?? '').isNotEmpty)
+        'replyId': message.data['replyId']!,
+    };
+  }
+
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
@@ -219,6 +243,13 @@ class NotificationService {
 
     // 4/5. Bind topic + token routing for community notifications.
     await refreshCommunityNotificationBindings();
+
+    // Route a tapped community like/reply push to the right post/reply.
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleCommunityNotificationTap);
+    final initialMessage = await _firebaseMessaging.getInitialMessage();
+    if (initialMessage != null) {
+      _handleCommunityNotificationTap(initialMessage);
+    }
 
     _authStateSubscription ??= FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user == null) return;

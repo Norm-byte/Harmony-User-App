@@ -58,6 +58,9 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   int _messagesRemaining = 0;
   int _dailyLimit = 5;
   int _imageUploadsUsedThisMonth = 0;
+  Map<String, String>? _pendingNotificationTarget;
+  String? _highlightedPostId;
+  Timer? _highlightClearTimer;
 
   @override
   void initState() {
@@ -74,6 +77,51 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
         widget.preselectedVaultImage!,
       ));
     }
+    NotificationService.communityNotificationTarget.addListener(
+      _handleCommunityNotificationTarget,
+    );
+    _handleCommunityNotificationTarget();
+  }
+
+  void _handleCommunityNotificationTarget() {
+    final target = NotificationService.communityNotificationTarget.value;
+    if (target == null) return;
+    NotificationService.communityNotificationTarget.value = null;
+    if (!mounted) return;
+    setState(() => _pendingNotificationTarget = target);
+  }
+
+  void _scrollToAndHighlightPendingTarget(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> posts,
+  ) {
+    final target = _pendingNotificationTarget;
+    if (target == null) return;
+    final postId = target['postId'];
+    final index = posts.indexWhere((doc) => doc.id == postId);
+    if (index == -1) return;
+    _pendingNotificationTarget = null;
+    final replyId = target['replyId'];
+    if (replyId != null && postId != null) {
+      _expandedReplyPostIds.add(postId);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_feedScrollController.hasClients) return;
+      final estimatedOffset = index * 260.0;
+      final target = estimatedOffset.clamp(
+        0.0,
+        _feedScrollController.position.maxScrollExtent,
+      );
+      _feedScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOut,
+      );
+      setState(() => _highlightedPostId = postId);
+      _highlightClearTimer?.cancel();
+      _highlightClearTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _highlightedPostId = null);
+      });
+    });
   }
 
   @override
@@ -97,6 +145,10 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
 
   @override
   void dispose() {
+    NotificationService.communityNotificationTarget.removeListener(
+      _handleCommunityNotificationTarget,
+    );
+    _highlightClearTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _usageService?.removeListener(_calculateRemaining);
     _postController.dispose();
@@ -2100,6 +2152,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                 }
 
                 final posts = snapshot.data!.docs;
+                _scrollToAndHighlightPendingTarget(posts);
                 return ListView.builder(
                   controller: _feedScrollController,
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
@@ -2120,10 +2173,15 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                       initialData: _initialDisplayNameForPost(post),
                       builder: (context, nameSnapshot) {
                         final displayName = nameSnapshot.data ?? 'Member';
+                        final isHighlighted = _highlightedPostId == postId;
                         return Container(
                           margin: const EdgeInsets.only(bottom: 16),
                           padding: const EdgeInsets.all(14),
-                          decoration: _panelDecoration(),
+                          decoration: isHighlighted
+                              ? _panelDecoration().copyWith(
+                                  border: Border.all(color: Colors.amberAccent, width: 2),
+                                )
+                              : _panelDecoration(),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [

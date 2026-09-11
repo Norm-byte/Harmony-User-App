@@ -13,6 +13,7 @@ import 'package:intl/intl.dart';
 import '../services/event_service.dart';
 import '../services/user_service.dart';
 import '../services/home_speaker_state.dart';
+import '../services/notification_service.dart';
 import '../constants/report_reasons.dart';
 import '../widgets/media/content_viewer.dart';
 import '../widgets/gradient_scaffold.dart';
@@ -49,6 +50,16 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     unawaited(_loadBackgroundAudioPreference());
+    NotificationService.communityNotificationTarget.addListener(
+      _handleCommunityNotificationTarget,
+    );
+    _handleCommunityNotificationTarget();
+  }
+
+  void _handleCommunityNotificationTarget() {
+    if (NotificationService.communityNotificationTarget.value == null) return;
+    if (!mounted) return;
+    if (_selectedIndex != 2) setState(() => _selectedIndex = 2);
   }
 
   @override
@@ -78,6 +89,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    NotificationService.communityNotificationTarget.removeListener(
+      _handleCommunityNotificationTarget,
+    );
     _eventService?.removeListener(_handleEventServiceChanged);
     _backgroundAudioController?.dispose();
     homeSpeakerToggleCallback = null;
