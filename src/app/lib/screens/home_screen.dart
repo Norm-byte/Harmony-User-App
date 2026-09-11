@@ -477,7 +477,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           textAlign: TextAlign.center,
                         ),
 
-                        if (reelItems.isNotEmpty) ...[
+                        if (showReelCarousel && reelItems.isNotEmpty) ...[
                           const SizedBox(height: 16),
                           OutlinedButton.icon(
                             onPressed: () => _openReelsFullscreen(reelItems),
@@ -1315,6 +1315,8 @@ class _FullscreenYoutubeReel extends StatefulWidget {
 
 class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
   YoutubePlayerController? _controller;
+  bool _embedBlocked = false;
+  Timer? _embedBlockedAdvanceTimer;
 
   void _togglePlayback() {
     final controller = _controller;
@@ -1323,6 +1325,20 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
       controller.pause();
     } else {
       controller.play();
+    }
+  }
+
+  void _onControllerValueChanged() {
+    // Error codes 101/150: the video owner has disabled playback on other
+    // (third-party) apps. Show a graceful message instead of YouTube's raw
+    // error screen, then move on so the reel sequence doesn't get stuck.
+    final errorCode = _controller?.value.errorCode ?? 0;
+    if (!_embedBlocked && (errorCode == 101 || errorCode == 150)) {
+      setState(() => _embedBlocked = true);
+      _embedBlockedAdvanceTimer?.cancel();
+      _embedBlockedAdvanceTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) widget.onEnded();
+      });
     }
   }
 
@@ -1346,15 +1362,18 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
         controlsVisibleAtStart: false,
         enableCaption: false,
       ),
-    );
+    )..addListener(_onControllerValueChanged);
   }
 
   @override
   void didUpdateWidget(covariant _FullscreenYoutubeReel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.url != widget.url) {
+      _controller?.removeListener(_onControllerValueChanged);
       _controller?.dispose();
       _controller = null;
+      _embedBlockedAdvanceTimer?.cancel();
+      _embedBlocked = false;
       _init();
       setState(() {});
     }
@@ -1362,6 +1381,8 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
 
   @override
   void dispose() {
+    _embedBlockedAdvanceTimer?.cancel();
+    _controller?.removeListener(_onControllerValueChanged);
     _controller?.dispose();
     super.dispose();
   }
@@ -1373,6 +1394,19 @@ class _FullscreenYoutubeReelState extends State<_FullscreenYoutubeReel> {
         child: Text(
           'Unable to load this YouTube reel',
           style: TextStyle(color: Colors.white70),
+        ),
+      );
+    }
+
+    if (_embedBlocked) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Content Unavailable',
+            style: TextStyle(color: Colors.white70),
+            textAlign: TextAlign.center,
+          ),
         ),
       );
     }

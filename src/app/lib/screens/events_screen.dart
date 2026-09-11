@@ -523,7 +523,7 @@ class EventsScreen extends StatelessWidget {
                                           );
                                         },
                                         icon: const Icon(Icons.edit_note, size: 18),
-                                        label: const Text('Join your intent to this event'), 
+                                        label: const Text('Add your intent (track in My Harmony)'), 
                                         style: OutlinedButton.styleFrom(
                                           foregroundColor: Colors.blueAccent, // Changed to Blue as requested ("blue button")
                                           side: const BorderSide(color: Colors.blueAccent), // Blue border

@@ -2665,3 +2665,40 @@ exports.cleanupExpiredCommunityFeedImages = functions.pubsub
 
         return null;
     });
+
+exports.checkYoutubeEmbeddable = functions.runWith({ secrets: ['YOUTUBE_API_KEY'] }).https.onCall(async (data, context) => {
+    if (!context.auth || !context.auth.uid) {
+        throw new functions.https.HttpsError('unauthenticated', 'You must be signed in.');
+    }
+    const callerDoc = await admin.firestore().collection('admin_users').doc(context.auth.uid).get();
+    if (!callerDoc.exists || callerDoc.data().isActive !== true) {
+        throw new functions.https.HttpsError('permission-denied', 'Only active operators can perform this action.');
+    }
+
+    const videoId = String(data.videoId || '').trim();
+    if (!videoId) {
+        throw new functions.https.HttpsError('invalid-argument', 'A YouTube video ID is required.');
+    }
+
+    const apiKey = String(process.env.YOUTUBE_API_KEY || '').trim();
+    if (!apiKey) {
+        // Fail open: never block publishing just because the check itself isn't configured yet.
+        return { checked: false, embeddable: true, reason: 'YouTube API key not configured' };
+    }
+
+    try {
+        const response = await fetch(
+            `https://www.googleapis.com/youtube/v3/videos?id=${encodeURIComponent(videoId)}&part=status&key=${apiKey}`
+        );
+        const json = await response.json();
+        const item = Array.isArray(json.items) ? json.items[0] : null;
+        if (!item) {
+            return { checked: true, embeddable: false, exists: false, reason: 'Video not found, private, or already removed.' };
+        }
+        const embeddable = !!(item.status && item.status.embeddable === true);
+        return { checked: true, embeddable, exists: true };
+    } catch (e) {
+        // Fail open on transient API/network errors; don't let a Google outage block admin work.
+        return { checked: false, embeddable: true, reason: `Check failed: ${e.message}` };
+    }
+});

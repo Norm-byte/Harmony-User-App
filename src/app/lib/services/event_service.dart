@@ -101,6 +101,7 @@ class EventService extends ChangeNotifier {
     }
 
     DateTime baseDate = event.startTime.toLocal();
+    DateTime? slotWeekEndExclusive;
     if (isDaily) {
       baseDate = localNow;
     } else if (slotDocDateLocal != null) {
@@ -115,6 +116,7 @@ class EventService extends ChangeNotifier {
           !localNow.isBefore(weekStart) && localNow.isBefore(weekEndExclusive);
       if (inSlotWeek) {
         baseDate = localNow;
+        slotWeekEndExclusive = weekEndExclusive;
       }
     }
 
@@ -131,13 +133,22 @@ class EventService extends ChangeNotifier {
     final visibilityAfter = Duration(minutes: event.visibilityAfterMinutes ?? 0);
 
     if (localEnd.add(visibilityAfter).isBefore(localNow) &&
-        (isDaily || isWeekly)) {
+        (isDaily || isWeekly || slotWeekEndExclusive != null)) {
       if (isDaily) {
         localStart = localStart.add(const Duration(days: 1));
         localEnd = localStart.add(duration);
       } else if (isWeekly) {
         while (localEnd.isBefore(localNow)) {
           localStart = localStart.add(const Duration(days: 7));
+          localEnd = localStart.add(duration);
+        }
+      } else if (slotWeekEndExclusive != null) {
+        // Non-recurring slot doc: today's occurrence has ended. Advance one
+        // day at a time, but never past this slot's own published week, so
+        // it still expires exactly as before once the week is over.
+        final nextStart = localStart.add(const Duration(days: 1));
+        if (nextStart.isBefore(slotWeekEndExclusive)) {
+          localStart = nextStart;
           localEnd = localStart.add(duration);
         }
       }
@@ -1008,7 +1019,9 @@ class EventService extends ChangeNotifier {
       if (a[i].id != b[i].id ||
           a[i].startTime != b[i].startTime ||
           a[i].endTime != b[i].endTime ||
-          a[i].participantCount != b[i].participantCount)
+          a[i].participantCount != b[i].participantCount ||
+          a[i].noticeBoardShowBeforeMinutes != b[i].noticeBoardShowBeforeMinutes ||
+          a[i].noticeBoardVisibilityAfterMinutes != b[i].noticeBoardVisibilityAfterMinutes)
         return false;
     }
     return true;

@@ -1288,7 +1288,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           }
 
             final commentPreview = '"$topComment"';
-            final canExpand = false;
+            final canExpand = topComment.isNotEmpty &&
+                topComment != 'Your community activity will appear here after you post.' &&
+                topComment != 'Comment text unavailable' &&
+                topComment.length > 90;
 
             void showExpandedComment() {
               showDialog<void>(
@@ -1436,7 +1439,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               final bData = b.data() as Map<String, dynamic>;
               final aLikes = (aData['likes'] as int?) ?? 0;
               final bLikes = (bData['likes'] as int?) ?? 0;
-              return bLikes.compareTo(aLikes);
+              if (aLikes != bLikes) return bLikes.compareTo(aLikes);
+              // Tie on likes: prefer the more recent comment.
+              final aTime = (aData['timestamp'] as Timestamp?)?.toDate();
+              final bTime = (bData['timestamp'] as Timestamp?)?.toDate();
+              if (aTime == null || bTime == null) return 0;
+              return bTime.compareTo(aTime);
             });
 
             final data = docs.first.data() as Map<String, dynamic>;
