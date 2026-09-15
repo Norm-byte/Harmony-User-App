@@ -64,9 +64,15 @@ class _HomeSpeakerButtonState extends State<_HomeSpeakerButton> {
       onTap: () async {
         final Future<void> Function()? toggle =
             homeSpeakerToggleCallback;
-        if (toggle != null) {
-          await toggle();
-        }
+        if (toggle == null) return;
+        // Flip the shared notifier immediately rather than waiting for
+        // HomeScreen's own build() to refresh it - that refresh only
+        // happens reliably while Home is the visible route, which left the
+        // icon (and audio) unresponsive when toggled from a pushed screen
+        // like Community Support.
+        final current = homeSpeakerUiStateNotifier.value;
+        homeSpeakerUiStateNotifier.value = current.copyWith(muted: !current.muted);
+        await toggle();
       },
       child: AnimatedScale(
         scale: _pressed ? 0.92 : 1.0,
