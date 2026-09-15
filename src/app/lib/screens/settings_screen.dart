@@ -1598,9 +1598,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 
             final commentPreview = '"$topComment"';
             final canExpand = topComment.isNotEmpty &&
-                topComment != 'Your community activity will appear here after you post.' &&
-                topComment != 'Comment text unavailable' &&
-                topComment.length > 90;
+                topComment != 'Post your first comment to start your activity.' &&
+                topComment != 'Comment text unavailable';
 
             void showExpandedComment() {
               showDialog<void>(
@@ -1766,8 +1765,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     final commentPreview = '"$topComment"';
           final canExpand = topComment.isNotEmpty &&
               topComment != 'Your community activity will appear here after you post.' &&
-              topComment != 'Comment text unavailable' &&
-              topComment.length > 90;
+              topComment != 'Comment text unavailable';
 
           void showExpandedComment() {
             showDialog<void>(
@@ -1956,8 +1954,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               final contentPreview = '"$topContent"';
               final canExpand = topContent.isNotEmpty &&
                   topContent != 'Request community support to start your activity.' &&
-                  topContent != 'Request text unavailable' &&
-                  topContent.length > 90;
+                  topContent != 'Request text unavailable';
 
               void showExpandedRequest() {
                 showDialog<void>(
