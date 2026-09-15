@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../constants/report_reasons.dart';
 import '../services/profanity_service.dart';
 import '../services/user_service.dart';
 import '../widgets/home_speaker_overlay.dart';
@@ -160,6 +161,155 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
         'likes': FieldValue.increment(1),
         'likedBy': FieldValue.arrayUnion([actorId]),
       });
+    }
+  }
+
+  // Full parity with the Common Room's report-reply flow: a user may be
+  // seeing this reply for the first time here, never having visited the
+  // Common Room, so the same reporting path must be available.
+  Future<Map<String, String>?> _promptReportDetails({required String label}) async {
+    final reasons = kReportReasons;
+    String? selectedReason;
+    final detailsController = TextEditingController();
+
+    try {
+      final result = await showModalBottomSheet<Map<String, String>>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.grey.shade900,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final explanation = detailsController.text.trim();
+            final canSubmit = selectedReason != null && explanation.length >= 8;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + MediaQuery.of(ctx).viewInsets.bottom),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Report this $label',
+                      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Select a reason and add a short explanation for moderators.',
+                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    ...reasons.map(
+                      (reason) => RadioListTile<String>(
+                        value: reason.label,
+                        groupValue: selectedReason,
+                        title: Text(reason.label, style: const TextStyle(color: Colors.white70)),
+                        subtitle: Text(reason.caption, style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                        activeColor: Colors.redAccent,
+                        onChanged: (value) {
+                          if (value != null) setModalState(() => selectedReason = value);
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: detailsController,
+                      maxLines: 3,
+                      style: const TextStyle(color: Colors.white),
+                      onChanged: (_) => setModalState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Required: brief details (min 8 characters)',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: Colors.black.withValues(alpha: 0.25),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      explanation.length < 8
+                          ? 'Please add at least 8 characters so moderators have context.'
+                          : 'Looks good.',
+                      style: TextStyle(
+                        color: explanation.length < 8 ? Colors.orangeAccent : Colors.greenAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white70,
+                              side: const BorderSide(color: Colors.white30),
+                            ),
+                            onPressed: () => Navigator.pop(ctx, null),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: canSubmit
+                                ? () => Navigator.pop(ctx, {'reason': selectedReason!, 'explanation': explanation})
+                                : null,
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+                            child: const Text('Submit Report'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      return result;
+    } finally {
+      detailsController.dispose();
+    }
+  }
+
+  Future<void> _reportReply(String postId, String replyId, Map<String, dynamic> reply) async {
+    final reporter = UserService();
+    final reportedUserId = (reply['authorUid'] ?? reply['userId'] ?? '').toString().trim();
+    final content = (reply['content'] ?? '').toString().trim();
+
+    final authUid = _currentAuthUid().trim();
+    final userServiceUid = reporter.userId.trim();
+    final actorIds = <String>{
+      if (authUid.isNotEmpty) authUid,
+      if (userServiceUid.isNotEmpty) userServiceUid,
+    };
+    if (reportedUserId.isEmpty || actorIds.contains(reportedUserId)) return;
+
+    final reportDetails = await _promptReportDetails(label: 'reply');
+    if (reportDetails == null) return;
+
+    try {
+      await reporter.reportContent(
+        reportedUserId,
+        content,
+        reportDetails['reason']!,
+        'Community Support Reply',
+        metadata: {
+          'targetKind': 'community_reply',
+          'targetId': replyId,
+          'postId': postId,
+          'replyId': replyId,
+          'reportExplanation': reportDetails['explanation']!,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report sent to moderation.')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not report reply: $e')));
     }
   }
 
@@ -461,6 +611,13 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                 PopupMenuItem(value: 'edit', child: Text('Edit')),
                 PopupMenuItem(value: 'delete', child: Text('Delete')),
               ],
+            )
+          else
+            IconButton(
+              iconSize: 16,
+              tooltip: 'Report this reply',
+              icon: const Icon(Icons.flag_outlined, color: Colors.white54),
+              onPressed: () => _reportReply(postId, replyDoc.id, reply),
             ),
         ],
       ),
