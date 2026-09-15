@@ -210,6 +210,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                   children: [
                                     _buildLikesReceivedStatItem(),
                                     _buildMyCommentsCountStatItem(),
+                                    _buildSupportReceivedStatItem(),
                                   ],
                                 ),
                                 const SizedBox(height: 16),
@@ -1192,6 +1193,58 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               '$totalLikes',
               icon: Icons.thumb_up,
               color: Colors.greenAccent,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSupportReceivedStatItem() {
+    final uid = UserService().userId;
+    if (uid.isEmpty) {
+      return const Column(
+        children: [
+          Icon(Icons.front_hand, color: Colors.white, size: 24),
+          SizedBox(height: 4),
+          Text('0', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+          SizedBox(height: 4),
+          Text('Support Recv.', style: TextStyle(fontSize: 12, color: Colors.white70)),
+        ],
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('app_config').doc('community_support').snapshots(),
+      builder: (context, configSnap) {
+        final supportConfig = configSnap.data?.data() ?? const <String, dynamic>{};
+
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('community_posts')
+              .where('userId', isEqualTo: uid)
+              .where('isSupportRequest', isEqualTo: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            var totalSupport = 0;
+            if (snapshot.hasData) {
+              for (final doc in snapshot.data!.docs) {
+                final data = doc.data() as Map<String, dynamic>;
+                totalSupport += (data['supportTapCount'] as int?) ?? 0;
+              }
+            }
+
+            return Column(
+              children: [
+                SupportIcon(config: supportConfig, size: 24, fallbackColor: Colors.white),
+                const SizedBox(height: 4),
+                Text(
+                  '$totalSupport',
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(height: 4),
+                const Text('Support Recv.', style: TextStyle(fontSize: 12, color: Colors.white70)),
+              ],
             );
           },
         );
