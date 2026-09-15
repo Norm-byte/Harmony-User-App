@@ -244,13 +244,17 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 ),
               )
             else
-              // Plain Column, not a nested ListView: the outer My Profile tab
-              // is already one continuous ListView, and a scrollable ListView
-              // nested inside it can steal/lock the outer scroll gesture.
-              Column(
-                children: [
-                  for (final doc in visibleDocs) _buildSupportIntentCard(doc),
-                ],
+              // primary: false stops this from silently sharing the outer
+              // list's PrimaryScrollController - that sharing was the actual
+              // cause of the scroll lock, not nesting itself.
+              SizedBox(
+                height: 264,
+                child: ListView.builder(
+                  primary: false,
+                  padding: EdgeInsets.zero,
+                  itemCount: visibleDocs.length,
+                  itemBuilder: (context, index) => _buildSupportIntentCard(visibleDocs[index]),
+                ),
               ),
           ],
         );
@@ -1002,58 +1006,61 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                 ),
                               )
                             else
-                              // Plain Column, not a nested ListView: this whole
-                              // tab is already one continuous ListView, and a
-                              // second independently-scrollable ListView nested
-                              // inside it competes for the drag gesture.
-                              Column(
-                                children: [
-                                  for (final event in visiblePastIntents)
-                                    Builder(builder: (context) {
-                                      final intent = (event['intent'] ?? 'No intent').toString();
-                                      final start = _registeredEventDate(
-                                        event['startTime'] ?? event['timestamp'],
-                                      );
-                                      final date = start == null
-                                          ? 'Date unavailable'
-                                          : DateFormat('MMM d, yyyy, h:mm a').format(start);
-                                      return Container(
-                                        margin: const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.06),
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: Colors.white12),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            const Icon(Icons.history, color: Colors.amberAccent, size: 20),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(intent, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.amberAccent, fontSize: 13)),
-                                                  const SizedBox(height: 2),
-                                                  Text(date, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                                                ],
-                                              ),
+                              // primary: false stops this from silently sharing
+                              // the outer list's PrimaryScrollController - that
+                              // sharing was the actual cause of the scroll lock.
+                              SizedBox(
+                                height: 264,
+                                child: ListView.builder(
+                                  primary: false,
+                                  padding: EdgeInsets.zero,
+                                  itemCount: visiblePastIntents.length,
+                                  itemBuilder: (context, index) {
+                                    final event = visiblePastIntents[index];
+                                    final intent = (event['intent'] ?? 'No intent').toString();
+                                    final start = _registeredEventDate(
+                                      event['startTime'] ?? event['timestamp'],
+                                    );
+                                    final date = start == null
+                                        ? 'Date unavailable'
+                                        : DateFormat('MMM d, yyyy, h:mm a').format(start);
+                                    return Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.06),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.white12),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.history, color: Colors.amberAccent, size: 20),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(intent, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.amberAccent, fontSize: 13)),
+                                                const SizedBox(height: 2),
+                                                Text(date, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                              ],
                                             ),
-                                            IconButton(
-                                              tooltip: 'Edit past intent',
-                                              onPressed: () => _editPastIntent(event),
-                                              icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 19),
-                                            ),
-                                            IconButton(
-                                              tooltip: 'Delete past intent',
-                                              onPressed: () => _deletePastIntent(event),
-                                              icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 19),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }),
-                                ],
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Edit past intent',
+                                            onPressed: () => _editPastIntent(event),
+                                            icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 19),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Delete past intent',
+                                            onPressed: () => _deletePastIntent(event),
+                                            icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 19),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
                               ),
                           ],
                         );
