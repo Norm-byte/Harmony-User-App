@@ -316,6 +316,92 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
     }
   }
 
+  bool _isOwnPost(Map<String, dynamic> post) {
+    final currentIds = <String>{
+      _effectiveCurrentUserId().trim(),
+      _currentAuthUid().trim(),
+    }.where((id) => id.isNotEmpty).toSet();
+    if (currentIds.isEmpty) return false;
+    final postIds = <String>{
+      (post['userId'] ?? '').toString().trim(),
+      (post['authorUid'] ?? '').toString().trim(),
+    }.where((id) => id.isNotEmpty).toSet();
+    return currentIds.any(postIds.contains);
+  }
+
+  // Same document as the Common Room post, so an edit/delete here is
+  // instantly reflected there too — no separate sync step required.
+  Future<void> _showEditPostDialog(String postId, String initialText) async {
+    final controller = TextEditingController(text: initialText);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit post'),
+        content: TextField(controller: controller, maxLines: 5, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || result.isEmpty) return;
+    await FirebaseFirestore.instance.collection('community_posts').doc(postId).update({
+      'content': result,
+      'editedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> _confirmAndDeletePost(String postId) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete post?'),
+        content: const Text('This will remove your post from both Community Support and Common Room.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (shouldDelete != true) return;
+    await FirebaseFirestore.instance.collection('community_posts').doc(postId).delete();
+  }
+
+  Future<void> _reportPost(String postId, Map<String, dynamic> post) async {
+    final reporter = UserService();
+    final reportedUserId = (post['authorUid'] ?? post['userId'] ?? '').toString().trim();
+    final content = (post['content'] ?? '').toString().trim();
+    if (reportedUserId.isEmpty || reportedUserId == reporter.userId.trim()) return;
+
+    final reportDetails = await _promptReportDetails(label: 'post');
+    if (reportDetails == null) return;
+
+    final imageUrl = (post['hasImage'] == true) ? (post['imageUrl'] as String?) : null;
+    try {
+      await reporter.reportContent(
+        reportedUserId,
+        content,
+        reportDetails['reason']!,
+        'Community Support',
+        metadata: {
+          'targetKind': 'community_post',
+          'targetId': postId,
+          if (imageUrl != null) 'imageUrl': imageUrl,
+          if (imageUrl != null) 'thumbnailUrl': imageUrl,
+          'reportExplanation': reportDetails['explanation']!,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report sent to moderation.')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not report post: $e')));
+    }
+  }
+
   Future<void> _supportPost(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
     final userId = UserService().userId;
     if (userId.isEmpty) return;
@@ -440,6 +526,7 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                           final supportedBy = List<String>.from(post['supportedBy'] ?? const []);
                           final alreadySupported = supportedBy.contains(currentUserId);
                           final supportCount = (post['supportTapCount'] as num?)?.toInt() ?? 0;
+                          final isOwnPost = _isOwnPost(post);
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 12),
@@ -452,7 +539,35 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(userName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(userName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    ),
+                                    if (isOwnPost)
+                                      PopupMenuButton<String>(
+                                        icon: const Icon(Icons.more_vert, size: 18, color: Colors.white54),
+                                        onSelected: (value) {
+                                          if (value == 'edit') {
+                                            _showEditPostDialog(doc.id, content);
+                                          } else if (value == 'delete') {
+                                            _confirmAndDeletePost(doc.id);
+                                          }
+                                        },
+                                        itemBuilder: (_) => const [
+                                          PopupMenuItem(value: 'edit', child: Text('Edit')),
+                                          PopupMenuItem(value: 'delete', child: Text('Delete')),
+                                        ],
+                                      )
+                                    else
+                                      IconButton(
+                                        iconSize: 18,
+                                        tooltip: 'Report this post',
+                                        icon: const Icon(Icons.flag_outlined, color: Colors.white54),
+                                        onPressed: () => _reportPost(doc.id, post),
+                                      ),
+                                  ],
+                                ),
                                 if (content.isNotEmpty) ...[
                                   const SizedBox(height: 6),
                                   TranslatableText(content, style: const TextStyle(color: Colors.white70)),
