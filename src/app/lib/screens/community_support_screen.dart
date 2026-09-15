@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../constants/report_reasons.dart';
 import '../services/profanity_service.dart';
+import '../services/translation_service.dart';
 import '../services/user_service.dart';
 import '../widgets/home_speaker_overlay.dart';
 import '../widgets/support_icon.dart';
+import '../widgets/translatable_text.dart';
 
 /// Full-screen shell for Community Support. Reads the same community_posts
 /// collection as the Common Room, filtered to isSupportRequest == true, so
@@ -21,7 +25,6 @@ class CommunitySupportScreen extends StatefulWidget {
 }
 
 class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
-  bool _isSupportingAll = false;
   final Set<String> _expandedReplyPostIds = {};
   final Map<String, TextEditingController> _replyControllers = {};
 
@@ -326,31 +329,16 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
     });
   }
 
-  Future<void> _supportAll(List<QueryDocumentSnapshot<Map<String, dynamic>>> posts) async {
-    final userId = UserService().userId;
-    if (userId.isEmpty || _isSupportingAll) return;
-    setState(() => _isSupportingAll = true);
-    try {
-      final batch = FirebaseFirestore.instance.batch();
-      var count = 0;
-      for (final doc in posts) {
-        final supportedBy = List<String>.from(doc.data()['supportedBy'] ?? const []);
-        if (supportedBy.contains(userId)) continue;
-        batch.update(doc.reference, {
-          'supportTapCount': FieldValue.increment(1),
-          'supportedBy': FieldValue.arrayUnion([userId]),
-        });
-        count++;
-      }
-      if (count > 0) await batch.commit();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(count > 0 ? 'Supported $count request${count == 1 ? '' : 's'}.' : 'Already supported everything here.')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSupportingAll = false);
-    }
+  Future<void> _toggleTranslation() async {
+    final enabled = !TranslationService.instance.isEnabled;
+    await TranslationService.instance.setEnabled(enabled);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(enabled ? 'Translation is ON.' : 'Translation is OFF.'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -366,6 +354,21 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
       appBar: AppBar(
         title: Text(title),
         foregroundColor: Colors.white,
+        actions: [
+          ValueListenableBuilder<bool>(
+            valueListenable: TranslationService.instance.enabledNotifier,
+            builder: (context, enabled, _) {
+              return IconButton(
+                tooltip: enabled ? 'Disable Translation' : 'Enable Translation',
+                onPressed: () => unawaited(_toggleTranslation()),
+                icon: Icon(
+                  Icons.translate,
+                  color: enabled ? Colors.greenAccent : Colors.white,
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Stack(
         children: [
@@ -419,29 +422,9 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${posts.length} request${posts.length == 1 ? '' : 's'}',
-                              style: const TextStyle(color: Colors.white70),
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: _isSupportingAll ? null : () => _supportAll(posts),
-                            icon: _isSupportingAll
-                                ? const SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70))
-                                : SupportIcon(config: config, size: 16, fallbackColor: Colors.white70),
-                            label: const Text('Support All'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white70,
-                              side: const BorderSide(color: Colors.white30),
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        '${posts.length} request${posts.length == 1 ? '' : 's'}',
+                        style: const TextStyle(color: Colors.white70),
                       ),
                     ),
                     Expanded(
@@ -472,7 +455,7 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                                 Text(userName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                                 if (content.isNotEmpty) ...[
                                   const SizedBox(height: 6),
-                                  Text(content, style: const TextStyle(color: Colors.white70)),
+                                  TranslatableText(content, style: const TextStyle(color: Colors.white70)),
                                 ],
                                 if (imageUrl != null && imageUrl.isNotEmpty) ...[
                                   const SizedBox(height: 8),
@@ -584,7 +567,7 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(userName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12)),
-                Text(content, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                TranslatableText(content, style: const TextStyle(color: Colors.white70, fontSize: 13)),
               ],
             ),
           ),
