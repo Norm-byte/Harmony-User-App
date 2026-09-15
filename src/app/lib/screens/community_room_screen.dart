@@ -53,6 +53,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   final Map<String, Future<Uint8List>> _pendingPreviewFutureByPath = {};
   bool _saveCameraToVault = true;
   bool _isPosting = false;
+  bool _isSupportRequest = false;
   String? _postingStatus;
   bool _isLoadingImageUsage = false;
   int _messagesRemaining = 0;
@@ -805,6 +806,9 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
         'userName': publicName,
         'userPhoto': userService.userPhoto,
         'timestamp': FieldValue.serverTimestamp(),
+        if (_isSupportRequest) 'isSupportRequest': true,
+        if (_isSupportRequest) 'supportTapCount': 0,
+        if (_isSupportRequest) 'supportedBy': <String>[],
       };
 
       final allPendingVaultImages = <Map<String, dynamic>>[..._pendingVaultImages];
@@ -897,6 +901,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
 
       await FirebaseFirestore.instance.collection('community_posts').add(postData);
       postCreated = true;
+      if (mounted) setState(() => _isSupportRequest = false);
       if (uploadedRoomImageCount > 0) {
         await _mediaVaultService.incrementSharedRoomUploadsForMonth(
           userId,
@@ -1867,6 +1872,35 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
               ),
             ),
           ],
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('app_config')
+                .doc('community_support')
+                .snapshots(),
+            builder: (context, supportSnapshot) {
+              final supportConfig =
+                  supportSnapshot.data?.data() as Map<String, dynamic>? ?? {};
+              if (supportConfig['isSupportFeatureEnabled'] != true) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: CheckboxListTile(
+                  value: _isSupportRequest,
+                  onChanged: (value) =>
+                      setState(() => _isSupportRequest = value ?? false),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  activeColor: Colors.amber,
+                  title: const Text(
+                    'Request Community Support',
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ),
+              );
+            },
+          ),
           Row(
             children: [
               Expanded(
