@@ -18,6 +18,7 @@ import 'personal_information_screen.dart';
 import 'media_vault_screen.dart';
 import 'login_screen.dart';
 import 'welcome_screen.dart';
+import '../widgets/support_icon.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -215,6 +216,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                 _buildMostLikedCommentCard(),
                                   const SizedBox(height: 12),
                                   _buildCommunityPulseCard(),
+                                  const SizedBox(height: 12),
+                                  _buildMostSupportedRequestCard(),
                                   const SizedBox(height: 16),
 
                               ],
@@ -1199,7 +1202,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   Widget _buildMyCommentsCountStatItem() {
     final uid = UserService().userId;
     if (uid.isEmpty) {
-      return _buildStatItem('Comments', '0', icon: Icons.chat_bubble_outline, color: Colors.amberAccent);
+      return _buildStatItem('Posts', '0', icon: Icons.chat_bubble_outline, color: Colors.amberAccent);
     }
 
     return StreamBuilder<QuerySnapshot>(
@@ -1219,7 +1222,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             final totalComments = postCount + messageCount;
 
             return _buildStatItem(
-              'Comments',
+              'Posts',
               '$totalComments',
               icon: Icons.chat_bubble_outline,
               color: Colors.amberAccent,
@@ -1306,7 +1309,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       ),
                     ),
                     title: const Text(
-                      'My Most Liked Comment',
+                      'My Most Liked Post',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -1373,7 +1376,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       const Icon(Icons.star, color: Colors.amber, size: 16),
                       const SizedBox(width: 8),
                       const Text(
-                        'My Most Liked Comment',
+                        'My Most Liked Post',
                         style: TextStyle(color: Colors.white70, fontSize: 12),
                       ),
                       const Spacer(),
@@ -1473,7 +1476,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     ),
                   ),
                   title: const Text(
-                    'Overall Most Liked Comment',
+                    'Overall Most Liked Post',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -1540,7 +1543,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     const Icon(Icons.star, color: Colors.amber, size: 16),
                     const SizedBox(width: 8),
                     const Text(
-                      'Overall Most Liked Comment',
+                      'Overall Most Liked Post',
                       style: TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                     const Spacer(),
@@ -1572,6 +1575,186 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 ],
               ],
             ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMostSupportedRequestCard() {
+    final uid = UserService().userId;
+    if (uid.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: const Text(
+          'Your most supported request will appear here after you post one.',
+          style: TextStyle(color: Colors.white70, fontStyle: FontStyle.italic),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('app_config')
+            .doc('community_support')
+            .snapshots(),
+        builder: (context, supportConfigSnap) {
+          final supportConfig = supportConfigSnap.data?.data() ?? const <String, dynamic>{};
+
+          return StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('community_posts')
+                .where('userId', isEqualTo: uid)
+                .where('isSupportRequest', isEqualTo: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const Text(
+                  'Most supported request is temporarily unavailable.',
+                  style: TextStyle(color: Colors.white38, fontSize: 11),
+                );
+              }
+
+              String topContent = 'Request community support to start your activity.';
+              var supportCount = 0;
+
+              if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+                final docs = snapshot.data!.docs;
+                docs.sort((a, b) {
+                  final aData = a.data() as Map<String, dynamic>;
+                  final bData = b.data() as Map<String, dynamic>;
+                  final aCount = (aData['supportTapCount'] as int?) ?? 0;
+                  final bCount = (bData['supportTapCount'] as int?) ?? 0;
+                  return bCount.compareTo(aCount);
+                });
+
+                final data = docs.first.data() as Map<String, dynamic>;
+                topContent = (data['content'] as String?)?.trim().isNotEmpty == true
+                    ? data['content'] as String
+                    : 'Request text unavailable';
+                supportCount = (data['supportTapCount'] as int?) ?? 0;
+              }
+
+              final contentPreview = '"$topContent"';
+              final canExpand = topContent.isNotEmpty &&
+                  topContent != 'Request community support to start your activity.' &&
+                  topContent != 'Request text unavailable' &&
+                  topContent.length > 90;
+
+              void showExpandedRequest() {
+                showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) {
+                    return AlertDialog(
+                      backgroundColor: const Color(0xFF1E1E1E),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+                      ),
+                      title: const Text(
+                        'My Most Supported Request',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                      content: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              topContent,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                height: 1.35,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Row(
+                              children: [
+                                SupportIcon(config: supportConfig, size: 16, fallbackColor: Colors.amberAccent),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '$supportCount',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(dialogContext).pop(),
+                          child: const Text('Close', style: TextStyle(color: Colors.amberAccent)),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              }
+
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: canExpand ? showExpandedRequest : null,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.star, color: Colors.amber, size: 16),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'My Most Supported Request',
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                        const Spacer(),
+                        SupportIcon(config: supportConfig, size: 12, fallbackColor: Colors.amberAccent),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$supportCount',
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      contentPreview,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
+                    ),
+                    if (canExpand) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Tap anywhere on this card to expand',
+                        style: TextStyle(
+                          color: Colors.amberAccent,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
           );
         },
       ),
