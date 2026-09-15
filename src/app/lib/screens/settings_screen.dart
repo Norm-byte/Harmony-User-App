@@ -32,6 +32,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   late Future<int> _totalUsersFuture;
   late Future<int> _timeZoneUsersFuture;
   String _pastIntentFilter = '';
+  String _supportIntentFilter = '';
 
   @override
   void initState() {
@@ -149,13 +150,77 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           .snapshots(),
       builder: (context, snapshot) {
         final docs = snapshot.data?.docs ?? const [];
+        final normalizedFilter = _supportIntentFilter.trim().toLowerCase();
+        final visibleDocs = normalizedFilter.isEmpty
+            ? docs
+            : docs.where((doc) {
+                final content = (doc.data()['content'] as String?)?.toLowerCase() ?? '';
+                return content.contains(normalizedFilter);
+              }).toList();
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'My Support Requests',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+            Row(
+              children: [
+                const Text(
+                  'My Support Requests',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '(${docs.length})',
+                  style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const Spacer(),
+                if (normalizedFilter.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Text(
+                      '${visibleDocs.length} match${visibleDocs.length == 1 ? '' : 'es'}',
+                      style: const TextStyle(color: Colors.amberAccent, fontSize: 11),
+                    ),
+                  ),
+                IconButton(
+                  tooltip: normalizedFilter.isEmpty ? 'Filter support requests' : 'Change filter',
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(
+                    normalizedFilter.isEmpty ? Icons.filter_alt_outlined : Icons.filter_alt,
+                    color: normalizedFilter.isEmpty ? Colors.white70 : Colors.amberAccent,
+                    size: 20,
+                  ),
+                  onPressed: () async {
+                    final controller = TextEditingController(text: _supportIntentFilter);
+                    final filter = await showDialog<String>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Filter Support Requests'),
+                        content: TextField(
+                          controller: controller,
+                          autofocus: true,
+                          decoration: const InputDecoration(hintText: 'Search a word or phrase'),
+                          onSubmitted: (value) => Navigator.of(dialogContext).pop(value.trim()),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(dialogContext).pop(''),
+                            child: const Text('Clear'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+                            child: const Text('Apply'),
+                          ),
+                        ],
+                      ),
+                    );
+                    controller.dispose();
+                    if (filter != null && mounted) {
+                      setState(() => _supportIntentFilter = filter);
+                    }
+                  },
+                ),
+              ],
             ),
             const SizedBox(height: 4),
             const Text(
@@ -163,7 +228,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
             const SizedBox(height: 8),
-            if (docs.isEmpty)
+            if (visibleDocs.isEmpty)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
@@ -171,9 +236,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   color: Colors.white.withValues(alpha: 0.06),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Text(
-                  'Requests you post with "Request Community Support" will appear here.',
-                  style: TextStyle(color: Colors.white54),
+                child: Text(
+                  docs.isEmpty
+                      ? 'Requests you post with "Request Community Support" will appear here.'
+                      : 'No support requests match this filter.',
+                  style: const TextStyle(color: Colors.white54),
                 ),
               )
             else
@@ -182,7 +249,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               // nested inside it can steal/lock the outer scroll gesture.
               Column(
                 children: [
-                  for (final doc in docs) _buildSupportIntentCard(doc),
+                  for (final doc in visibleDocs) _buildSupportIntentCard(doc),
                 ],
               ),
           ],
@@ -213,7 +280,6 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             : intent['imageUrl'] as String?;
         final likes = isLive ? ((livePost['likes'] as num?)?.toInt() ?? 0) : 0;
         final supportCount = isLive ? ((livePost['supportTapCount'] as num?)?.toInt() ?? 0) : 0;
-        final canExpand = content.length > 90 || (imageUrl != null && imageUrl.isNotEmpty);
 
         void showExpanded() {
           showDialog<void>(
@@ -321,7 +387,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: canExpand ? showExpanded : null,
+          onTap: showExpanded, // always tappable, even a short/no-text request
           child: Container(
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
@@ -936,57 +1002,58 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                 ),
                               )
                             else
-                              SizedBox(
-                                height: 264,
-                                child: ListView.builder(
-                                  padding: EdgeInsets.zero,
-                                  itemCount: visiblePastIntents.length,
-                                  itemBuilder: (context, index) {
-                                    final event = visiblePastIntents[index];
-                                    final intent = (event['intent'] ?? 'No intent').toString();
-                                    final start = _registeredEventDate(
-                                      event['startTime'] ?? event['timestamp'],
-                                    );
-                                    final date = start == null
-                                        ? 'Date unavailable'
-                                        : DateFormat('MMM d, yyyy, h:mm a').format(start);
-                                    return Container(
-                                      margin: const EdgeInsets.only(bottom: 8),
-                                      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.06),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: Colors.white12),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.history, color: Colors.amberAccent, size: 20),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(intent, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.amberAccent, fontSize: 13)),
-                                                const SizedBox(height: 2),
-                                                Text(date, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                                              ],
+                              // Plain Column, not a nested ListView: this whole
+                              // tab is already one continuous ListView, and a
+                              // second independently-scrollable ListView nested
+                              // inside it competes for the drag gesture.
+                              Column(
+                                children: [
+                                  for (final event in visiblePastIntents)
+                                    Builder(builder: (context) {
+                                      final intent = (event['intent'] ?? 'No intent').toString();
+                                      final start = _registeredEventDate(
+                                        event['startTime'] ?? event['timestamp'],
+                                      );
+                                      final date = start == null
+                                          ? 'Date unavailable'
+                                          : DateFormat('MMM d, yyyy, h:mm a').format(start);
+                                      return Container(
+                                        margin: const EdgeInsets.only(bottom: 8),
+                                        padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.06),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Colors.white12),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.history, color: Colors.amberAccent, size: 20),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(intent, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.amberAccent, fontSize: 13)),
+                                                  const SizedBox(height: 2),
+                                                  Text(date, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                                ],
+                                              ),
                                             ),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Edit past intent',
-                                            onPressed: () => _editPastIntent(event),
-                                            icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 19),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Delete past intent',
-                                            onPressed: () => _deletePastIntent(event),
-                                            icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 19),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
+                                            IconButton(
+                                              tooltip: 'Edit past intent',
+                                              onPressed: () => _editPastIntent(event),
+                                              icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 19),
+                                            ),
+                                            IconButton(
+                                              tooltip: 'Delete past intent',
+                                              onPressed: () => _deletePastIntent(event),
+                                              icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 19),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }),
+                                ],
                               ),
                           ],
                         );
