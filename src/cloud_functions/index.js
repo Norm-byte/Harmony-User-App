@@ -2681,9 +2681,15 @@ exports.cleanupExpiredCommunityPosts = functions.pubsub
             .collection('app_config')
             .doc('community_settings')
             .get();
-        const retentionDays = Number(settingsSnap.exists
-            ? settingsSnap.data().postRetentionDays
-            : 30) || 30;
+        const settings = settingsSnap.exists ? settingsSnap.data() : {};
+
+        // Inert by default. Admin flips this on from the Community Support
+        // tab when they're ready — no redeploy needed either way.
+        if (settings.isPostRetentionEnabled !== true) {
+            return null;
+        }
+
+        const retentionDays = Number(settings.postRetentionDays) || 30;
         const cutoffMillis = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
         const cutoffTs = admin.firestore.Timestamp.fromMillis(cutoffMillis);
 
