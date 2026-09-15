@@ -24,6 +24,8 @@ import 'settings_screen.dart';
 import 'app_settings_screen.dart';
 import 'fullscreen_content_screen.dart';
 import 'video_player_screen.dart';
+import 'community_support_screen.dart';
+import '../widgets/support_icon.dart';
 
 const int kMaxActiveReels = 30;
 
@@ -266,6 +268,81 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  static const String _supportOnboardingSeenPrefKey = 'hasSeenSupportOnboarding';
+
+  Future<void> _handleSupportButtonTap(Map<String, dynamic> supportConfig) async {
+    final showPopup = supportConfig['enableOnboardingPopup'] != false;
+    final prefs = await SharedPreferences.getInstance();
+    final alreadySeen = prefs.getBool(_supportOnboardingSeenPrefKey) ?? false;
+
+    if (!showPopup || alreadySeen) {
+      _openCommunitySupportScreen(supportConfig);
+      return;
+    }
+
+    if (!mounted) return;
+    final title = (supportConfig['supportPopupTitle'] as String?)?.trim().isNotEmpty == true
+        ? supportConfig['supportPopupTitle']
+        : 'Welcome to Community Support';
+    final body = (supportConfig['supportPopupBody'] as String?)?.trim().isNotEmpty == true
+        ? supportConfig['supportPopupBody']
+        : 'This is a space to ask for support from the community.';
+    final buttonText = (supportConfig['supportPopupButtonText'] as String?)?.trim().isNotEmpty == true
+        ? supportConfig['supportPopupButtonText']
+        : 'Enter';
+
+    bool dontShowAgain = false;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(body),
+                const SizedBox(height: 12),
+                CheckboxListTile(
+                  value: dontShowAgain,
+                  onChanged: (v) => setDialogState(() => dontShowAgain = v ?? false),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text("Don't show this again"),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () async {
+                if (dontShowAgain) {
+                  await prefs.setBool(_supportOnboardingSeenPrefKey, true);
+                }
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: Text(buttonText),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    _openCommunitySupportScreen(supportConfig);
+  }
+
+  void _openCommunitySupportScreen(Map<String, dynamic> supportConfig) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CommunitySupportScreen(config: supportConfig),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appBarTitle = switch (_selectedIndex) {
@@ -503,6 +580,39 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ],
+
+                        StreamBuilder<DocumentSnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('app_config')
+                              .doc('community_support')
+                              .snapshots(),
+                          builder: (context, supportSnapshot) {
+                            final supportConfig =
+                                supportSnapshot.data?.data() as Map<String, dynamic>? ?? {};
+                            if (supportConfig['isSupportFeatureEnabled'] != true) {
+                              return const SizedBox.shrink();
+                            }
+                            final buttonText =
+                                (supportConfig['supportButtonText'] as String?)
+                                            ?.trim()
+                                            .isNotEmpty ==
+                                        true
+                                    ? supportConfig['supportButtonText']
+                                    : 'Community Support';
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 16),
+                              child: OutlinedButton.icon(
+                                onPressed: () => _handleSupportButtonTap(supportConfig),
+                                icon: SupportIcon(config: supportConfig, size: 18),
+                                label: Text(buttonText),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.white,
+                                  side: const BorderSide(color: Colors.white54),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
 
                         const SizedBox(height: 32),
 
