@@ -899,8 +899,23 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
         });
       }
 
-      await FirebaseFirestore.instance.collection('community_posts').add(postData);
+      final newPostRef = await FirebaseFirestore.instance.collection('community_posts').add(postData);
       postCreated = true;
+      if (_isSupportRequest) {
+        // Permanent personal copy, independent of the live post's lifetime —
+        // survives admin retention cleanup or the user deleting the original.
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('support_intents')
+            .add({
+          'postId': newPostRef.id,
+          'content': content,
+          'imageUrl': postData['imageUrl'],
+          'createdAt': FieldValue.serverTimestamp(),
+          'isRealized': false,
+        });
+      }
       if (mounted) setState(() => _isSupportRequest = false);
       if (uploadedRoomImageCount > 0) {
         await _mediaVaultService.incrementSharedRoomUploadsForMonth(

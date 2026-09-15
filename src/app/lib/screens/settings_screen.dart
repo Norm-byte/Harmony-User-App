@@ -136,6 +136,253 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         .delete();
   }
 
+  Widget _buildSupportIntentsSection() {
+    final uid = UserService().userId;
+    if (uid.isEmpty) return const SizedBox.shrink();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('support_intents')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? const [];
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'My Support Requests',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'A permanent record of requests you have posted, even after they leave the public feed.',
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            if (docs.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  'Requests you post with "Request Community Support" will appear here.',
+                  style: TextStyle(color: Colors.white54),
+                ),
+              )
+            else
+              SizedBox(
+                height: 220,
+                child: ListView.builder(
+                  padding: EdgeInsets.zero,
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) => _buildSupportIntentCard(docs[index]),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildSupportIntentCard(QueryDocumentSnapshot<Map<String, dynamic>> intentDoc) {
+    final intent = intentDoc.data();
+    final postId = (intent['postId'] as String?) ?? '';
+    final isRealized = intent['isRealized'] == true;
+    final createdAt = (intent['createdAt'] as Timestamp?)?.toDate();
+    final dateLabel = createdAt == null ? '' : DateFormat('MMM d, yyyy, h:mm a').format(createdAt);
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: postId.isEmpty
+          ? null
+          : FirebaseFirestore.instance.collection('community_posts').doc(postId).snapshots(),
+      builder: (context, liveSnap) {
+        // Prefer the live post while it still exists (single source of truth);
+        // fall back to the permanent snapshot once it's gone (deleted/expired).
+        final livePost = liveSnap.data?.data();
+        final isLive = livePost != null;
+        final content = (isLive ? livePost['content'] : intent['content']) as String? ?? '';
+        final imageUrl = isLive
+            ? ((livePost['hasImage'] == true) ? livePost['imageUrl'] as String? : null)
+            : intent['imageUrl'] as String?;
+        final likes = isLive ? ((livePost['likes'] as num?)?.toInt() ?? 0) : 0;
+        final supportCount = isLive ? ((livePost['supportTapCount'] as num?)?.toInt() ?? 0) : 0;
+        final canExpand = content.length > 90 || (imageUrl != null && imageUrl.isNotEmpty);
+
+        void showExpanded() {
+          showDialog<void>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+              ),
+              title: const Text('My Support Request', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (imageUrl != null && imageUrl.isNotEmpty) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(imageUrl, fit: BoxFit.contain),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    Text(content, style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.35)),
+                    const SizedBox(height: 12),
+                    if (dateLabel.isNotEmpty)
+                      Text(dateLabel, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                    const SizedBox(height: 8),
+                    if (isLive)
+                      Row(
+                        children: [
+                          const Icon(Icons.thumb_up, size: 14, color: Colors.greenAccent),
+                          const SizedBox(width: 4),
+                          Text('$likes', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          const SizedBox(width: 12),
+                          const Icon(Icons.front_hand, size: 14, color: Colors.amberAccent),
+                          const SizedBox(width: 4),
+                          Text('$supportCount', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                        ],
+                      )
+                    else
+                      const Text(
+                        'This request is no longer on the public feed, but your record is kept here.',
+                        style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Close', style: TextStyle(color: Colors.amberAccent)),
+                ),
+              ],
+            ),
+          );
+        }
+
+        Future<void> editIntent() async {
+          final controller = TextEditingController(text: content);
+          final result = await showDialog<String>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Edit support request'),
+              content: TextField(controller: controller, maxLines: 4, autofocus: true),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          );
+          if (result == null || result.isEmpty) return;
+          if (isLive) {
+            await FirebaseFirestore.instance.collection('community_posts').doc(postId).update({
+              'content': result,
+              'editedAt': FieldValue.serverTimestamp(),
+            });
+          }
+          await intentDoc.reference.update({'content': result});
+        }
+
+        Future<void> deleteIntent() async {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Delete this request?'),
+              content: Text(isLive
+                  ? 'This removes it from Common Room, Community Support, and this list.'
+                  : 'This removes it from your Past Intents list.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+                TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete')),
+              ],
+            ),
+          );
+          if (confirmed != true) return;
+          if (isLive) {
+            await FirebaseFirestore.instance.collection('community_posts').doc(postId).delete();
+          }
+          await intentDoc.reference.delete();
+        }
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: canExpand ? showExpanded : null,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isRealized ? Icons.check_circle : Icons.front_hand,
+                  color: isRealized ? Colors.greenAccent : Colors.amberAccent,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        content.isEmpty ? 'Request unavailable' : content,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.amberAccent, fontSize: 13),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        isLive ? '$dateLabel • Support taps: $supportCount' : '$dateLabel • Removed from feed',
+                        style: const TextStyle(color: Colors.white54, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: isRealized ? 'Mark as not yet realized' : 'Mark as realized/healed',
+                  onPressed: () => intentDoc.reference.update({'isRealized': !isRealized}),
+                  icon: Icon(
+                    isRealized ? Icons.check_circle : Icons.check_circle_outline,
+                    color: isRealized ? Colors.greenAccent : Colors.white70,
+                    size: 19,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Edit',
+                  onPressed: editIntent,
+                  icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 19),
+                ),
+                IconButton(
+                  tooltip: 'Delete',
+                  onPressed: deleteIntent,
+                  icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 19),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -745,6 +992,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         );
                       },
                     ),
+                    const SizedBox(height: 24),
+
+                    // Support Requests: kept separate from event-based Past Intents
+                    // deliberately, since the timing/expiry logic above is fragile
+                    // and support requests have nothing to do with events.
+                    _buildSupportIntentsSection(),
                     const SizedBox(height: 24),
 
                     // Favorites Section
