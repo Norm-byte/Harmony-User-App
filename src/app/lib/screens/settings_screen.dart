@@ -33,8 +33,6 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   late Future<int> _timeZoneUsersFuture;
   String _pastIntentFilter = '';
   String _supportIntentFilter = '';
-  bool _supportIntentsExpanded = false;
-  bool _pastIntentsExpanded = false;
 
   @override
   void initState() {
@@ -246,24 +244,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 ),
               )
             else
-              // A plain (non-scrollable) list, capped visually with a
-              // "Show more" toggle - two independently-scrollable Scrollables
-              // nested on this same screen fought for the drag gesture no
-              // matter how they were configured, so this avoids a second
-              // Scrollable entirely rather than trying to tame it further.
-              Column(
-                children: [
-                  for (final doc in (_supportIntentsExpanded ? visibleDocs : visibleDocs.take(3).toList()))
-                    _buildSupportIntentCard(doc),
-                  if (visibleDocs.length > 3)
-                    TextButton(
-                      onPressed: () => setState(() => _supportIntentsExpanded = !_supportIntentsExpanded),
-                      child: Text(
-                        _supportIntentsExpanded ? 'Show less' : 'Show all (${visibleDocs.length})',
-                        style: const TextStyle(color: Colors.amberAccent, fontSize: 12),
-                      ),
-                    ),
-                ],
+              // Fixed-height, independently-scrollable box. This is safe here
+              // because the outer container is now SingleChildScrollView, not
+              // ListView - a ListView-inside-ListView is what caused the lock;
+              // ListView-inside-SingleChildScrollView is a stable, common
+              // Flutter pattern.
+              SizedBox(
+                height: 264,
+                child: ListView.builder(
+                  padding: EdgeInsets.zero,
+                  itemCount: visibleDocs.length,
+                  itemBuilder: (context, index) => _buildSupportIntentCard(visibleDocs[index]),
+                ),
               ),
           ],
         );
@@ -481,8 +473,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             controller: _tabController,
             children: [
               // 1. My Profile Tab (User Experience)
-              ListView(
+              // SingleChildScrollView+Column, not ListView: this tab has many
+              // independent StreamBuilders, and ListView's continuous extent
+              // recalculation is what caused the scroll-to-bottom lock -
+              // measuring the whole page as one Column avoids that entirely.
+              SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
+                child: Column(
                 children: [
                    // Profile Header
                    const Center(
@@ -1015,68 +1012,60 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                 ),
                               )
                             else
-                              // A plain (non-scrollable) list, capped visually
-                              // with a "Show more" toggle - see the matching
-                              // note on the My Support Requests list above for
-                              // why this avoids a second Scrollable entirely.
-                              Column(
-                                children: [
-                                  for (final event in (_pastIntentsExpanded
-                                      ? visiblePastIntents
-                                      : visiblePastIntents.take(3).toList()))
-                                    Builder(builder: (context) {
-                                      final intent = (event['intent'] ?? 'No intent').toString();
-                                      final start = _registeredEventDate(
-                                        event['startTime'] ?? event['timestamp'],
-                                      );
-                                      final date = start == null
-                                          ? 'Date unavailable'
-                                          : DateFormat('MMM d, yyyy, h:mm a').format(start);
-                                      return Container(
-                                        margin: const EdgeInsets.only(bottom: 8),
-                                        padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.06),
-                                          borderRadius: BorderRadius.circular(12),
-                                          border: Border.all(color: Colors.white12),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            const Icon(Icons.history, color: Colors.amberAccent, size: 20),
-                                            const SizedBox(width: 10),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(intent, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.amberAccent, fontSize: 13)),
-                                                  const SizedBox(height: 2),
-                                                  Text(date, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                                                ],
-                                              ),
-                                            ),
-                                            IconButton(
-                                              tooltip: 'Edit past intent',
-                                              onPressed: () => _editPastIntent(event),
-                                              icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 19),
-                                            ),
-                                            IconButton(
-                                              tooltip: 'Delete past intent',
-                                              onPressed: () => _deletePastIntent(event),
-                                              icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 19),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }),
-                                  if (visiblePastIntents.length > 3)
-                                    TextButton(
-                                      onPressed: () => setState(() => _pastIntentsExpanded = !_pastIntentsExpanded),
-                                      child: Text(
-                                        _pastIntentsExpanded ? 'Show less' : 'Show all (${visiblePastIntents.length})',
-                                        style: const TextStyle(color: Colors.amberAccent, fontSize: 12),
+                              // Fixed-height, independently-scrollable box -
+                              // safe now the outer container is a
+                              // SingleChildScrollView, not a ListView.
+                              SizedBox(
+                                height: 264,
+                                child: ListView.builder(
+                                  padding: EdgeInsets.zero,
+                                  itemCount: visiblePastIntents.length,
+                                  itemBuilder: (context, index) {
+                                    final event = visiblePastIntents[index];
+                                    final intent = (event['intent'] ?? 'No intent').toString();
+                                    final start = _registeredEventDate(
+                                      event['startTime'] ?? event['timestamp'],
+                                    );
+                                    final date = start == null
+                                        ? 'Date unavailable'
+                                        : DateFormat('MMM d, yyyy, h:mm a').format(start);
+                                    return Container(
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.06),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.white12),
                                       ),
-                                    ),
-                                ],
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.history, color: Colors.amberAccent, size: 20),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(intent, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.amberAccent, fontSize: 13)),
+                                                const SizedBox(height: 2),
+                                                Text(date, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                              ],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Edit past intent',
+                                            onPressed: () => _editPastIntent(event),
+                                            icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 19),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Delete past intent',
+                                            onPressed: () => _deletePastIntent(event),
+                                            icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 19),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
                               ),
                           ],
                         );
@@ -1140,6 +1129,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       },
                     ),
                 ],
+                ),
               ),
 
               // 2. Settings Tab (Technical/Personal)
