@@ -177,13 +177,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 ),
               )
             else
-              SizedBox(
-                height: 220,
-                child: ListView.builder(
-                  padding: EdgeInsets.zero,
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) => _buildSupportIntentCard(docs[index]),
-                ),
+              // Plain Column, not a nested ListView: the outer My Profile tab
+              // is already one continuous ListView, and a scrollable ListView
+              // nested inside it can steal/lock the outer scroll gesture.
+              Column(
+                children: [
+                  for (final doc in docs) _buildSupportIntentCard(doc),
+                ],
               ),
           ],
         );
