@@ -2666,6 +2666,67 @@ exports.cleanupExpiredCommunityFeedImages = functions.pubsub
         return null;
     });
 
+// Whole-post retention: separate from the image-only cleanup above. Reads
+// app_config/community_settings.postRetentionDays (shared with the admin
+// Live Feed + Community Support tab dropdowns). A post is skipped while
+// isModerated == true (active dispute), and admin can give a resolved
+// "Leave active" post a fresh window via retentionAnchorAt, set from the
+// moderation decision dialog.
+exports.cleanupExpiredCommunityPosts = functions.pubsub
+    .schedule('every 6 hours')
+    .timeZone('UTC')
+    .onRun(async () => {
+        const db = admin.firestore();
+        const settingsSnap = await db
+            .collection('app_config')
+            .doc('community_settings')
+            .get();
+        const retentionDays = Number(settingsSnap.exists
+            ? settingsSnap.data().postRetentionDays
+            : 30) || 30;
+        const cutoffMillis = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+        const cutoffTs = admin.firestore.Timestamp.fromMillis(cutoffMillis);
+
+        const querySnap = await db
+            .collection('community_posts')
+            .where('timestamp', '<=', cutoffTs)
+            .limit(250)
+            .get();
+
+        if (querySnap.empty) {
+            return null;
+        }
+
+        const batch = db.batch();
+        let deletedCount = 0;
+
+        querySnap.docs.forEach((doc) => {
+            const data = doc.data() || {};
+            if (data.isModerated === true) {
+                return; // paused while under active dispute
+            }
+            const anchor = data.retentionAnchorAt || data.timestamp;
+            if (anchor && anchor.toMillis() > cutoffMillis) {
+                return; // admin gave this post a fresh retention window
+            }
+            batch.delete(doc.ref);
+            deletedCount += 1;
+        });
+
+        if (deletedCount === 0) {
+            return null;
+        }
+
+        await batch.commit();
+        console.log('[community_cleanup] posts_removed', {
+            scanned: querySnap.size,
+            deletedCount,
+            retentionDays,
+        });
+
+        return null;
+    });
+
 exports.checkYoutubeEmbeddable = functions.runWith({ secrets: ['YOUTUBE_API_KEY'] }).https.onCall(async (data, context) => {
     if (!context.auth || !context.auth.uid) {
         throw new functions.https.HttpsError('unauthenticated', 'You must be signed in.');

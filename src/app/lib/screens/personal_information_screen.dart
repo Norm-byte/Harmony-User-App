@@ -111,13 +111,13 @@ class _PersonalInformationScreenState extends State<PersonalInformationScreen> {
           const SizedBox(height: 12),
           _buildSettingsTile(
             icon: Icons.info_outline,
-            title: 'About',
+            title: 'FAQs',
             subtitle: 'Learn more about Harmony by Intent',
             onTap: () {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const LegalDocumentScreen(title: 'About', docId: 'about'),
+                  builder: (context) => const LegalDocumentScreen(title: 'FAQs', docId: 'about'),
                 ),
               );
             },
