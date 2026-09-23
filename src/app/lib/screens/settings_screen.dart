@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/event.dart';
 import '../services/favorites_service.dart';
 import '../services/group_service.dart';
@@ -33,6 +34,71 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   late Future<int> _timeZoneUsersFuture;
   String _pastIntentFilter = '';
   String _supportIntentFilter = '';
+
+  Future<void> _addIntentFromMyIntents(BuildContext context) async {
+    final eventService = context.read<EventService>();
+    final events = eventService.visibleNoticeboardEvents;
+    if (events.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('There are no active intent time slots available right now.')),
+      );
+      return;
+    }
+
+    Event selectedEvent = events.first;
+    final intentController = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Add an intent'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<Event>(
+                initialValue: selectedEvent,
+                decoration: const InputDecoration(labelText: 'Choose a time slot'),
+                items: events.map((event) => DropdownMenuItem(
+                  value: event,
+                  child: Text('${event.title} • ${DateFormat('MMM d, h:mm a').format(event.startTime.toLocal())}', overflow: TextOverflow.ellipsis),
+                )).toList(),
+                onChanged: (event) => event == null ? null : setDialogState(() => selectedEvent = event),
+              ),
+              TextField(
+                controller: intentController,
+                maxLines: 2,
+                decoration: const InputDecoration(labelText: 'Your intent'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.pop(dialogContext, intentController.text.trim()), child: const Text('Add intent')),
+          ],
+        ),
+      ),
+    );
+    final intent = result?.trim() ?? '';
+    intentController.dispose();
+    if (intent.isEmpty || !context.mounted) return;
+
+    final joinResult = await eventService.joinEvent(
+      selectedEvent.id,
+      selectedEvent.title,
+      intent,
+      selectedEvent.type,
+      selectedEvent.startTime,
+      selectedEvent.endTime,
+      visibilityAfterMinutes: selectedEvent.visibilityAfterMinutes ?? 0,
+    );
+    if (!context.mounted) return;
+    if (joinResult.startsWith('Success')) {
+      await SharePlus.instance.share(ShareParams(
+        text: 'Join me for "${selectedEvent.title}" on Harmony by Intent at ${DateFormat('HH:mm').format(selectedEvent.startTime.toLocal())}.',
+      ));
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(joinResult.startsWith('Success') ? 'Intent added' : joinResult)));
+  }
 
   @override
   void initState() {
@@ -844,7 +910,16 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('My Intents (${activeEvents.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                            Row(
+                              children: [
+                                Expanded(child: Text('My Intents (${activeEvents.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white))),
+                                TextButton.icon(
+                                  onPressed: () => _addIntentFromMyIntents(context),
+                                  icon: const Icon(Icons.add, size: 17),
+                                  label: const Text('Add intent'),
+                                ),
+                              ],
+                            ),
                             
                             const SizedBox(height: 12),
                             if (activeEvents.isEmpty)
