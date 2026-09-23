@@ -26,24 +26,26 @@ class EventsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final eventService = Provider.of<EventService>(context);
     final events = eventService.visibleNoticeboardEvents;
-    return StreamBuilder<_CardSnapshot>(
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('app_config')
           .doc('noticeboard_studio')
-          .snapshots()
-          .asyncMap((config) async {
-            final enabled = config.data()?['enableNoticeboardStudioFeed'] == true;
-            if (!enabled) return const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-            final cards = await FirebaseFirestore.instance
-                .collection('noticeboard_studio_cards')
-                .limit(25)
-                .get();
-            return cards.docs.where((doc) => doc.data()['published'] == true).toList();
-          })
-          .asBroadcastStream()
-          .map((cards) => _CardSnapshot(cards)),
+          .snapshots(),
       builder: (context, snapshot) {
-        final cards = snapshot.data?.cards ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        final enabled = snapshot.data?.data()?['enableNoticeboardStudioFeed'] == true;
+        if (!enabled) return _buildEventsList(context, events, const []);
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance.collection('noticeboard_studio_cards').limit(25).snapshots(),
+          builder: (context, cardSnapshot) {
+            final cards = cardSnapshot.data?.docs.where((doc) => doc.data()['published'] == true).toList() ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+            return _buildEventsList(context, events, cards);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildEventsList(BuildContext context, List<Event> events, List<QueryDocumentSnapshot<Map<String, dynamic>>> cards) {
         if (events.isEmpty && cards.isEmpty) {
           return const Center(child: Text('No active notice boards found.', style: TextStyle(color: Colors.white70)));
         }
@@ -54,8 +56,6 @@ class EventsScreen extends StatelessWidget {
             for (final event in events) _buildEventCard(context, event),
           ],
         );
-      },
-    );
   }
 
   Widget _buildStudioCard(BuildContext context, Map<String, dynamic> data) {
@@ -759,11 +759,6 @@ class EventsScreen extends StatelessWidget {
   }
 }
 
-class _CardSnapshot {
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> cards;
-
-  const _CardSnapshot(this.cards);
-}
 
 class _WorldwideUserTotal extends StatelessWidget {
   @override
