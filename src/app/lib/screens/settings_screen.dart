@@ -696,7 +696,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                      }),
                     const SizedBox(height: 24),
 
-                    // My Events (Scrollable Cards)
+                    // My Intents (Scrollable Cards)
                     Consumer2<EventService, UserService>(
                       builder: (context, eventService, userService, _) {
                         final now = DateTime.now();
@@ -844,7 +844,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('My Events', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                            Text('My Intents (${activeEvents.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                             
                             const SizedBox(height: 12),
                             if (activeEvents.isEmpty)
@@ -855,7 +855,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                    color: Colors.white.withValues(alpha: 0.1),
                                    borderRadius: BorderRadius.circular(12),
                                  ),
-                                 child: const Text("You haven't joined any active events.", style: TextStyle(color: Colors.white54)),
+                                 child: const Text("You haven't added any active intents.", style: TextStyle(color: Colors.white54)),
                                )
                             else
                                SizedBox(
@@ -935,9 +935,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                             const SizedBox(height: 18),
                             Row(
                               children: [
-                                const Text(
-                                  'Past Intents',
-                                  style: TextStyle(
+                                  Text(
+                                    'Past Intents (${pastIntents.length})',
+                                    style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
