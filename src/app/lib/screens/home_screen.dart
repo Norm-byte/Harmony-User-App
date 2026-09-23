@@ -80,9 +80,10 @@ class _HomeScreenState extends State<HomeScreen> {
       final snapshot = await FirebaseFirestore.instance
           .collection('app_config')
           .doc('noticeboard_studio')
-          .get();
+          .get(const GetOptions(source: Source.server));
       if (!mounted) return;
       final hideEvents = snapshot.data()?['hideLegacyEventsTab'] == true;
+        debugPrint('HARMONY_NOTICEBOARD_CONFIG_INITIAL hideLegacyEventsTab=$hideEvents');
       setState(() {
         _hideLegacyEventsTab = hideEvents;
         if (hideEvents && _selectedIndex == 1) _selectedIndex = 0;
