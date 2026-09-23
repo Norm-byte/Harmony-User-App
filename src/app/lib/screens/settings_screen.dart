@@ -503,7 +503,15 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                    // Social Stats (My Impact)
                    Consumer<EventService>(
                      builder: (context, eventService, _) {
-                       return Card(
+                       final userId = UserService().userId;
+                       return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                         stream: userId.isEmpty
+                             ? null
+                             : FirebaseFirestore.instance.collection('users').doc(userId).snapshots(),
+                         builder: (context, userSnapshot) {
+                           final thumbprintCount =
+                               (userSnapshot.data?.data()?['thumbprintTapCount'] as num?)?.toInt() ?? 0;
+                           return Card(
                           elevation: 4,
                           color: Colors.white.withValues(alpha: 0.1),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -520,7 +528,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                                   children: [
-                                    _buildStatItem('Intents Added', '${eventService.myEvents.length}'), 
+                                    _buildStatItem('Intents Added', '${eventService.myEvents.length}'),
+                                    _buildStatItem('Thumbprints Tapped', '$thumbprintCount'),
                                     _buildTimeZoneUsersStatItem(),
                                     _buildTotalUsersStatItem(),
                                   ],
@@ -547,7 +556,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                               ],
                             ),
                           ),
-                        );
+                           );
+                         },
+                       );
                      }
                    ),
                     const SizedBox(height: 24),

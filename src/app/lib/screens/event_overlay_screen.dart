@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/user_service.dart';
 import '../widgets/media/content_viewer.dart';
@@ -16,6 +17,10 @@ class EventOverlayScreen extends StatelessWidget {
   final String? eventId;
   final int participantCount;
   final String? originTimeZone;
+  final bool isThumbprintEvent;
+  final String? thumbprintGlowColor;
+  final String? thankYouTitle;
+  final String? thankYouBody;
   final VoidCallback onDismiss;
 
   const EventOverlayScreen({
@@ -28,6 +33,10 @@ class EventOverlayScreen extends StatelessWidget {
     this.eventId,
     this.participantCount = 0,
     this.originTimeZone,
+    this.isThumbprintEvent = false,
+    this.thumbprintGlowColor,
+    this.thankYouTitle,
+    this.thankYouBody,
     required this.onDismiss,
   });
 
@@ -99,7 +108,15 @@ class EventOverlayScreen extends StatelessWidget {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.center,
-                          children: const [],
+                          children: [
+                            if (isThumbprintEvent)
+                              _ThumbprintSurface(
+                                eventId: eventId,
+                                glowColor: thumbprintGlowColor,
+                                thankYouTitle: thankYouTitle,
+                                thankYouBody: thankYouBody,
+                              ),
+                          ],
                         ),
                       ),
                     ),
@@ -149,6 +166,118 @@ class EventOverlayScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ThumbprintSurface extends StatefulWidget {
+  final String? eventId;
+  final String? glowColor;
+  final String? thankYouTitle;
+  final String? thankYouBody;
+
+  const _ThumbprintSurface({
+    required this.eventId,
+    required this.glowColor,
+    required this.thankYouTitle,
+    required this.thankYouBody,
+  });
+
+  @override
+  State<_ThumbprintSurface> createState() => _ThumbprintSurfaceState();
+}
+
+class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
+  bool _pressed = false;
+  bool _saving = false;
+
+  Color _glow() {
+    final raw = (widget.glowColor ?? '').replaceAll('#', '').trim();
+    final value = int.tryParse(raw.length == 6 ? 'FF$raw' : raw, radix: 16);
+    return value == null ? Colors.amberAccent : Color(value);
+  }
+
+  Future<void> _tap() async {
+    if (_saving || _pressed || (widget.eventId ?? '').trim().isEmpty) return;
+    setState(() {
+      _saving = true;
+      _pressed = true;
+    });
+    await HapticFeedback.heavyImpact();
+    try {
+      final ref = FirebaseFirestore.instance
+          .collection('event_live_viewers')
+          .doc(widget.eventId!.trim());
+      final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(ref);
+        final current = (snapshot.data()?['thumbprintCount'] as num?)?.toInt() ?? 0;
+        transaction.set(ref, {
+          'thumbprintCount': current + 1,
+          'thumbprintCountUpdatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        if (userId.isNotEmpty) {
+          transaction.set(
+            FirebaseFirestore.instance.collection('users').doc(userId),
+            {'thumbprintTapCount': FieldValue.increment(1)},
+            SetOptions(merge: true),
+          );
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _pressed = false);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final glow = _glow();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: _tap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            width: 190,
+            height: 190,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.black.withValues(alpha: 0.24),
+              border: Border.all(color: glow, width: _pressed ? 5 : 2),
+              boxShadow: [
+                BoxShadow(
+                  color: glow.withValues(alpha: _pressed ? 0.9 : 0.55),
+                  blurRadius: _pressed ? 48 : 30,
+                  spreadRadius: _pressed ? 18 : 10,
+                ),
+              ],
+            ),
+            child: Icon(Icons.fingerprint, size: 112, color: glow),
+          ),
+        ),
+        const SizedBox(height: 18),
+        Text(
+          _pressed
+              ? (widget.thankYouTitle?.trim().isNotEmpty == true ? widget.thankYouTitle! : 'Thank you')
+              : 'Tap and hold your intention',
+          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
+        ),
+        if (_pressed)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              widget.thankYouBody?.trim().isNotEmpty == true
+                  ? widget.thankYouBody!
+                  : 'Your intent has joined this shared moment.',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
+          ),
+      ],
     );
   }
 }

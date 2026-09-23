@@ -22,6 +22,8 @@ class EventService extends ChangeNotifier {
   );
   StreamSubscription? _eventsSubscription;
   StreamSubscription? _globalEventsSubscription;
+  StreamSubscription? _livingCanvasSubscription;
+  StreamSubscription? _livingCanvasConfigSubscription;
   StreamSubscription? _myEventsSubscription;
   Timer? _timer;
   Timer? _dismissTimer; // Hard stop timer
@@ -42,6 +44,7 @@ class EventService extends ChangeNotifier {
   List<Event> _events = [];
   List<Event> _nationalEvents = [];
   List<Event> _globalEvents = [];
+  List<Event> _livingCanvasEvents = [];
   List<Event> get events => _events;
   bool get hasLoadedEventSources =>
       _hasLoadedNationalDocs && _hasLoadedGlobalDocs;
@@ -261,6 +264,10 @@ class EventService extends ChangeNotifier {
   String? _currentEventId; // Track ID for dismissal logic
   int _currentEventParticipantCount = 0;
   String? _currentEventOriginTimeZone;
+  bool _currentEventIsThumbprint = false;
+  String? _currentThumbprintGlowColor;
+  String? _currentThankYouTitle;
+  String? _currentThankYouBody;
   DateTime? _currentEventStartTime; // Track Start Time for valid dismissal key
   DateTime? _currentEventEndTime; // Track End Time for auto-dismissal
   final Duration _eventGracePeriod = const Duration(
@@ -280,6 +287,10 @@ class EventService extends ChangeNotifier {
   String? get currentEventId => _currentEventId;
   int get currentEventParticipantCount => _currentEventParticipantCount;
   String? get currentEventOriginTimeZone => _currentEventOriginTimeZone;
+  bool get currentEventIsThumbprint => _currentEventIsThumbprint;
+  String? get currentThumbprintGlowColor => _currentThumbprintGlowColor;
+  String? get currentThankYouTitle => _currentThankYouTitle;
+  String? get currentThankYouBody => _currentThankYouBody;
 
   void setAppInForegroundState(bool isForeground) {
     _isAppInForeground = isForeground;
@@ -407,6 +418,8 @@ class EventService extends ChangeNotifier {
 
   List<QueryDocumentSnapshot> _nationalDocs = [];
   List<QueryDocumentSnapshot> _globalDocs = [];
+  List<QueryDocumentSnapshot> _livingCanvasDocs = [];
+  bool _livingCanvasEnabled = false;
 
   // Track current subscribed ID to prevent unnecessary reconnections
   String? _currentListenedUserId;
@@ -479,6 +492,23 @@ class EventService extends ChangeNotifier {
             print("Error listening to global events: $e");
           },
         );
+
+    _livingCanvasConfigSubscription = _firestore
+        .collection('app_config')
+        .doc('living_canvas')
+        .snapshots()
+        .listen((snapshot) {
+          _livingCanvasEnabled = snapshot.data()?['isThumbprintModeActive'] == true;
+          _refreshEvents();
+        });
+    _livingCanvasSubscription = _firestore
+        .collection('living_canvas_slots')
+        .where('published', isEqualTo: true)
+        .snapshots()
+        .listen((snapshot) {
+          _livingCanvasDocs = snapshot.docs;
+          _refreshEvents();
+        });
   }
 
   void _listenToMyEvents(String userId) {
@@ -531,6 +561,9 @@ class EventService extends ChangeNotifier {
       overrideType: EventType.national,
     );
     _globalEvents = _processDocs(_globalDocs, overrideType: EventType.global);
+    _livingCanvasEvents = _livingCanvasEnabled
+      ? _processLivingCanvasDocs(_livingCanvasDocs)
+      : const [];
     _mergeEvents();
   }
 
@@ -818,7 +851,11 @@ class EventService extends ChangeNotifier {
 
   void _mergeEvents() {
     final oldEvents = [..._events];
-    _events = _dedupeNationalEvents([..._nationalEvents, ..._globalEvents]);
+    _events = _dedupeNationalEvents([
+      ..._nationalEvents,
+      ..._globalEvents,
+      ..._livingCanvasEvents,
+    ]);
     _events.sort((a, b) => a.startTime.compareTo(b.startTime));
 
     // Only notify if the list actually changed to avoid unnecessary rebuilds
@@ -1132,6 +1169,39 @@ class EventService extends ChangeNotifier {
     return processedEvents;
   }
 
+  List<Event> _processLivingCanvasDocs(List<QueryDocumentSnapshot> docs) {
+    final now = DateTime.now();
+    final events = <Event>[];
+    for (final doc in docs) {
+      final data = Map<String, dynamic>.from(doc.data() as Map<String, dynamic>);
+      final startRaw = data['startTimeUTC'];
+      final start = startRaw is String ? DateTime.tryParse(startRaw) : null;
+      if (start == null) continue;
+      final duration = (data['durationSeconds'] as num?)?.toInt() ?? 30;
+      final end = start.add(Duration(seconds: duration.clamp(1, 3600)));
+      if (now.isAfter(end)) continue;
+      final scope = (data['canvasScope'] as String?) ?? 'national';
+      events.add(Event.fromJson({
+        ...data,
+        'id': doc.id,
+        'title': data['title'] ?? 'Living Canvas',
+        'description': data['thankYouBody'] ?? '',
+        'startTimeUTC': start.toIso8601String(),
+        'endTime': end.toIso8601String(),
+        'durationSeconds': duration,
+        'type': scope == 'international' ? 'global' : 'national',
+        'isPublished': true,
+        'isThumbprintEvent': true,
+        'visualUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
+        'mediaUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
+        'originTimeZone': data['originTimeZone'],
+        'noticeBoardShowBeforeMinutes': 0,
+        'showBeforeMinutes': 0,
+      }));
+    }
+    return events;
+  }
+
   DateTime _getNextOccurrence(
     DateTime start,
     String recurrenceType,
@@ -1173,6 +1243,8 @@ class EventService extends ChangeNotifier {
     _alarmLaunchTransitionTimer?.cancel();
     _eventsSubscription?.cancel();
     _globalEventsSubscription?.cancel();
+    _livingCanvasSubscription?.cancel();
+    _livingCanvasConfigSubscription?.cancel();
     _myEventsSubscription?.cancel();
     super.dispose();
   }
@@ -1400,6 +1472,10 @@ class EventService extends ChangeNotifier {
         // We do NOT pass endTime to trigger anymore to avoid confusion. Logic is purely duration based.
         // endTime: bestEventToTrigger.endTime.toLocal(),
         durationSeconds: bestEventToTrigger.durationSeconds,
+        isThumbprintEvent: bestEventToTrigger.isThumbprintEvent,
+        thumbprintGlowColor: bestEventToTrigger.thumbprintGlowColor,
+        thankYouTitle: bestEventToTrigger.thankYouTitle,
+        thankYouBody: bestEventToTrigger.thankYouBody,
       );
     }
   }
@@ -1417,6 +1493,10 @@ class EventService extends ChangeNotifier {
     String? originTimeZone,
     // DateTime? endTime, // REMOVED to prevent accidental usage
     int? durationSeconds,
+    bool isThumbprintEvent = false,
+    String? thumbprintGlowColor,
+    String? thankYouTitle,
+    String? thankYouBody,
   }) {
     final effectiveFromAlarmLaunch =
         fromAlarmLaunch || (id != null && id == _lastKnownAlarmLaunchEventId);
@@ -1461,6 +1541,10 @@ class EventService extends ChangeNotifier {
     _currentEventMediaUrl = mediaUrl;
     _currentEventParticipantCount = participantCount;
     _currentEventOriginTimeZone = originTimeZone;
+    _currentEventIsThumbprint = isThumbprintEvent;
+    _currentThumbprintGlowColor = thumbprintGlowColor;
+    _currentThankYouTitle = thankYouTitle;
+    _currentThankYouBody = thankYouBody;
     _currentEventFromAlarmLaunch = effectiveFromAlarmLaunch;
 
     if (effectiveFromAlarmLaunch && id != null) {
@@ -1577,6 +1661,10 @@ class EventService extends ChangeNotifier {
     _currentEventId = null;
     _currentEventParticipantCount = 0;
     _currentEventOriginTimeZone = null;
+    _currentEventIsThumbprint = false;
+    _currentThumbprintGlowColor = null;
+    _currentThankYouTitle = null;
+    _currentThankYouBody = null;
     _currentEventEndTime = null;
     _currentEventStartTime = null;
     _currentEventFromAlarmLaunch = false;

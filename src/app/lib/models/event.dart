@@ -33,6 +33,10 @@ class Event {
   final DateTime? updatedAt;
   final bool isPublished; // Added to filter drafts
   final int? durationSeconds; // Added for guaranteed playback duration
+  final bool isThumbprintEvent;
+  final String? thumbprintGlowColor;
+  final String? thankYouTitle;
+  final String? thankYouBody;
 
   Event({
     required this.id,
@@ -63,6 +67,10 @@ class Event {
     this.updatedAt,
     this.isPublished = true,
     this.durationSeconds,
+    this.isThumbprintEvent = false,
+    this.thumbprintGlowColor,
+    this.thankYouTitle,
+    this.thankYouBody,
   });
 
   factory Event.fromJson(Map<String, dynamic> json) {
@@ -128,6 +136,10 @@ class Event {
       endTime: end,
       durationSeconds:
           durationSecs, // Explicitly use the calculated/validated integer
+        isThumbprintEvent: json['isThumbprintEvent'] == true,
+        thumbprintGlowColor: json['thumbprintGlowColor'],
+        thankYouTitle: json['thankYouTitle'],
+        thankYouBody: json['thankYouBody'],
       imageUrl:
           json['visualUrl'] ??
           json['imageUrl'] ??
@@ -222,6 +234,10 @@ class Event {
       updatedAt: updatedAt,
       isPublished: isPublished,
       durationSeconds: durationSeconds,
+      isThumbprintEvent: isThumbprintEvent,
+      thumbprintGlowColor: thumbprintGlowColor,
+      thankYouTitle: thankYouTitle,
+      thankYouBody: thankYouBody,
     );
   }
 
