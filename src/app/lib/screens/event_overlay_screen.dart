@@ -432,8 +432,6 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
         final showFlags = data['statsShowTimezoneFlags'] == true;
         final adjustment =
           (data['eventLiveViewerAdjustment'] as num?)?.toInt() ?? 0;
-        final thumbprintAdjustment =
-            (data['thumbprintCountAdjustment'] as num?)?.toInt() ?? 0;
 
         final alignment =
           position == 'right' ? Alignment.bottomRight : Alignment.bottomLeft;
@@ -457,7 +455,7 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '${_liveViewers + adjustment + _thumbprintCount + thumbprintAdjustment} live viewers',
+                    '${_liveViewers + adjustment + _thumbprintCount} live viewers',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
