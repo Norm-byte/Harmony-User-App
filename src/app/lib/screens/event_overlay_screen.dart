@@ -171,6 +171,7 @@ class _OverlayLiveStatsLayer extends StatefulWidget {
 class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
   Timer? _timer;
   int _liveViewers = 0;
+  int _thumbprintCount = 0;
   List<String> _activeFlags = const [];
   List<String> _activeZones = const [];
   String? _presenceSessionId;
@@ -218,6 +219,13 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
 
     try {
       await _heartbeatPresence(id);
+
+        final eventCounter = await FirebaseFirestore.instance
+          .collection('event_live_viewers')
+          .doc(id)
+          .get();
+        final thumbprintCount =
+          (eventCounter.data()?['thumbprintCount'] as num?)?.toInt() ?? 0;
 
       final cutoff = DateTime.now().subtract(const Duration(seconds: 15));
       final active = await FirebaseFirestore.instance
@@ -267,6 +275,7 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
       if (!mounted) return;
       setState(() {
         _liveViewers = realActiveSessions.length;
+          _thumbprintCount = thumbprintCount;
         _activeFlags = nextFlags;
         _activeZones = nextZones;
       });
@@ -274,6 +283,7 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
       if (!mounted) return;
       setState(() {
         _liveViewers = 0;
+          _thumbprintCount = 0;
         _activeFlags = const [];
         _activeZones = const [];
       });
@@ -422,6 +432,8 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
         final showFlags = data['statsShowTimezoneFlags'] == true;
         final adjustment =
           (data['eventLiveViewerAdjustment'] as num?)?.toInt() ?? 0;
+        final thumbprintAdjustment =
+            (data['thumbprintCountAdjustment'] as num?)?.toInt() ?? 0;
 
         final alignment =
           position == 'right' ? Alignment.bottomRight : Alignment.bottomLeft;
@@ -445,7 +457,7 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '${_liveViewers + adjustment} live viewers',
+                    '${_liveViewers + adjustment + _thumbprintCount + thumbprintAdjustment} live viewers',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
