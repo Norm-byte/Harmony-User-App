@@ -48,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _lastAudioShouldPlayHome = true;
   bool _hideLegacyEventsTab = false;
   bool _enableNoticeboardStudioFeed = false;
+  Timer? _noticeboardConfigPollTimer;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _noticeboardConfigSubscription;
   EventService? _eventService;
 
@@ -60,6 +61,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     _handleCommunityNotificationTarget();
     unawaited(_loadNoticeboardVisibility());
+    _noticeboardConfigPollTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => unawaited(_loadNoticeboardVisibility()),
+    );
     _noticeboardConfigSubscription = FirebaseFirestore.instance
         .collection('app_config')
         .doc('noticeboard_studio')
@@ -114,6 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _eventService?.removeListener(_handleEventServiceChanged);
     _noticeboardConfigSubscription?.cancel();
+    _noticeboardConfigPollTimer?.cancel();
     _eventService = currentEventService;
     _eventService?.addListener(_handleEventServiceChanged);
   }
