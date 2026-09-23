@@ -24,6 +24,7 @@ class EventService extends ChangeNotifier {
   StreamSubscription? _globalEventsSubscription;
   StreamSubscription? _livingCanvasSubscription;
   StreamSubscription? _livingCanvasConfigSubscription;
+  StreamSubscription? _noticeboardConfigSubscription;
   StreamSubscription? _myEventsSubscription;
   Timer? _timer;
   Timer? _dismissTimer; // Hard stop timer
@@ -420,6 +421,8 @@ class EventService extends ChangeNotifier {
   List<QueryDocumentSnapshot> _globalDocs = [];
   List<QueryDocumentSnapshot> _livingCanvasDocs = [];
   bool _livingCanvasEnabled = false;
+  bool _hideLegacyEventsTab = false;
+  bool get hideLegacyEventsTab => _hideLegacyEventsTab;
 
   // Track current subscribed ID to prevent unnecessary reconnections
   String? _currentListenedUserId;
@@ -500,6 +503,15 @@ class EventService extends ChangeNotifier {
         .listen((snapshot) {
           _livingCanvasEnabled = snapshot.data()?['isThumbprintModeActive'] == true;
           _refreshEvents();
+        });
+    _noticeboardConfigSubscription = _firestore
+        .collection('app_config')
+        .doc('noticeboard_studio')
+        .snapshots()
+        .listen((snapshot) {
+          _hideLegacyEventsTab = snapshot.data()?['hideLegacyEventsTab'] == true;
+          debugPrint('HARMONY_NOTICEBOARD_CONFIG_SERVICE hideLegacyEventsTab=$_hideLegacyEventsTab');
+          notifyListeners();
         });
     _livingCanvasSubscription = _firestore
         .collection('living_canvas_slots')
@@ -1245,6 +1257,7 @@ class EventService extends ChangeNotifier {
     _globalEventsSubscription?.cancel();
     _livingCanvasSubscription?.cancel();
     _livingCanvasConfigSubscription?.cancel();
+    _noticeboardConfigSubscription?.cancel();
     _myEventsSubscription?.cancel();
     super.dispose();
   }

@@ -117,6 +117,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final eventService = _eventService;
     if (eventService == null) return;
 
+    if (mounted) {
+      setState(() {
+        if (eventService.hideLegacyEventsTab && _selectedIndex == 1) {
+          _selectedIndex = 0;
+        }
+      });
+    }
+
     final shouldPauseHome = eventService.isEventActive;
     if (shouldPauseHome && _backgroundAudioController?.value.isInitialized == true) {
       unawaited(_backgroundAudioController?.pause());
@@ -399,7 +407,9 @@ class _HomeScreenState extends State<HomeScreen> {
       muted: _isBackgroundAudioMuted,
     );
 
-    final visibleNavigationIndex = _hideLegacyEventsTab
+    final hideLegacyEventsTab = _hideLegacyEventsTab ||
+      (_eventService?.hideLegacyEventsTab ?? false);
+    final visibleNavigationIndex = hideLegacyEventsTab
       ? (_selectedIndex == 0 ? 0 : _selectedIndex - 1)
       : _selectedIndex;
     return GradientScaffold(
@@ -463,7 +473,7 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: visibleNavigationIndex,
         onTap: (index) => unawaited(
-          _onTabTapped(_hideLegacyEventsTab && index >= 1 ? index + 1 : index),
+          _onTabTapped(hideLegacyEventsTab && index >= 1 ? index + 1 : index),
         ),
         selectedItemColor:
             Colors.amber, // Changed to Amber for better contrast on dark
@@ -475,7 +485,7 @@ class _HomeScreenState extends State<HomeScreen> {
             BottomNavigationBarType.fixed, // Added to support 4 items properly
         items: [
           const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          if (!_hideLegacyEventsTab)
+          if (!hideLegacyEventsTab)
             const BottomNavigationBarItem(icon: Icon(Icons.event), label: 'Events'),
           const BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Community'),
           const BottomNavigationBarItem(
