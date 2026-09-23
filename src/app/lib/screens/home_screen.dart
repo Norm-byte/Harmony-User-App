@@ -409,9 +409,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final hideLegacyEventsTab = _hideLegacyEventsTab ||
       (_eventService?.hideLegacyEventsTab ?? false);
-    final visibleNavigationIndex = hideLegacyEventsTab
-      ? (_selectedIndex == 0 ? 0 : _selectedIndex - 1)
-      : _selectedIndex;
     return GradientScaffold(
       appBar: AppBar(
         title: Text(appBarTitle),
@@ -470,33 +467,37 @@ class _HomeScreenState extends State<HomeScreen> {
           const SettingsScreen(),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: visibleNavigationIndex,
-        onTap: (index) => unawaited(
-          _onTabTapped(hideLegacyEventsTab && index >= 1 ? index + 1 : index),
-        ),
-        selectedItemColor:
-            Colors.amber, // Changed to Amber for better contrast on dark
-        unselectedItemColor: Colors.white70,
-        backgroundColor: Colors.black.withOpacity(
-          0.3,
-        ), // Semi-transparent nav bar
-        type:
-            BottomNavigationBarType.fixed, // Added to support 4 items properly
-        items: [
-          const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          if (!hideLegacyEventsTab)
-            const BottomNavigationBarItem(icon: Icon(Icons.event), label: 'Events'),
-          const BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Community'),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.lightbulb_outline),
-            label: 'Topics',
-          ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'My Harmony',
-          ),
-        ],
+      bottomNavigationBar: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('app_config')
+            .doc('noticeboard_studio')
+            .snapshots(),
+        builder: (context, configSnapshot) {
+          final hideFromConfig =
+              configSnapshot.data?.data()?['hideLegacyEventsTab'] == true;
+          final hideEvents = hideLegacyEventsTab || hideFromConfig;
+          final navIndex = hideEvents
+              ? (_selectedIndex == 0 ? 0 : _selectedIndex - 1)
+              : _selectedIndex;
+          return BottomNavigationBar(
+            currentIndex: navIndex,
+            onTap: (index) => unawaited(
+              _onTabTapped(hideEvents && index >= 1 ? index + 1 : index),
+            ),
+            selectedItemColor: Colors.amber,
+            unselectedItemColor: Colors.white70,
+            backgroundColor: Colors.black.withOpacity(0.3),
+            type: BottomNavigationBarType.fixed,
+            items: [
+              const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+              if (!hideEvents)
+                const BottomNavigationBarItem(icon: Icon(Icons.event), label: 'Events'),
+              const BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Community'),
+              const BottomNavigationBarItem(icon: Icon(Icons.lightbulb_outline), label: 'Topics'),
+              const BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'My Harmony'),
+            ],
+          );
+        },
       ),
     );
   }
