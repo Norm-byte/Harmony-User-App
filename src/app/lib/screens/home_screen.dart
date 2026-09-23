@@ -58,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _handleCommunityNotificationTarget,
     );
     _handleCommunityNotificationTarget();
+    unawaited(_loadNoticeboardVisibility());
     _noticeboardConfigSubscription = FirebaseFirestore.instance
         .collection('app_config')
         .doc('noticeboard_studio')
@@ -69,7 +70,26 @@ class _HomeScreenState extends State<HomeScreen> {
             _hideLegacyEventsTab = hideEvents;
             if (hideEvents && _selectedIndex == 1) _selectedIndex = 0;
           });
+        }, onError: (Object error) {
+          debugPrint('HARMONY_NOTICEBOARD_CONFIG: $error');
         });
+  }
+
+  Future<void> _loadNoticeboardVisibility() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('app_config')
+          .doc('noticeboard_studio')
+          .get();
+      if (!mounted) return;
+      final hideEvents = snapshot.data()?['hideLegacyEventsTab'] == true;
+      setState(() {
+        _hideLegacyEventsTab = hideEvents;
+        if (hideEvents && _selectedIndex == 1) _selectedIndex = 0;
+      });
+    } catch (error) {
+      debugPrint('HARMONY_NOTICEBOARD_CONFIG_INITIAL: $error');
+    }
   }
 
   void _handleCommunityNotificationTarget() {
