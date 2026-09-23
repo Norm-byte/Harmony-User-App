@@ -46,6 +46,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _speakerButtonPressed = false;
   bool _audioPreferenceLoaded = false;
   bool _lastAudioShouldPlayHome = true;
+  bool _hideLegacyEventsTab = false;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _noticeboardConfigSubscription;
   EventService? _eventService;
 
   @override
@@ -56,6 +58,18 @@ class _HomeScreenState extends State<HomeScreen> {
       _handleCommunityNotificationTarget,
     );
     _handleCommunityNotificationTarget();
+    _noticeboardConfigSubscription = FirebaseFirestore.instance
+        .collection('app_config')
+        .doc('noticeboard_studio')
+        .snapshots()
+        .listen((snapshot) {
+          final hideEvents = snapshot.data()?['hideLegacyEventsTab'] == true;
+          if (!mounted) return;
+          setState(() {
+            _hideLegacyEventsTab = hideEvents;
+            if (hideEvents && _selectedIndex == 1) _selectedIndex = 0;
+          });
+        });
   }
 
   void _handleCommunityNotificationTarget() {
@@ -73,6 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     _eventService?.removeListener(_handleEventServiceChanged);
+    _noticeboardConfigSubscription?.cancel();
     _eventService = currentEventService;
     _eventService?.addListener(_handleEventServiceChanged);
   }
@@ -363,6 +378,9 @@ class _HomeScreenState extends State<HomeScreen> {
       muted: _isBackgroundAudioMuted,
     );
 
+    final visibleNavigationIndex = _hideLegacyEventsTab
+      ? (_selectedIndex == 0 ? 0 : _selectedIndex - 1)
+      : _selectedIndex;
     return GradientScaffold(
       appBar: AppBar(
         title: Text(appBarTitle),
@@ -422,8 +440,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) => unawaited(_onTabTapped(index)),
+        currentIndex: visibleNavigationIndex,
+        onTap: (index) => unawaited(
+          _onTabTapped(_hideLegacyEventsTab && index >= 1 ? index + 1 : index),
+        ),
         selectedItemColor:
             Colors.amber, // Changed to Amber for better contrast on dark
         unselectedItemColor: Colors.white70,
@@ -432,15 +452,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ), // Semi-transparent nav bar
         type:
             BottomNavigationBarType.fixed, // Added to support 4 items properly
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.event), label: 'Events'),
-          BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Community'),
-          BottomNavigationBarItem(
+        items: [
+          const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
+          if (!_hideLegacyEventsTab)
+            const BottomNavigationBarItem(icon: Icon(Icons.event), label: 'Events'),
+          const BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Community'),
+          const BottomNavigationBarItem(
             icon: Icon(Icons.lightbulb_outline),
             label: 'Topics',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
             label: 'My Harmony',
           ),
