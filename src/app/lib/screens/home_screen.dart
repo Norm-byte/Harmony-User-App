@@ -47,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _audioPreferenceLoaded = false;
   bool _lastAudioShouldPlayHome = true;
   bool _hideLegacyEventsTab = false;
+  bool _enableNoticeboardStudioFeed = false;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _noticeboardConfigSubscription;
   EventService? _eventService;
 
@@ -65,10 +66,12 @@ class _HomeScreenState extends State<HomeScreen> {
         .snapshots()
         .listen((snapshot) {
           final hideEvents = snapshot.data()?['hideLegacyEventsTab'] == true;
+          final enableFeed = snapshot.data()?['enableNoticeboardStudioFeed'] == true;
           if (!mounted) return;
           setState(() {
             _hideLegacyEventsTab = hideEvents;
-            if (hideEvents && _selectedIndex == 1) _selectedIndex = 0;
+            _enableNoticeboardStudioFeed = enableFeed;
+            if (hideEvents && !enableFeed && _selectedIndex == 1) _selectedIndex = 0;
           });
         }, onError: (Object error) {
           debugPrint('HARMONY_NOTICEBOARD_CONFIG: $error');
@@ -83,10 +86,12 @@ class _HomeScreenState extends State<HomeScreen> {
           .get(const GetOptions(source: Source.server));
       if (!mounted) return;
       final hideEvents = snapshot.data()?['hideLegacyEventsTab'] == true;
+      final enableFeed = snapshot.data()?['enableNoticeboardStudioFeed'] == true;
         debugPrint('HARMONY_NOTICEBOARD_CONFIG_INITIAL hideLegacyEventsTab=$hideEvents');
       setState(() {
         _hideLegacyEventsTab = hideEvents;
-        if (hideEvents && _selectedIndex == 1) _selectedIndex = 0;
+        _enableNoticeboardStudioFeed = enableFeed;
+        if (hideEvents && !enableFeed && _selectedIndex == 1) _selectedIndex = 0;
       });
     } catch (error) {
       debugPrint('HARMONY_NOTICEBOARD_CONFIG_INITIAL: $error');
@@ -475,7 +480,10 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (context, configSnapshot) {
           final hideFromConfig =
               configSnapshot.data?.data()?['hideLegacyEventsTab'] == true;
-          final hideEvents = hideLegacyEventsTab || hideFromConfig;
+            final feedEnabled =
+              configSnapshot.data?.data()?['enableNoticeboardStudioFeed'] == true;
+            final hideEvents =
+              (hideLegacyEventsTab || hideFromConfig) && !feedEnabled;
           final navIndex = hideEvents
               ? (_selectedIndex == 0 ? 0 : _selectedIndex - 1)
               : _selectedIndex;

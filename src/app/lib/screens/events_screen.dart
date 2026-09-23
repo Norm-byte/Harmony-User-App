@@ -8,6 +8,7 @@ import '../services/user_service.dart';
 import '../widgets/intent_selection_dialog.dart';
 import 'event_learn_more_screen.dart';
 import 'package:share_plus/share_plus.dart';
+import '../widgets/media/content_viewer.dart';
 
 class EventsScreen extends StatelessWidget {
   const EventsScreen({super.key});
@@ -25,23 +26,69 @@ class EventsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final eventService = Provider.of<EventService>(context);
     final events = eventService.visibleNoticeboardEvents;
-
-    if (events.isEmpty) {
-      return const Center(
-        child: Text(
-          'No active notice boards found.',
-          style: TextStyle(color: Colors.white70),
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: events.length,
-      itemBuilder: (context, index) {
-        final event = events[index];
-        return _buildEventCard(context, event);
+    return StreamBuilder<_CardSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('app_config')
+          .doc('noticeboard_studio')
+          .snapshots()
+          .asyncMap((config) async {
+            final enabled = config.data()?['enableNoticeboardStudioFeed'] == true;
+            if (!enabled) return const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+            final cards = await FirebaseFirestore.instance
+                .collection('noticeboard_studio_cards')
+                .limit(25)
+                .get();
+            return cards.docs.where((doc) => doc.data()['published'] == true).toList();
+          })
+          .asBroadcastStream()
+          .map((cards) => _CardSnapshot(cards)),
+      builder: (context, snapshot) {
+        final cards = snapshot.data?.cards ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        if (events.isEmpty && cards.isEmpty) {
+          return const Center(child: Text('No active notice boards found.', style: TextStyle(color: Colors.white70)));
+        }
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            for (final card in cards) _buildStudioCard(context, card.data()),
+            for (final event in events) _buildEventCard(context, event),
+          ],
+        );
       },
+    );
+  }
+
+  Widget _buildStudioCard(BuildContext context, Map<String, dynamic> data) {
+    final title = (data['title'] as String?)?.trim() ?? 'Noticeboard';
+    final body = (data['body'] as String?)?.trim() ?? '';
+    final imageUrl = (data['imageUrl'] as String?)?.trim() ?? '';
+    final learnMoreUrl = (data['learnMoreContentUrl'] as String?)?.trim() ?? '';
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      clipBehavior: Clip.antiAlias,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (imageUrl.isNotEmpty) Image.network(imageUrl, height: 180, fit: BoxFit.cover),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+            if (body.isNotEmpty) ...[const SizedBox(height: 8), Text(body)],
+            if (learnMoreUrl.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => Dialog(
+                    child: SizedBox(width: 700, height: 520, child: ContentViewer(url: learnMoreUrl, controls: true)),
+                  ),
+                ),
+                icon: const Icon(Icons.open_in_new),
+                label: Text((data['learnMoreLabel'] as String?)?.trim().isNotEmpty == true ? data['learnMoreLabel'] as String : 'Learn More'),
+              ),
+            ],
+          ]),
+        ),
+      ]),
     );
   }
 
@@ -710,6 +757,12 @@ class EventsScreen extends StatelessWidget {
     }
     return '$timeStr Today';
   }
+}
+
+class _CardSnapshot {
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> cards;
+
+  const _CardSnapshot(this.cards);
 }
 
 class _WorldwideUserTotal extends StatelessWidget {
