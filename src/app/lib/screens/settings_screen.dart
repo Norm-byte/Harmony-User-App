@@ -569,7 +569,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                    // Social Stats (My Impact)
                    Consumer<EventService>(
                      builder: (context, eventService, _) {
-                       final userId = UserService().userId;
+                         final userId = UserService().userId.isNotEmpty
+                           ? UserService().userId
+                           : (FirebaseAuth.instance.currentUser?.uid ?? '');
                        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                          stream: userId.isEmpty
                              ? null
