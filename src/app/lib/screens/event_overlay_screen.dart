@@ -22,6 +22,7 @@ class EventOverlayScreen extends StatelessWidget {
   final String? thumbprintGlowColor;
   final String? thankYouTitle;
   final String? thankYouBody;
+  final String? pinCardText;
   final VoidCallback onDismiss;
 
   const EventOverlayScreen({
@@ -39,6 +40,7 @@ class EventOverlayScreen extends StatelessWidget {
     this.thumbprintGlowColor,
     this.thankYouTitle,
     this.thankYouBody,
+    this.pinCardText,
     required this.onDismiss,
   });
 
@@ -126,6 +128,7 @@ class EventOverlayScreen extends StatelessWidget {
                                 glowColor: thumbprintGlowColor,
                                 thankYouTitle: thankYouTitle,
                                 thankYouBody: thankYouBody,
+                                pinCardText: pinCardText,
                               ),
                           ],
                         ),
@@ -186,12 +189,14 @@ class _ThumbprintSurface extends StatefulWidget {
   final String? glowColor;
   final String? thankYouTitle;
   final String? thankYouBody;
+  final String? pinCardText;
 
   const _ThumbprintSurface({
     required this.eventId,
     required this.glowColor,
     required this.thankYouTitle,
     required this.thankYouBody,
+    required this.pinCardText,
   });
 
   @override
@@ -316,7 +321,9 @@ class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        widget.thankYouBody?.trim().isNotEmpty == true
+                        widget.pinCardText?.trim().isNotEmpty == true
+                          ? widget.pinCardText!
+                          : widget.thankYouBody?.trim().isNotEmpty == true
                             ? widget.thankYouBody!
                             : 'Your intent has joined this shared moment.',
                         style: const TextStyle(color: Colors.white70, fontSize: 13),

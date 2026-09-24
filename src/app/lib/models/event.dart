@@ -37,6 +37,7 @@ class Event {
   final String? thumbprintGlowColor;
   final String? thankYouTitle;
   final String? thankYouBody;
+  final String? pinCardText;
 
   Event({
     required this.id,
@@ -71,6 +72,7 @@ class Event {
     this.thumbprintGlowColor,
     this.thankYouTitle,
     this.thankYouBody,
+    this.pinCardText,
   });
 
   factory Event.fromJson(Map<String, dynamic> json) {
@@ -140,6 +142,7 @@ class Event {
         thumbprintGlowColor: json['thumbprintGlowColor'],
         thankYouTitle: json['thankYouTitle'],
         thankYouBody: json['thankYouBody'],
+        pinCardText: json['pinCardText'],
       imageUrl:
           json['visualUrl'] ??
           json['imageUrl'] ??

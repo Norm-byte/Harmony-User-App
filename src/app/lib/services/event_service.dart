@@ -270,6 +270,7 @@ class EventService extends ChangeNotifier {
   String? _currentThumbprintGlowColor;
   String? _currentThankYouTitle;
   String? _currentThankYouBody;
+  String? _currentPinCardText;
   DateTime? _currentEventStartTime; // Track Start Time for valid dismissal key
   DateTime? _currentEventEndTime; // Track End Time for auto-dismissal
   final Duration _eventGracePeriod = const Duration(
@@ -294,6 +295,7 @@ class EventService extends ChangeNotifier {
   String? get currentThumbprintGlowColor => _currentThumbprintGlowColor;
   String? get currentThankYouTitle => _currentThankYouTitle;
   String? get currentThankYouBody => _currentThankYouBody;
+  String? get currentPinCardText => _currentPinCardText;
 
   void setAppInForegroundState(bool isForeground) {
     _isAppInForeground = isForeground;
@@ -1546,6 +1548,7 @@ class EventService extends ChangeNotifier {
         thumbprintGlowColor: bestEventToTrigger.thumbprintGlowColor,
         thankYouTitle: bestEventToTrigger.thankYouTitle,
         thankYouBody: bestEventToTrigger.thankYouBody,
+        pinCardText: bestEventToTrigger.pinCardText,
       );
     }
   }
@@ -1568,6 +1571,7 @@ class EventService extends ChangeNotifier {
     String? thumbprintGlowColor,
     String? thankYouTitle,
     String? thankYouBody,
+    String? pinCardText,
   }) {
     final effectiveFromAlarmLaunch =
         fromAlarmLaunch || (id != null && id == _lastKnownAlarmLaunchEventId);
@@ -1617,6 +1621,7 @@ class EventService extends ChangeNotifier {
     _currentThumbprintGlowColor = thumbprintGlowColor;
     _currentThankYouTitle = thankYouTitle;
     _currentThankYouBody = thankYouBody;
+    _currentPinCardText = pinCardText;
     _currentEventFromAlarmLaunch = effectiveFromAlarmLaunch;
 
     if (effectiveFromAlarmLaunch && id != null) {
@@ -1738,6 +1743,7 @@ class EventService extends ChangeNotifier {
     _currentThumbprintGlowColor = null;
     _currentThankYouTitle = null;
     _currentThankYouBody = null;
+    _currentPinCardText = null;
     _currentEventEndTime = null;
     _currentEventStartTime = null;
     _currentEventFromAlarmLaunch = false;

@@ -176,6 +176,7 @@ class _AppLifecycleManagerState extends State<AppLifecycleManager>
                   thumbprintGlowColor: eventService.currentThumbprintGlowColor,
                   thankYouTitle: eventService.currentThankYouTitle,
                   thankYouBody: eventService.currentThankYouBody,
+                  pinCardText: eventService.currentPinCardText,
                   userIntent: null,
                   onDismiss: eventService.dismissEvent,
                 ),
