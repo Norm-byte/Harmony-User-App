@@ -38,7 +38,7 @@ class EventsScreen extends StatelessWidget {
           stream: FirebaseFirestore.instance.collection('noticeboard_studio_cards').limit(25).snapshots(),
           builder: (context, cardSnapshot) {
             final cards = cardSnapshot.data?.docs.where((doc) => doc.data()['published'] == true).toList() ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-            return _buildEventsList(context, events, cards);
+            return _buildEventsList(context, const <Event>[], cards);
           },
         );
       },
