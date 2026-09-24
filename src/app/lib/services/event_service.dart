@@ -910,6 +910,14 @@ class EventService extends ChangeNotifier {
         continue;
       }
 
+      if (event.isThumbprintEvent && !existing.isThumbprintEvent) {
+        deduped[dedupeKey] = event;
+        continue;
+      }
+      if (existing.isThumbprintEvent && !event.isThumbprintEvent) {
+        continue;
+      }
+
       final eventUpdatedAt = event.updatedAt;
       final existingUpdatedAt = existing.updatedAt;
       if (eventUpdatedAt != null && existingUpdatedAt != null) {
