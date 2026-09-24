@@ -288,17 +288,45 @@ class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
           style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
           textAlign: TextAlign.center,
         ),
-        if (_pressed)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              widget.thankYouBody?.trim().isNotEmpty == true
-                  ? widget.thankYouBody!
-                  : 'Your intent has joined this shared moment.',
-              style: const TextStyle(color: Colors.white70, fontSize: 13),
-              textAlign: TextAlign.center,
-            ),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 260),
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(scale: animation, child: child),
           ),
+          child: _pressed
+              ? Container(
+                  key: const ValueKey('thumbprint-thank-you-popup'),
+                  margin: const EdgeInsets.only(top: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.62),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: glow.withValues(alpha: 0.75)),
+                    boxShadow: [
+                      BoxShadow(color: glow.withValues(alpha: 0.28), blurRadius: 18, spreadRadius: 2),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        widget.thankYouTitle?.trim().isNotEmpty == true ? widget.thankYouTitle! : 'Thank you',
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.thankYouBody?.trim().isNotEmpty == true
+                            ? widget.thankYouBody!
+                            : 'Your intent has joined this shared moment.',
+                        style: const TextStyle(color: Colors.white70, fontSize: 13),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                )
+              : const SizedBox(key: ValueKey('thumbprint-thank-you-empty')),
+        ),
       ],
     );
   }
