@@ -574,11 +574,15 @@ class EventService extends ChangeNotifier {
   }
 
   void _refreshEvents() {
-    _nationalEvents = _processDocs(
-      _nationalDocs,
-      overrideType: EventType.national,
-    );
-    _globalEvents = _processDocs(_globalDocs, overrideType: EventType.global);
+    _nationalEvents = _livingCanvasEnabled
+        ? const []
+        : _processDocs(
+            _nationalDocs,
+            overrideType: EventType.national,
+          );
+    _globalEvents = _livingCanvasEnabled
+        ? const []
+        : _processDocs(_globalDocs, overrideType: EventType.global);
     _livingCanvasEvents = _livingCanvasEnabled
       ? [
           ..._processLivingCanvasDocs(_livingCanvasDocs),
