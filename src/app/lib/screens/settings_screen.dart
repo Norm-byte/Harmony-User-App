@@ -28,7 +28,8 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProviderStateMixin {
+class _SettingsScreenState extends State<SettingsScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late Future<int> _totalUsersFuture;
   late Future<int> _timeZoneUsersFuture;
@@ -40,7 +41,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     final events = eventService.visibleNoticeboardEvents;
     if (events.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('There are no active intent time slots available right now.')),
+        const SnackBar(
+          content: Text(
+            'There are no active intent time slots available right now.',
+          ),
+        ),
       );
       return;
     }
@@ -57,12 +62,23 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             children: [
               DropdownButtonFormField<Event>(
                 initialValue: selectedEvent,
-                decoration: const InputDecoration(labelText: 'Choose a time slot'),
-                items: events.map((event) => DropdownMenuItem(
-                  value: event,
-                  child: Text('${event.title} • ${DateFormat('MMM d, h:mm a').format(event.startTime.toLocal())}', overflow: TextOverflow.ellipsis),
-                )).toList(),
-                onChanged: (event) => event == null ? null : setDialogState(() => selectedEvent = event),
+                decoration: const InputDecoration(
+                  labelText: 'Choose a time slot',
+                ),
+                items: events
+                    .map(
+                      (event) => DropdownMenuItem(
+                        value: event,
+                        child: Text(
+                          '${event.title} • ${DateFormat('MMM d, h:mm a').format(event.startTime.toLocal())}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (event) => event == null
+                    ? null
+                    : setDialogState(() => selectedEvent = event),
               ),
               TextField(
                 controller: intentController,
@@ -72,8 +88,15 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(dialogContext, intentController.text.trim()), child: const Text('Add intent')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, intentController.text.trim()),
+              child: const Text('Add intent'),
+            ),
           ],
         ),
       ),
@@ -93,11 +116,20 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     );
     if (!context.mounted) return;
     if (joinResult.startsWith('Success')) {
-      await SharePlus.instance.share(ShareParams(
-        text: 'Join me for "${selectedEvent.title}" on Harmony by Intent at ${DateFormat('HH:mm').format(selectedEvent.startTime.toLocal())}.',
-      ));
+      await SharePlus.instance.share(
+        ShareParams(
+          text:
+              'Join me for "${selectedEvent.title}" on Harmony by Intent at ${DateFormat('HH:mm').format(selectedEvent.startTime.toLocal())}.',
+        ),
+      );
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(joinResult.startsWith('Success') ? 'Intent added' : joinResult)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          joinResult.startsWith('Success') ? 'Intent added' : joinResult,
+        ),
+      ),
+    );
   }
 
   @override
@@ -116,12 +148,14 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   }
 
   bool _isPastRegisteredEvent(Map<String, dynamic> event, DateTime now) {
-    final end = _registeredEventDate(event['endTime']) ??
-        _registeredEventDate(event['startTime'] ?? event['timestamp'])?.add(
-          const Duration(hours: 1),
-        );
+    final end =
+        _registeredEventDate(event['endTime']) ??
+        _registeredEventDate(
+          event['startTime'] ?? event['timestamp'],
+        )?.add(const Duration(hours: 1));
     if (end == null) return false;
-    final visibilityAfter = (event['visibilityAfterMinutes'] as num?)?.toInt() ?? 0;
+    final visibilityAfter =
+        (event['visibilityAfterMinutes'] as num?)?.toInt() ?? 0;
     return end.add(Duration(minutes: visibilityAfter)).isBefore(now);
   }
 
@@ -151,7 +185,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
             child: const Text('Save'),
           ),
         ],
@@ -166,9 +201,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         .collection('registered_events')
         .doc(eventId)
         .update({
-      'intent': updatedIntent,
-      'intentEditedAt': FieldValue.serverTimestamp(),
-    });
+          'intent': updatedIntent,
+          'intentEditedAt': FieldValue.serverTimestamp(),
+        });
   }
 
   Future<void> _deletePastIntent(Map<String, dynamic> event) async {
@@ -180,7 +215,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete past intent?'),
-        content: const Text('This removes the reflection from your My Harmony history.'),
+        content: const Text(
+          'This removes the reflection from your My Harmony history.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -220,7 +257,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         final visibleDocs = normalizedFilter.isEmpty
             ? docs
             : docs.where((doc) {
-                final content = (doc.data()['content'] as String?)?.toLowerCase() ?? '';
+                final content =
+                    (doc.data()['content'] as String?)?.toLowerCase() ?? '';
                 return content.contains(normalizedFilter);
               }).toList();
 
@@ -231,12 +269,20 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               children: [
                 const Text(
                   'My Support Requests',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   '(${docs.length})',
-                  style: const TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const Spacer(),
                 if (normalizedFilter.isNotEmpty)
@@ -244,20 +290,31 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     padding: const EdgeInsets.only(right: 4),
                     child: Text(
                       '${visibleDocs.length} match${visibleDocs.length == 1 ? '' : 'es'}',
-                      style: const TextStyle(color: Colors.amberAccent, fontSize: 11),
+                      style: const TextStyle(
+                        color: Colors.amberAccent,
+                        fontSize: 11,
+                      ),
                     ),
                   ),
                 IconButton(
-                  tooltip: normalizedFilter.isEmpty ? 'Filter support requests' : 'Change filter',
+                  tooltip: normalizedFilter.isEmpty
+                      ? 'Filter support requests'
+                      : 'Change filter',
                   padding: EdgeInsets.zero,
                   visualDensity: VisualDensity.compact,
                   icon: Icon(
-                    normalizedFilter.isEmpty ? Icons.filter_alt_outlined : Icons.filter_alt,
-                    color: normalizedFilter.isEmpty ? Colors.white70 : Colors.amberAccent,
+                    normalizedFilter.isEmpty
+                        ? Icons.filter_alt_outlined
+                        : Icons.filter_alt,
+                    color: normalizedFilter.isEmpty
+                        ? Colors.white70
+                        : Colors.amberAccent,
                     size: 20,
                   ),
                   onPressed: () async {
-                    final controller = TextEditingController(text: _supportIntentFilter);
+                    final controller = TextEditingController(
+                      text: _supportIntentFilter,
+                    );
                     final filter = await showDialog<String>(
                       context: context,
                       builder: (dialogContext) => AlertDialog(
@@ -265,16 +322,22 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         content: TextField(
                           controller: controller,
                           autofocus: true,
-                          decoration: const InputDecoration(hintText: 'Search a word or phrase'),
-                          onSubmitted: (value) => Navigator.of(dialogContext).pop(value.trim()),
+                          decoration: const InputDecoration(
+                            hintText: 'Search a word or phrase',
+                          ),
+                          onSubmitted: (value) =>
+                              Navigator.of(dialogContext).pop(value.trim()),
                         ),
                         actions: [
                           TextButton(
-                            onPressed: () => Navigator.of(dialogContext).pop(''),
+                            onPressed: () =>
+                                Navigator.of(dialogContext).pop(''),
                             child: const Text('Clear'),
                           ),
                           TextButton(
-                            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+                            onPressed: () => Navigator.of(
+                              dialogContext,
+                            ).pop(controller.text.trim()),
                             child: const Text('Apply'),
                           ),
                         ],
@@ -320,7 +383,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 child: ListView.builder(
                   padding: EdgeInsets.zero,
                   itemCount: visibleDocs.length,
-                  itemBuilder: (context, index) => _buildSupportIntentCard(visibleDocs[index]),
+                  itemBuilder: (context, index) =>
+                      _buildSupportIntentCard(visibleDocs[index]),
                 ),
               ),
           ],
@@ -329,28 +393,40 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildSupportIntentCard(QueryDocumentSnapshot<Map<String, dynamic>> intentDoc) {
+  Widget _buildSupportIntentCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> intentDoc,
+  ) {
     final intent = intentDoc.data();
     final postId = (intent['postId'] as String?) ?? '';
     final isRealized = intent['isRealized'] == true;
     final createdAt = (intent['createdAt'] as Timestamp?)?.toDate();
-    final dateLabel = createdAt == null ? '' : DateFormat('MMM d, yyyy, h:mm a').format(createdAt);
+    final dateLabel = createdAt == null
+        ? ''
+        : DateFormat('MMM d, yyyy, h:mm a').format(createdAt);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: postId.isEmpty
           ? null
-          : FirebaseFirestore.instance.collection('community_posts').doc(postId).snapshots(),
+          : FirebaseFirestore.instance
+                .collection('community_posts')
+                .doc(postId)
+                .snapshots(),
       builder: (context, liveSnap) {
         // Prefer the live post while it still exists (single source of truth);
         // fall back to the permanent snapshot once it's gone (deleted/expired).
         final livePost = liveSnap.data?.data();
         final isLive = livePost != null;
-        final content = (isLive ? livePost['content'] : intent['content']) as String? ?? '';
+        final content =
+            (isLive ? livePost['content'] : intent['content']) as String? ?? '';
         final imageUrl = isLive
-            ? ((livePost['hasImage'] == true) ? livePost['imageUrl'] as String? : null)
+            ? ((livePost['hasImage'] == true)
+                  ? livePost['imageUrl'] as String?
+                  : null)
             : intent['imageUrl'] as String?;
         final likes = isLive ? ((livePost['likes'] as num?)?.toInt() ?? 0) : 0;
-        final supportCount = isLive ? ((livePost['supportTapCount'] as num?)?.toInt() ?? 0) : 0;
+        final supportCount = isLive
+            ? ((livePost['supportTapCount'] as num?)?.toInt() ?? 0)
+            : 0;
 
         void showExpanded() {
           showDialog<void>(
@@ -361,7 +437,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 borderRadius: BorderRadius.circular(12),
                 side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
               ),
-              title: const Text('My Support Request', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              title: const Text(
+                'My Support Request',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               content: SingleChildScrollView(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -374,27 +456,64 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       ),
                       const SizedBox(height: 10),
                     ],
-                    Text(content, style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.35)),
+                    Text(
+                      content,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        height: 1.35,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     if (dateLabel.isNotEmpty)
-                      Text(dateLabel, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                      Text(
+                        dateLabel,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                        ),
+                      ),
                     const SizedBox(height: 8),
                     if (isLive)
                       Row(
                         children: [
-                          const Icon(Icons.thumb_up, size: 14, color: Colors.greenAccent),
+                          const Icon(
+                            Icons.thumb_up,
+                            size: 14,
+                            color: Colors.greenAccent,
+                          ),
                           const SizedBox(width: 4),
-                          Text('$likes', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          Text(
+                            '$likes',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
+                          ),
                           const SizedBox(width: 12),
-                          const Icon(Icons.front_hand, size: 14, color: Colors.amberAccent),
+                          const Icon(
+                            Icons.front_hand,
+                            size: 14,
+                            color: Colors.amberAccent,
+                          ),
                           const SizedBox(width: 4),
-                          Text('$supportCount', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                          Text(
+                            '$supportCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
+                          ),
                         ],
                       )
                     else
                       const Text(
                         'This request is no longer on the public feed, but your record is kept here.',
-                        style: TextStyle(color: Colors.white38, fontSize: 11, fontStyle: FontStyle.italic),
+                        style: TextStyle(
+                          color: Colors.white38,
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic,
+                        ),
                       ),
                   ],
                 ),
@@ -402,7 +521,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Close', style: TextStyle(color: Colors.amberAccent)),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(color: Colors.amberAccent),
+                  ),
                 ),
               ],
             ),
@@ -415,11 +537,19 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             context: context,
             builder: (dialogContext) => AlertDialog(
               title: const Text('Edit support request'),
-              content: TextField(controller: controller, maxLines: 4, autofocus: true),
+              content: TextField(
+                controller: controller,
+                maxLines: 4,
+                autofocus: true,
+              ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
                 ElevatedButton(
-                  onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+                  onPressed: () =>
+                      Navigator.pop(dialogContext, controller.text.trim()),
                   child: const Text('Save'),
                 ),
               ],
@@ -427,10 +557,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           );
           if (result == null || result.isEmpty) return;
           if (isLive) {
-            await FirebaseFirestore.instance.collection('community_posts').doc(postId).update({
-              'content': result,
-              'editedAt': FieldValue.serverTimestamp(),
-            });
+            await FirebaseFirestore.instance
+                .collection('community_posts')
+                .doc(postId)
+                .update({
+                  'content': result,
+                  'editedAt': FieldValue.serverTimestamp(),
+                });
           }
           await intentDoc.reference.update({'content': result});
         }
@@ -440,18 +573,29 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             context: context,
             builder: (dialogContext) => AlertDialog(
               title: const Text('Delete this request?'),
-              content: Text(isLive
-                  ? 'This removes it from Common Room, Community Support, and this list.'
-                  : 'This removes it from your Past Intents list.'),
+              content: Text(
+                isLive
+                    ? 'This removes it from Common Room, Community Support, and this list.'
+                    : 'This removes it from your Past Intents list.',
+              ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-                TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Delete')),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Delete'),
+                ),
               ],
             ),
           );
           if (confirmed != true) return;
           if (isLive) {
-            await FirebaseFirestore.instance.collection('community_posts').doc(postId).delete();
+            await FirebaseFirestore.instance
+                .collection('community_posts')
+                .doc(postId)
+                .delete();
           }
           await intentDoc.reference.delete();
         }
@@ -483,21 +627,34 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         content.isEmpty ? 'Request unavailable' : content,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.amberAccent, fontSize: 13),
+                        style: const TextStyle(
+                          color: Colors.amberAccent,
+                          fontSize: 13,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        isLive ? '$dateLabel • Support taps: $supportCount' : '$dateLabel • Removed from feed',
-                        style: const TextStyle(color: Colors.white54, fontSize: 11),
+                        isLive
+                            ? '$dateLabel • Support taps: $supportCount'
+                            : '$dateLabel • Removed from feed',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 IconButton(
-                  tooltip: isRealized ? 'Mark as not yet realized' : 'Mark as realized/healed',
-                  onPressed: () => intentDoc.reference.update({'isRealized': !isRealized}),
+                  tooltip: isRealized
+                      ? 'Mark as not yet realized'
+                      : 'Mark as realized/healed',
+                  onPressed: () =>
+                      intentDoc.reference.update({'isRealized': !isRealized}),
                   icon: Icon(
-                    isRealized ? Icons.check_circle : Icons.check_circle_outline,
+                    isRealized
+                        ? Icons.check_circle
+                        : Icons.check_circle_outline,
                     color: isRealized ? Colors.greenAccent : Colors.white70,
                     size: 19,
                   ),
@@ -505,12 +662,20 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 IconButton(
                   tooltip: 'Edit',
                   onPressed: editIntent,
-                  icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 19),
+                  icon: const Icon(
+                    Icons.edit_outlined,
+                    color: Colors.white70,
+                    size: 19,
+                  ),
                 ),
                 IconButton(
                   tooltip: 'Delete',
                   onPressed: deleteIntent,
-                  icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 19),
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.white54,
+                    size: 19,
+                  ),
                 ),
               ],
             ),
@@ -546,222 +711,321 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
                 child: Column(
-                children: [
-                   // Profile Header
-                   const Center(
+                  children: [
+                    // Profile Header
+                    const Center(
                       child: Column(
                         children: [
                           CircleAvatar(
                             radius: 40,
                             backgroundColor: Colors.white24,
-                            child: Icon(Icons.person, size: 50, color: Colors.white),
+                            child: Icon(
+                              Icons.person,
+                              size: 50,
+                              color: Colors.white,
+                            ),
                           ),
                           SizedBox(height: 12),
                           Text(
                             'My Harmony',
-                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
                         ],
                       ),
-                   ),
-                   const SizedBox(height: 32),
+                    ),
+                    const SizedBox(height: 32),
 
-                   // Social Stats (My Impact)
-                   Consumer<EventService>(
-                     builder: (context, eventService, _) {
-                         final userId = UserService().userId.isNotEmpty
-                           ? UserService().userId
-                           : (FirebaseAuth.instance.currentUser?.uid ?? '');
-                       return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                         stream: userId.isEmpty
-                             ? null
-                             : FirebaseFirestore.instance.collection('users').doc(userId).snapshots(),
-                         builder: (context, userSnapshot) {
-                           final thumbprintCount =
-                               (userSnapshot.data?.data()?['thumbprintTapCount'] as num?)?.toInt() ?? 0;
-                           return Card(
-                          elevation: 4,
-                          color: Colors.white.withValues(alpha: 0.1),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
+                    // Social Stats (My Impact)
+                    Consumer<EventService>(
+                      builder: (context, eventService, _) {
+                        return StreamBuilder<User?>(
+                          stream: FirebaseAuth.instance.authStateChanges(),
+                          builder: (context, authSnapshot) {
+                            final userId = UserService().userId.isNotEmpty
+                                ? UserService().userId
+                                : (authSnapshot.data?.uid ??
+                                      FirebaseAuth.instance.currentUser?.uid ??
+                                      '');
+                            return StreamBuilder<
+                              DocumentSnapshot<Map<String, dynamic>>
+                            >(
+                              stream: userId.isEmpty
+                                  ? null
+                                  : FirebaseFirestore.instance
+                                        .collection('users')
+                                        .doc(userId)
+                                        .snapshots(),
+                              builder: (context, userSnapshot) {
+                                final thumbprintCount =
+                                    (userSnapshot.data
+                                                ?.data()?['thumbprintTapCount']
+                                            as num?)
+                                        ?.toInt() ??
+                                    0;
+                                return Card(
+                                  elevation: 4,
+                                  color: Colors.white.withValues(alpha: 0.1),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'My Impact',
+                                          style: TextStyle(
+                                            fontSize: 20,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceAround,
+                                          children: [
+                                            _buildStatItem(
+                                              'Intents Added',
+                                              '${eventService.myEvents.length}',
+                                            ),
+                                            _buildStatItem(
+                                              'Thumbprints Tapped',
+                                              '$thumbprintCount',
+                                            ),
+                                            _buildTimeZoneUsersStatItem(),
+                                            _buildTotalUsersStatItem(),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 16),
+                                        const Divider(color: Colors.white24),
+                                        const SizedBox(height: 16),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceAround,
+                                          children: [
+                                            _buildLikesReceivedStatItem(),
+                                            _buildMyCommentsCountStatItem(),
+                                            _buildSupportReceivedStatItem(),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 16),
+                                        _buildMostLikedCommentCard(),
+                                        const SizedBox(height: 12),
+                                        _buildCommunityPulseCard(),
+                                        const SizedBox(height: 12),
+                                        _buildMostSupportedRequestCard(),
+                                        const SizedBox(height: 16),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 24),
+
+                    // My Groups (Conditional)
+                    StreamBuilder<DocumentSnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('system_settings')
+                          .doc('app_config')
+                          .snapshots(),
+                      builder: (context, configSnapshot) {
+                        bool showChatRooms = true;
+                        if (configSnapshot.hasData &&
+                            configSnapshot.data!.exists) {
+                          final data =
+                              configSnapshot.data!.data()
+                                  as Map<String, dynamic>;
+                          showChatRooms = data['show_niche_chat_rooms'] ?? true;
+                        }
+
+                        if (!showChatRooms) return const SizedBox.shrink();
+
+                        return Consumer<GroupService>(
+                          builder: (context, groupService, _) {
+                            return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text(
-                                  'My Impact',
-                                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                                  'My Chat Rooms',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
                                 ),
-                                const SizedBox(height: 16),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                                  children: [
-                                    _buildStatItem('Intents Added', '${eventService.myEvents.length}'),
-                                    _buildStatItem('Thumbprints Tapped', '$thumbprintCount'),
-                                    _buildTimeZoneUsersStatItem(),
-                                    _buildTotalUsersStatItem(),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                const Divider(color: Colors.white24),
-                                const SizedBox(height: 16),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                                  children: [
-                                    _buildLikesReceivedStatItem(),
-                                    _buildMyCommentsCountStatItem(),
-                                    _buildSupportReceivedStatItem(),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                _buildMostLikedCommentCard(),
-                                  const SizedBox(height: 12),
-                                  _buildCommunityPulseCard(),
-                                  const SizedBox(height: 12),
-                                  _buildMostSupportedRequestCard(),
-                                  const SizedBox(height: 16),
+                                const SizedBox(height: 12),
+                                if (groupService.myGroups.isEmpty)
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Text(
+                                      "You haven't joined any chat rooms yet.",
+                                      style: TextStyle(color: Colors.white54),
+                                    ),
+                                  )
+                                else
+                                  SizedBox(
+                                    height: 110, // Increased height
+                                    child: ListView.builder(
+                                      scrollDirection: Axis.horizontal,
+                                      physics: const BouncingScrollPhysics(),
+                                      itemCount: groupService.myGroups.length,
+                                      itemBuilder: (context, index) {
+                                        final group =
+                                            groupService.myGroups[index];
+                                        final name = group['name'];
+                                        final icon = group['iconCode'] != null
+                                            ? IconData(
+                                                group['iconCode'],
+                                                fontFamily: 'MaterialIcons',
+                                              )
+                                            : Icons.forum;
+                                        final color =
+                                            group['colorValue'] != null
+                                            ? Color(group['colorValue'])
+                                            : Colors.blue;
 
-                              ],
-                            ),
-                          ),
-                           );
-                         },
-                       );
-                     }
-                   ),
-                    const SizedBox(height: 24),
-
-                   // My Groups (Conditional)
-                   StreamBuilder<DocumentSnapshot>(
-                     stream: FirebaseFirestore.instance.collection('system_settings').doc('app_config').snapshots(),
-                     builder: (context, configSnapshot) {
-                       bool showChatRooms = true;
-                       if (configSnapshot.hasData && configSnapshot.data!.exists) {
-                          final data = configSnapshot.data!.data() as Map<String, dynamic>;
-                          showChatRooms = data['show_niche_chat_rooms'] ?? true;
-                       }
-
-                       if (!showChatRooms) return const SizedBox.shrink();
-
-                       return Consumer<GroupService>(
-                      builder: (context, groupService, _) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('My Chat Rooms', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                            const SizedBox(height: 12),
-                            if (groupService.myGroups.isEmpty)
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Text("You haven't joined any chat rooms yet.", style: TextStyle(color: Colors.white54)),
-                              )
-                            else
-                              SizedBox(
-                                height: 110, // Increased height
-                                child: ListView.builder(
-                                  scrollDirection: Axis.horizontal,
-                                  physics: const BouncingScrollPhysics(),
-                                  itemCount: groupService.myGroups.length,
-                                  itemBuilder: (context, index) {
-                                    final group = groupService.myGroups[index];
-                                    final name = group['name'];
-                                    final icon = group['iconCode'] != null
-                                        ? IconData(group['iconCode'], fontFamily: 'MaterialIcons')
-                                        : Icons.forum;
-                                    final color = group['colorValue'] != null
-                                        ? Color(group['colorValue'])
-                                        : Colors.blue;
-
-                                    return Stack(
-                                      children: [
-                                          GestureDetector(
-                                            onTap: () {
-                                              if (group['id'] != null) {
+                                        return Stack(
+                                          children: [
+                                            GestureDetector(
+                                              onTap: () {
+                                                if (group['id'] != null) {
                                                   Navigator.push(
                                                     context,
                                                     MaterialPageRoute(
-                                                      builder: (context) => ChatScreen(
-                                                        eventTitle: name,
-                                                        groupId: group['id'],
-                                                      ),
+                                                      builder: (context) =>
+                                                          ChatScreen(
+                                                            eventTitle: name,
+                                                            groupId:
+                                                                group['id'],
+                                                          ),
                                                     ),
                                                   );
-                                              }
-                                            },
-                                            child: Container(
-                                              width: 140, 
-                                              margin: const EdgeInsets.only(right: 12, top: 8), // Add top margin for delete button space if needed
-                                              padding: const EdgeInsets.all(12),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white.withValues(alpha: 0.1),
-                                                borderRadius: BorderRadius.circular(12),
-                                                border: Border.all(color: Colors.white12),
-                                              ),
-                                              child: Row(
-                                                children: [
-                                                  CircleAvatar(
-                                                    radius: 16,
-                                                    backgroundColor: color.withValues(alpha: 0.2),
-                                                    child: Icon(icon, color: color, size: 18),
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  Expanded(
-                                                    child: Column(
-                                                      mainAxisAlignment: MainAxisAlignment.center,
-                                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                                      children: [
-                                                        Text(
-                                                          name,
-                                                          maxLines: 2,
-                                                          overflow: TextOverflow.ellipsis,
-                                                          style: const TextStyle(
-                                                            color: Colors.white,
-                                                            fontWeight: FontWeight.bold,
-                                                            fontSize: 13,
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                          Positioned(
-                                            top: 0,
-                                            right: 4,
-                                            child: InkWell(
-                                              onTap: () {
-                                                 // Call leave group
-                                                 if (group['id'] != null) {
-                                                    groupService.leaveGroupById(group['id']);
-                                                 }
+                                                }
                                               },
                                               child: Container(
-                                                padding: const EdgeInsets.all(4),
-                                                decoration: const BoxDecoration(
-                                                  color: Colors.red,
-                                                  shape: BoxShape.circle,
+                                                width: 140,
+                                                margin: const EdgeInsets.only(
+                                                  right: 12,
+                                                  top: 8,
+                                                ), // Add top margin for delete button space if needed
+                                                padding: const EdgeInsets.all(
+                                                  12,
                                                 ),
-                                                child: const Icon(Icons.close, size: 12, color: Colors.white),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.1),
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  border: Border.all(
+                                                    color: Colors.white12,
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    CircleAvatar(
+                                                      radius: 16,
+                                                      backgroundColor: color
+                                                          .withValues(
+                                                            alpha: 0.2,
+                                                          ),
+                                                      child: Icon(
+                                                        icon,
+                                                        color: color,
+                                                        size: 18,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Expanded(
+                                                      child: Column(
+                                                        mainAxisAlignment:
+                                                            MainAxisAlignment
+                                                                .center,
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Text(
+                                                            name,
+                                                            maxLines: 2,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style:
+                                                                const TextStyle(
+                                                                  color: Colors
+                                                                      .white,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .bold,
+                                                                  fontSize: 13,
+                                                                ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                      ],
-                                    );
-                                  },
-                                ),
-                              ),
-                          ],
+                                            Positioned(
+                                              top: 0,
+                                              right: 4,
+                                              child: InkWell(
+                                                onTap: () {
+                                                  // Call leave group
+                                                  if (group['id'] != null) {
+                                                    groupService.leaveGroupById(
+                                                      group['id'],
+                                                    );
+                                                  }
+                                                },
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(
+                                                    4,
+                                                  ),
+                                                  decoration:
+                                                      const BoxDecoration(
+                                                        color: Colors.red,
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                  child: const Icon(
+                                                    Icons.close,
+                                                    size: 12,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        );
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            );
+                          },
                         );
                       },
-                    );
-                     }),
+                    ),
                     const SizedBox(height: 24),
 
                     // My Intents (Scrollable Cards)
@@ -770,251 +1034,319 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                         final now = DateTime.now();
 
                         // 1. Start with confirmed events from Database
-                        List<Map<String, dynamic>> combinedEvents = List.from(eventService.myEvents);
+                        List<Map<String, dynamic>> combinedEvents = List.from(
+                          eventService.myEvents,
+                        );
 
                         // 2. "Assumptive" Logic: Inject Worldwide Events if Auto-Join is ON
                         if (userService.autoJoinWorldwide) {
-                           for (final event in eventService.events) {
-                              if (event.type == EventType.global) {
-                                  // FIX: Only consider it "Present" if there is a LIVE/FUTURE entry.
-                                  // If the entry found is expired, we should ignore it and inject the new one.
-                                  bool validEntryExists = combinedEvents.any((m) {
-                                      if (m['eventId'] != event.id) {
-                                        return false;
-                                      }
-                                      
-                                      // Check expiration of this specific history item
-                                      dynamic rawEnd = m['endTime'];
-                                      DateTime? end;
-                                      if (rawEnd is Timestamp) {
-                                        end = rawEnd.toDate();
-                                      } else if (rawEnd is DateTime) {
-                                        end = rawEnd;
-                                      } else if (rawEnd is String) {
-                                        end = DateTime.tryParse(rawEnd);
-                                      }
-                                      
-                                      // Fallback for End Time
-                                      if (end == null) {
-                                          dynamic rawStart = m['startTime'] ?? m['timestamp'];
-                                          DateTime? start;
-                                          if (rawStart is Timestamp) {
-                                            start = rawStart.toDate();
-                                          } else if (rawStart is DateTime) {
-                                            start = rawStart;
-                                          } else if (rawStart is String) {
-                                            start = DateTime.tryParse(rawStart);
-                                          }
-                                          
-                                          if (start != null) {
-                                              end = start.add(const Duration(hours: 1));
-                                          }
-                                      }
+                          for (final event in eventService.events) {
+                            if (event.type == EventType.global) {
+                              // FIX: Only consider it "Present" if there is a LIVE/FUTURE entry.
+                              // If the entry found is expired, we should ignore it and inject the new one.
+                              bool validEntryExists = combinedEvents.any((m) {
+                                if (m['eventId'] != event.id) {
+                                  return false;
+                                }
 
-                                      if (end != null) {
-                                           // Check visibility window
-                                           int visibilityAfter = m['visibilityAfterMinutes'] ?? 0;
-                                           final expirationTime = end.add(Duration(minutes: visibilityAfter));
-                                           
-                                           // If this history item is still visible/active, we accept it as "Present".
-                                           if (expirationTime.isAfter(now)) {
-                                               return true;
-                                           }
-                                           return false; // It's expired history, ignore it
-                                      }
-                                      
-                                      return true; // If we can't determine, assume present to avoid dupes
-                                  });
+                                // Check expiration of this specific history item
+                                dynamic rawEnd = m['endTime'];
+                                DateTime? end;
+                                if (rawEnd is Timestamp) {
+                                  end = rawEnd.toDate();
+                                } else if (rawEnd is DateTime) {
+                                  end = rawEnd;
+                                } else if (rawEnd is String) {
+                                  end = DateTime.tryParse(rawEnd);
+                                }
 
-                                  if (!validEntryExists) {
-                                      combinedEvents.add({
-                                        'eventId': event.id,
-                                        'eventTitle': event.title,
-                                        'intent': event.mostPopularIntent ?? 'Harmony',
-                                        'startTime': event.startTime,
-                                        'endTime': event.endTime,
-                                        'visibilityAfterMinutes': event.visibilityAfterMinutes ?? 0,
-                                        'isVirtual': true,
-                                      });
+                                // Fallback for End Time
+                                if (end == null) {
+                                  dynamic rawStart =
+                                      m['startTime'] ?? m['timestamp'];
+                                  DateTime? start;
+                                  if (rawStart is Timestamp) {
+                                    start = rawStart.toDate();
+                                  } else if (rawStart is DateTime) {
+                                    start = rawStart;
+                                  } else if (rawStart is String) {
+                                    start = DateTime.tryParse(rawStart);
                                   }
+
+                                  if (start != null) {
+                                    end = start.add(const Duration(hours: 1));
+                                  }
+                                }
+
+                                if (end != null) {
+                                  // Check visibility window
+                                  int visibilityAfter =
+                                      m['visibilityAfterMinutes'] ?? 0;
+                                  final expirationTime = end.add(
+                                    Duration(minutes: visibilityAfter),
+                                  );
+
+                                  // If this history item is still visible/active, we accept it as "Present".
+                                  if (expirationTime.isAfter(now)) {
+                                    return true;
+                                  }
+                                  return false; // It's expired history, ignore it
+                                }
+
+                                return true; // If we can't determine, assume present to avoid dupes
+                              });
+
+                              if (!validEntryExists) {
+                                combinedEvents.add({
+                                  'eventId': event.id,
+                                  'eventTitle': event.title,
+                                  'intent':
+                                      event.mostPopularIntent ?? 'Harmony',
+                                  'startTime': event.startTime,
+                                  'endTime': event.endTime,
+                                  'visibilityAfterMinutes':
+                                      event.visibilityAfterMinutes ?? 0,
+                                  'isVirtual': true,
+                                });
                               }
-                           }
+                            }
+                          }
                         }
 
                         final activeEvents = combinedEvents.where((e) {
-                           // Robust Timestamp handling
-                           dynamic rawEnd = e['endTime'];
-                           DateTime? end;
-                           if (rawEnd is Timestamp) {
-                             end = rawEnd.toDate();
-                           } else if (rawEnd is DateTime) {
-                             end = rawEnd; // Handle optimistic updates
-                           } else if (rawEnd is String) {
-                             end = DateTime.tryParse(rawEnd); // Fallback
-                           }
+                          // Robust Timestamp handling
+                          dynamic rawEnd = e['endTime'];
+                          DateTime? end;
+                          if (rawEnd is Timestamp) {
+                            end = rawEnd.toDate();
+                          } else if (rawEnd is DateTime) {
+                            end = rawEnd; // Handle optimistic updates
+                          } else if (rawEnd is String) {
+                            end = DateTime.tryParse(rawEnd); // Fallback
+                          }
 
-                           // Robust StartTime handling to catch missing EndTime
-                           dynamic rawStart = e['startTime'] ?? e['timestamp'];
-                           DateTime? start;
-                           if (rawStart is Timestamp) {
-                             start = rawStart.toDate().toUtc(); // Normalize to UTC
-                           } else if (rawStart is DateTime) {
-                             start = rawStart.toUtc();
-                           } else if (rawStart is String) {
-                             start = DateTime.tryParse(rawStart)?.toUtc();
-                           }
+                          // Robust StartTime handling to catch missing EndTime
+                          dynamic rawStart = e['startTime'] ?? e['timestamp'];
+                          DateTime? start;
+                          if (rawStart is Timestamp) {
+                            start = rawStart
+                                .toDate()
+                                .toUtc(); // Normalize to UTC
+                          } else if (rawStart is DateTime) {
+                            start = rawStart.toUtc();
+                          } else if (rawStart is String) {
+                            start = DateTime.tryParse(rawStart)?.toUtc();
+                          }
 
-                           // If we have no end time, assume 1 hour duration from start
-                           if (end == null && start != null) {
-                              end = start.add(const Duration(hours: 1));
-                           }
+                          // If we have no end time, assume 1 hour duration from start
+                          if (end == null && start != null) {
+                            end = start.add(const Duration(hours: 1));
+                          }
 
-                           // Normalize End Time to UTC for comparison
-                           if (end != null) {
-                             end = end.toUtc();
-                           }
-                           final nowUtc = now.toUtc();
+                          // Normalize End Time to UTC for comparison
+                          if (end != null) {
+                            end = end.toUtc();
+                          }
+                          final nowUtc = now.toUtc();
 
-                           // Check Visibility After Preference (Default to 0 if not saved)
-                           int visibilityAfter = e['visibilityAfterMinutes'] ?? 0;
-                           
-                           // Filter: Remove strictly after EndTime + Visibility Duration
-                           if (end != null) {
-                             final expirationTime = end.add(Duration(minutes: visibilityAfter));
-                             if (expirationTime.isBefore(nowUtc)) {
-                               return false;
-                             }
-                           }
-                           
-                           // Safety: If no timestamps at all, remove it to be safe/clean
-                           if (end == null && start == null) {
-                             return false;
-                           }
+                          // Check Visibility After Preference (Default to 0 if not saved)
+                          int visibilityAfter =
+                              e['visibilityAfterMinutes'] ?? 0;
 
-                           return true;
+                          // Filter: Remove strictly after EndTime + Visibility Duration
+                          if (end != null) {
+                            final expirationTime = end.add(
+                              Duration(minutes: visibilityAfter),
+                            );
+                            if (expirationTime.isBefore(nowUtc)) {
+                              return false;
+                            }
+                          }
+
+                          // Safety: If no timestamps at all, remove it to be safe/clean
+                          if (end == null && start == null) {
+                            return false;
+                          }
+
+                          return true;
                         }).toList();
 
                         final pastIntents = combinedEvents.where((event) {
                           return event['isVirtual'] != true &&
                               _isPastRegisteredEvent(event, now);
                         }).toList();
-                        final normalizedPastIntentFilter = _pastIntentFilter.trim().toLowerCase();
-                        final visiblePastIntents = normalizedPastIntentFilter.isEmpty
+                        final normalizedPastIntentFilter = _pastIntentFilter
+                            .trim()
+                            .toLowerCase();
+                        final visiblePastIntents =
+                            normalizedPastIntentFilter.isEmpty
                             ? pastIntents
                             : pastIntents.where((event) {
-                                final intent = (event['intent'] ?? '').toString().toLowerCase();
-                                return intent.contains(normalizedPastIntentFilter);
+                                final intent = (event['intent'] ?? '')
+                                    .toString()
+                                    .toLowerCase();
+                                return intent.contains(
+                                  normalizedPastIntentFilter,
+                                );
                               }).toList();
 
                         // DEBUG MODE: SHOW ALL EVENTS NO FILTER
                         // final activeEvents = eventService.myEvents;
-                        
+
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                Expanded(child: Text('My Intents (${activeEvents.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white))),
+                                Expanded(
+                                  child: Text(
+                                    'My Intents (${activeEvents.length})',
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
                                 TextButton.icon(
-                                  onPressed: () => _addIntentFromMyIntents(context),
+                                  onPressed: () =>
+                                      _addIntentFromMyIntents(context),
                                   icon: const Icon(Icons.add, size: 17),
                                   label: const Text('Add intent'),
                                 ),
                               ],
                             ),
-                            
+
                             const SizedBox(height: 12),
                             if (activeEvents.isEmpty)
-                               Container(
-                                 width: double.infinity,
-                                 padding: const EdgeInsets.all(16),
-                                 decoration: BoxDecoration(
-                                   color: Colors.white.withValues(alpha: 0.1),
-                                   borderRadius: BorderRadius.circular(12),
-                                 ),
-                                 child: const Text("You haven't added any active intents.", style: TextStyle(color: Colors.white54)),
-                               )
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Text(
+                                  "You haven't added any active intents.",
+                                  style: TextStyle(color: Colors.white54),
+                                ),
+                              )
                             else
-                               SizedBox(
-                                 height: 80, // Matched to Favorites Dimensions (80)
-                                 child: ListView.builder(
-                                   scrollDirection: Axis.horizontal,
-                                   itemCount: activeEvents.length,
-                                   itemBuilder: (context, index) {
-                                      final event = activeEvents[index];
-                                      final title = event['eventTitle'] ?? 'Event';
-                                      final intent = event['intent'] ?? '';
-                                      
-                                      // Robust StartTime handling
-                                      dynamic rawStart = event['startTime'] ?? event['timestamp'];
-                                      DateTime? start;
-                                      if (rawStart is Timestamp) {
-                                        start = rawStart.toDate();
-                                      } else if (rawStart is DateTime) {
-                                        start = rawStart;
-                                      }
-                                      
-                                      final dateStr = start != null 
-                                          ? DateFormat('MMM d, h:mm a').format(start) 
-                                          : 'Recent';
-                                      
-                                      return Container(
-                                        width: 140, // Matched to Favorites Dimensions (140)
-                                        margin: const EdgeInsets.only(right: 12),
-                                        padding: const EdgeInsets.all(12), // Restored padding
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(alpha: 0.1),
-                                          borderRadius: BorderRadius.circular(12), // Restored radius
-                                          border: Border.all(color: Colors.white12),
+                              SizedBox(
+                                height:
+                                    80, // Matched to Favorites Dimensions (80)
+                                child: ListView.builder(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: activeEvents.length,
+                                  itemBuilder: (context, index) {
+                                    final event = activeEvents[index];
+                                    final title =
+                                        event['eventTitle'] ?? 'Event';
+                                    final intent = event['intent'] ?? '';
+
+                                    // Robust StartTime handling
+                                    dynamic rawStart =
+                                        event['startTime'] ??
+                                        event['timestamp'];
+                                    DateTime? start;
+                                    if (rawStart is Timestamp) {
+                                      start = rawStart.toDate();
+                                    } else if (rawStart is DateTime) {
+                                      start = rawStart;
+                                    }
+
+                                    final dateStr = start != null
+                                        ? DateFormat(
+                                            'MMM d, h:mm a',
+                                          ).format(start)
+                                        : 'Recent';
+
+                                    return Container(
+                                      width:
+                                          140, // Matched to Favorites Dimensions (140)
+                                      margin: const EdgeInsets.only(right: 12),
+                                      padding: const EdgeInsets.all(
+                                        12,
+                                      ), // Restored padding
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.1,
                                         ),
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  title, 
-                                                  maxLines: 1, 
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13) // Restored font size
-                                                ),
-                                                const SizedBox(height: 2),
-                                                Text(
-                                                  intent.isNotEmpty ? intent : 'No intent', 
+                                        borderRadius: BorderRadius.circular(
+                                          12,
+                                        ), // Restored radius
+                                        border: Border.all(
+                                          color: Colors.white12,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                title,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 13,
+                                                ), // Restored font size
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                intent.isNotEmpty
+                                                    ? intent
+                                                    : 'No intent',
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.amberAccent,
+                                                  fontSize: 11,
+                                                ), // Restored font size
+                                              ),
+                                            ],
+                                          ),
+                                          Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.event,
+                                                color: Colors.white54,
+                                                size: 10,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Expanded(
+                                                child: Text(
+                                                  dateStr,
                                                   maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: const TextStyle(color: Colors.amberAccent, fontSize: 11) // Restored font size
-                                                ),
-                                              ],
-                                            ),
-                                            Row(
-                                              children: [
-                                                const Icon(Icons.event, color: Colors.white54, size: 10),
-                                                const SizedBox(width: 4),
-                                                Expanded(
-                                                  child: Text(
-                                                    dateStr,
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: const TextStyle(color: Colors.white54, fontSize: 10),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: Colors.white54,
+                                                    fontSize: 10,
                                                   ),
                                                 ),
-                                              ],
-                                            )
-                                          ],
-                                        ),
-                                      );
-                                   },
-                                 ),
-                               ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
                             const SizedBox(height: 18),
                             Row(
                               children: [
-                                  Text(
-                                    'Past Intents (${pastIntents.length})',
-                                    style: const TextStyle(
+                                Text(
+                                  'Past Intents (${pastIntents.length})',
+                                  style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
@@ -1026,7 +1358,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                     padding: const EdgeInsets.only(right: 4),
                                     child: Text(
                                       '${visiblePastIntents.length} match${visiblePastIntents.length == 1 ? '' : 'es'}',
-                                      style: const TextStyle(color: Colors.amberAccent, fontSize: 11),
+                                      style: const TextStyle(
+                                        color: Colors.amberAccent,
+                                        fontSize: 11,
+                                      ),
                                     ),
                                   ),
                                 IconButton(
@@ -1045,26 +1380,36 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                     size: 20,
                                   ),
                                   onPressed: () async {
-                                    final controller = TextEditingController(text: _pastIntentFilter);
+                                    final controller = TextEditingController(
+                                      text: _pastIntentFilter,
+                                    );
                                     final filter = await showDialog<String>(
                                       context: context,
                                       builder: (dialogContext) => AlertDialog(
-                                        title: const Text('Filter Past Intents'),
+                                        title: const Text(
+                                          'Filter Past Intents',
+                                        ),
                                         content: TextField(
                                           controller: controller,
                                           autofocus: true,
                                           decoration: const InputDecoration(
                                             hintText: 'Search a word or phrase',
                                           ),
-                                          onSubmitted: (value) => Navigator.of(dialogContext).pop(value.trim()),
+                                          onSubmitted: (value) => Navigator.of(
+                                            dialogContext,
+                                          ).pop(value.trim()),
                                         ),
                                         actions: [
                                           TextButton(
-                                            onPressed: () => Navigator.of(dialogContext).pop(''),
+                                            onPressed: () => Navigator.of(
+                                              dialogContext,
+                                            ).pop(''),
                                             child: const Text('Clear'),
                                           ),
                                           TextButton(
-                                            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+                                            onPressed: () => Navigator.of(
+                                              dialogContext,
+                                            ).pop(controller.text.trim()),
                                             child: const Text('Apply'),
                                           ),
                                         ],
@@ -1072,7 +1417,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                     );
                                     controller.dispose();
                                     if (filter != null && mounted) {
-                                      setState(() => _pastIntentFilter = filter);
+                                      setState(
+                                        () => _pastIntentFilter = filter,
+                                      );
                                     }
                                   },
                                 ),
@@ -1081,7 +1428,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                             const SizedBox(height: 4),
                             const Text(
                               'A private reflection of what you chose to focus on and when.',
-                              style: TextStyle(color: Colors.white54, fontSize: 12),
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 12,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             if (visiblePastIntents.isEmpty)
@@ -1110,44 +1460,87 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                                   itemCount: visiblePastIntents.length,
                                   itemBuilder: (context, index) {
                                     final event = visiblePastIntents[index];
-                                    final intent = (event['intent'] ?? 'No intent').toString();
+                                    final intent =
+                                        (event['intent'] ?? 'No intent')
+                                            .toString();
                                     final start = _registeredEventDate(
                                       event['startTime'] ?? event['timestamp'],
                                     );
                                     final date = start == null
                                         ? 'Date unavailable'
-                                        : DateFormat('MMM d, yyyy, h:mm a').format(start);
+                                        : DateFormat(
+                                            'MMM d, yyyy, h:mm a',
+                                          ).format(start);
                                     return Container(
                                       margin: const EdgeInsets.only(bottom: 8),
-                                      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                                      padding: const EdgeInsets.fromLTRB(
+                                        12,
+                                        10,
+                                        4,
+                                        10,
+                                      ),
                                       decoration: BoxDecoration(
-                                        color: Colors.white.withValues(alpha: 0.06),
+                                        color: Colors.white.withValues(
+                                          alpha: 0.06,
+                                        ),
                                         borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: Colors.white12),
+                                        border: Border.all(
+                                          color: Colors.white12,
+                                        ),
                                       ),
                                       child: Row(
                                         children: [
-                                          const Icon(Icons.history, color: Colors.amberAccent, size: 20),
+                                          const Icon(
+                                            Icons.history,
+                                            color: Colors.amberAccent,
+                                            size: 20,
+                                          ),
                                           const SizedBox(width: 10),
                                           Expanded(
                                             child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
                                               children: [
-                                                Text(intent, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.amberAccent, fontSize: 13)),
+                                                Text(
+                                                  intent,
+                                                  maxLines: 2,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    color: Colors.amberAccent,
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
                                                 const SizedBox(height: 2),
-                                                Text(date, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                                Text(
+                                                  date,
+                                                  style: const TextStyle(
+                                                    color: Colors.white54,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
                                               ],
                                             ),
                                           ),
                                           IconButton(
                                             tooltip: 'Edit past intent',
-                                            onPressed: () => _editPastIntent(event),
-                                            icon: const Icon(Icons.edit_outlined, color: Colors.white70, size: 19),
+                                            onPressed: () =>
+                                                _editPastIntent(event),
+                                            icon: const Icon(
+                                              Icons.edit_outlined,
+                                              color: Colors.white70,
+                                              size: 19,
+                                            ),
                                           ),
                                           IconButton(
                                             tooltip: 'Delete past intent',
-                                            onPressed: () => _deletePastIntent(event),
-                                            icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 19),
+                                            onPressed: () =>
+                                                _deletePastIntent(event),
+                                            icon: const Icon(
+                                              Icons.delete_outline,
+                                              color: Colors.white54,
+                                              size: 19,
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -1170,7 +1563,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     // Favorites Section
                     const Text(
                       'My Favorites Collection',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     _buildFavoritesList(),
@@ -1178,45 +1575,72 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                     const SizedBox(height: 24),
                     // FIND A NEW GROUP LINK - Wrapped in Condition
                     StreamBuilder<DocumentSnapshot>(
-                      stream: FirebaseFirestore.instance.collection('system_settings').doc('app_config').snapshots(),
+                      stream: FirebaseFirestore.instance
+                          .collection('system_settings')
+                          .doc('app_config')
+                          .snapshots(),
                       builder: (context, snapshot) {
                         bool show = true;
                         if (snapshot.hasData && snapshot.data!.exists) {
-                           show = (snapshot.data!.data() as Map<String, dynamic>)['show_niche_chat_rooms'] ?? true;
+                          show =
+                              (snapshot.data!.data()
+                                  as Map<
+                                    String,
+                                    dynamic
+                                  >)['show_niche_chat_rooms'] ??
+                              true;
                         }
                         if (!show) return const SizedBox.shrink();
-                        
+
                         return Center(
-                             child: TextButton.icon(
-                                 onPressed: () {
-                                    Navigator.push(
-                                         context,
-                                         MaterialPageRoute(builder: (context) => const CommunityGroupsScreen())
-                                    );
-                                 },
-                                 icon: const Icon(Icons.search, color: Colors.amber),
-                                 label: const Text("Find Chatrooms", style: TextStyle(color: Colors.amber)),
-                             ),
+                          child: TextButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const CommunityGroupsScreen(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.search, color: Colors.amber),
+                            label: const Text(
+                              "Find Chatrooms",
+                              style: TextStyle(color: Colors.amber),
+                            ),
+                          ),
                         );
-                      }
+                      },
                     ),
                     const Divider(color: Colors.white12),
                     ListTile(
-                      leading: const Icon(Icons.photo_library_outlined, color: Colors.white),
-                      title: const Text('My Harmony Vault', style: TextStyle(color: Colors.white)),
+                      leading: const Icon(
+                        Icons.photo_library_outlined,
+                        color: Colors.white,
+                      ),
+                      title: const Text(
+                        'My Harmony Vault',
+                        style: TextStyle(color: Colors.white),
+                      ),
                       subtitle: const Text(
                         'Manage saved photos for Common Room comments',
                         style: TextStyle(color: Colors.white54),
                       ),
-                      trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
+                      trailing: const Icon(
+                        Icons.arrow_forward_ios,
+                        color: Colors.white54,
+                        size: 16,
+                      ),
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => const MediaVaultScreen()),
+                          MaterialPageRoute(
+                            builder: (_) => const MediaVaultScreen(),
+                          ),
                         );
                       },
                     ),
-                ],
+                  ],
                 ),
               ),
 
@@ -1227,137 +1651,202 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   return ListView(
                     padding: const EdgeInsets.all(16),
                     children: [
-                       ListTile(
-                         leading: const Icon(Icons.stars, color: Colors.amber),
-                         title: const Text('Manage Subscription', style: TextStyle(color: Colors.white)),
-                         subtitle: Text(
-                           subscriptionService.isVip
-                               ? 'Early Access'
-                               : (subscriptionService.isSubscribed ? 'Active Plan' : 'Subscription required'),
-                           style: const TextStyle(color: Colors.white54),
-                         ),
-                         trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
-                         onTap: () async {
-                              // loading
+                      ListTile(
+                        leading: const Icon(Icons.stars, color: Colors.amber),
+                        title: const Text(
+                          'Manage Subscription',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        subtitle: Text(
+                          subscriptionService.isVip
+                              ? 'Early Access'
+                              : (subscriptionService.isSubscribed
+                                    ? 'Active Plan'
+                                    : 'Subscription required'),
+                          style: const TextStyle(color: Colors.white54),
+                        ),
+                        trailing: const Icon(
+                          Icons.arrow_forward_ios,
+                          color: Colors.white54,
+                          size: 16,
+                        ),
+                        onTap: () async {
+                          // loading
+                          showDialog(
+                            context: context,
+                            barrierDismissible: false,
+                            builder: (_) => const Center(
+                              child: CircularProgressIndicator(
+                                color: Colors.amber,
+                              ),
+                            ),
+                          );
+
+                          try {
+                            // 1. Check if VIP (Local Override) - Do NOT show Customer Center
+                            if (subscriptionService.isVip) {
+                              if (context.mounted)
+                                Navigator.pop(context); // Close loader
                               showDialog(
                                 context: context,
-                                barrierDismissible: false,
-                                builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.amber)),
-                              );
-
-                              try {
-                                // 1. Check if VIP (Local Override) - Do NOT show Customer Center
-                                if (subscriptionService.isVip) {
-                                  if (context.mounted) Navigator.pop(context); // Close loader
-                                  showDialog(
-                                    context: context,
-                                    builder: (_) => AlertDialog(
-                                      backgroundColor: const Color(0xFF2A2A2A),
-                                      title: const Text('Early Access Enabled', style: TextStyle(color: Colors.amber)),
-                                      content: const Text(
-                                        'You currently have full access enabled.\n\nNo subscription management is needed right now.',
-                                        style: TextStyle(color: Colors.white),
+                                builder: (_) => AlertDialog(
+                                  backgroundColor: const Color(0xFF2A2A2A),
+                                  title: const Text(
+                                    'Early Access Enabled',
+                                    style: TextStyle(color: Colors.amber),
+                                  ),
+                                  content: const Text(
+                                    'You currently have full access enabled.\n\nNo subscription management is needed right now.',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text(
+                                        'OK',
+                                        style: TextStyle(color: Colors.amber),
                                       ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () => Navigator.pop(context),
-                                          child: const Text('OK', style: TextStyle(color: Colors.amber)),
-                                        )
-                                      ],
-                                    )
-                                  );
-                                  return;
-                                }
+                                    ),
+                                  ],
+                                ),
+                              );
+                              return;
+                            }
 
-                                // 2. Refresh Status from RevenueCat
-                                await subscriptionService.refreshSubscriptionStatus();
+                            // 2. Refresh Status from RevenueCat
+                            await subscriptionService
+                                .refreshSubscriptionStatus();
 
-                                // 3. Decide: Customer Center OR Paywall
-                                // We check 'isSubscribed' again after refresh.
-                                // NOTE: We specifically check the underlying Real Subscription status if needed, 
-                                // but 'isSubscribed' covers both. Since we handled isVip above, 
-                                // isSubscribed here implies Real Subscription.
-                                
-                                if (subscriptionService.isSubscribed) {
-                                  if (context.mounted) Navigator.pop(context); // Close loader
-                                  await subscriptionService.showCustomerCenter();
-                                } else {
-                                  await subscriptionService.showPaywall();
-                                  if (context.mounted) Navigator.pop(context); // Close loader (paywall handles its own dismissal)
-                                }
-                              } catch (e) {
-                                if (context.mounted) {
-                                  Navigator.pop(context);
-                                  // Fallback: If network fails, offer Paywall anyway? No, show error.
-                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
-                                }
-                              }
-                         },
-                       ),
-                       const Divider(color: Colors.white12),
-                       const Divider(color: Colors.white12),
-                       ListTile(
-                         leading: const Icon(Icons.badge_outlined, color: Colors.white),
-                         title: const Text('Profile Information', style: TextStyle(color: Colors.white)),
-                         subtitle: Text(
-                           '${userService.userName} • ${userService.timeZone}',
-                           style: const TextStyle(color: Colors.white54),
-                         ),
-                         trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
-                         onTap: () {
-                           Navigator.push(
-                             context,
-                             MaterialPageRoute(builder: (_) => const PersonalInformationScreen()),
-                           );
-                         },
-                       ),
-                       const Divider(color: Colors.white12),
-                       ListTile(
-                         leading: const Icon(Icons.logout, color: Colors.redAccent),
-                         title: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
-                         onTap: () async {
-                           final confirmed = await showDialog<bool>(
-                             context: context,
-                             builder: (ctx) => AlertDialog(
-                               backgroundColor: const Color(0xFF2A2A2A),
-                               title: const Text('Sign Out', style: TextStyle(color: Colors.white)),
-                               content: const Text('Are you sure you want to sign out?', style: TextStyle(color: Colors.white70)),
-                               actions: [
-                                 TextButton(
-                                   onPressed: () => Navigator.pop(ctx, false),
-                                   child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
-                                 ),
-                                 TextButton(
-                                   onPressed: () => Navigator.pop(ctx, true),
-                                   child: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
-                                 ),
-                               ],
-                             ),
-                           );
-                           if (confirmed == true && context.mounted) {
-                             final authUser = FirebaseAuth.instance.currentUser;
-                             final prefs = await SharedPreferences.getInstance();
-                             await prefs.setBool('has_existing_account', true);
-                             final signedInEmail = authUser?.email?.trim() ?? '';
-                             if (signedInEmail.isNotEmpty) {
-                               await prefs.setString('last_login_email', signedInEmail);
-                             }
+                            // 3. Decide: Customer Center OR Paywall
+                            // We check 'isSubscribed' again after refresh.
+                            // NOTE: We specifically check the underlying Real Subscription status if needed,
+                            // but 'isSubscribed' covers both. Since we handled isVip above,
+                            // isSubscribed here implies Real Subscription.
 
-                             await FirebaseAuth.instance.signOut();
-                             await Provider.of<UserService>(context, listen: false).clearUser();
-                             if (context.mounted) {
-                               Navigator.pushAndRemoveUntil(
-                                 context,
-                                 MaterialPageRoute(builder: (_) => const LoginScreen()),
-                                 (_) => false,
-                               );
-                             }
-                           }
-                         },
-                       ),
+                            if (subscriptionService.isSubscribed) {
+                              if (context.mounted)
+                                Navigator.pop(context); // Close loader
+                              await subscriptionService.showCustomerCenter();
+                            } else {
+                              await subscriptionService.showPaywall();
+                              if (context.mounted)
+                                Navigator.pop(
+                                  context,
+                                ); // Close loader (paywall handles its own dismissal)
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                              // Fallback: If network fails, offer Paywall anyway? No, show error.
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text("Error: $e")),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                      const Divider(color: Colors.white12),
+                      const Divider(color: Colors.white12),
+                      ListTile(
+                        leading: const Icon(
+                          Icons.badge_outlined,
+                          color: Colors.white,
+                        ),
+                        title: const Text(
+                          'Profile Information',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        subtitle: Text(
+                          '${userService.userName} • ${userService.timeZone}',
+                          style: const TextStyle(color: Colors.white54),
+                        ),
+                        trailing: const Icon(
+                          Icons.arrow_forward_ios,
+                          color: Colors.white54,
+                          size: 16,
+                        ),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const PersonalInformationScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const Divider(color: Colors.white12),
+                      ListTile(
+                        leading: const Icon(
+                          Icons.logout,
+                          color: Colors.redAccent,
+                        ),
+                        title: const Text(
+                          'Sign Out',
+                          style: TextStyle(color: Colors.redAccent),
+                        ),
+                        onTap: () async {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              backgroundColor: const Color(0xFF2A2A2A),
+                              title: const Text(
+                                'Sign Out',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                              content: const Text(
+                                'Are you sure you want to sign out?',
+                                style: TextStyle(color: Colors.white70),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text(
+                                    'Cancel',
+                                    style: TextStyle(color: Colors.white54),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text(
+                                    'Sign Out',
+                                    style: TextStyle(color: Colors.redAccent),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true && context.mounted) {
+                            final authUser = FirebaseAuth.instance.currentUser;
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setBool('has_existing_account', true);
+                            final signedInEmail = authUser?.email?.trim() ?? '';
+                            if (signedInEmail.isNotEmpty) {
+                              await prefs.setString(
+                                'last_login_email',
+                                signedInEmail,
+                              );
+                            }
+
+                            await FirebaseAuth.instance.signOut();
+                            await Provider.of<UserService>(
+                              context,
+                              listen: false,
+                            ).clearUser();
+                            if (context.mounted) {
+                              Navigator.pushAndRemoveUntil(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const LoginScreen(),
+                                ),
+                                (_) => false,
+                              );
+                            }
+                          }
+                        },
+                      ),
                     ],
                   );
-                }
+                },
               ),
             ],
           ),
@@ -1368,7 +1857,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 
   Widget _buildFavoritesList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('youtube_sections').snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('youtube_sections')
+          .snapshots(),
       builder: (context, sectionsSnapshot) {
         final sectionTitles = <String, String>{};
         if (sectionsSnapshot.hasData) {
@@ -1388,7 +1879,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   child: Text(
                     'No favorites yet.\nTap the heart icon on events to add them here.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.5),
+                    ),
                   ),
                 ),
               );
@@ -1400,7 +1893,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               String displayTitle = 'General';
 
               if (sectionId != null && sectionId.isNotEmpty) {
-                 displayTitle = sectionTitles[sectionId] ?? 'General';
+                displayTitle = sectionTitles[sectionId] ?? 'General';
               }
 
               categories.putIfAbsent(displayTitle, () => []).add(item);
@@ -1473,7 +1966,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildStatItem(String label, String value, {IconData? icon, Color? color}) {
+  Widget _buildStatItem(
+    String label,
+    String value, {
+    IconData? icon,
+    Color? color,
+  }) {
     return Column(
       children: [
         if (icon != null) ...[
@@ -1491,10 +1989,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         const SizedBox(height: 4),
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.white70,
-          ),
+          style: const TextStyle(fontSize: 12, color: Colors.white70),
         ),
       ],
     );
@@ -1509,7 +2004,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           .timeout(const Duration(seconds: 8));
       final data = doc.data() ?? const <String, dynamic>{};
       final liveCount = (data['worldwideUserTotal'] as num?)?.toInt() ?? 0;
-      final adjustment = (data['worldwideUserTotalAdjustment'] as num?)?.toInt() ?? 0;
+      final adjustment =
+          (data['worldwideUserTotalAdjustment'] as num?)?.toInt() ?? 0;
       return liveCount + adjustment;
     } catch (e) {
       debugPrint('[TotalUsers] fetch error: $e');
@@ -1529,7 +2025,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         data['regionalUserTotals'] as Map? ?? const <String, dynamic>{},
       );
       final adjustments = Map<String, dynamic>.from(
-        data['regionalUserCountAdjustments'] as Map? ?? const <String, dynamic>{},
+        data['regionalUserCountAdjustments'] as Map? ??
+            const <String, dynamic>{},
       );
       final offsets = Map<String, dynamic>.from(
         data['regionalUserOffsets'] as Map? ?? const <String, dynamic>{},
@@ -1578,7 +2075,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   Widget _buildLikesReceivedStatItem() {
     final uid = UserService().userId;
     if (uid.isEmpty) {
-      return _buildStatItem('Likes Recv.', '0', icon: Icons.thumb_up, color: Colors.greenAccent);
+      return _buildStatItem(
+        'Likes Recv.',
+        '0',
+        icon: Icons.thumb_up,
+        color: Colors.greenAccent,
+      );
     }
 
     return StreamBuilder<QuerySnapshot>(
@@ -1628,17 +2130,31 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         children: [
           Icon(Icons.front_hand, color: Colors.white, size: 24),
           SizedBox(height: 4),
-          Text('0', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+          Text(
+            '0',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
           SizedBox(height: 4),
-          Text('Support Recv.', style: TextStyle(fontSize: 12, color: Colors.white70)),
+          Text(
+            'Support Recv.',
+            style: TextStyle(fontSize: 12, color: Colors.white70),
+          ),
         ],
       );
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('app_config').doc('community_support').snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('app_config')
+          .doc('community_support')
+          .snapshots(),
       builder: (context, configSnap) {
-        final supportConfig = configSnap.data?.data() ?? const <String, dynamic>{};
+        final supportConfig =
+            configSnap.data?.data() ?? const <String, dynamic>{};
 
         return StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
@@ -1657,14 +2173,25 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 
             return Column(
               children: [
-                SupportIcon(config: supportConfig, size: 24, fallbackColor: Colors.white),
+                SupportIcon(
+                  config: supportConfig,
+                  size: 24,
+                  fallbackColor: Colors.white,
+                ),
                 const SizedBox(height: 4),
                 Text(
                   '$totalSupport',
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
                 const SizedBox(height: 4),
-                const Text('Support Recv.', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                const Text(
+                  'Support Recv.',
+                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                ),
               ],
             );
           },
@@ -1676,7 +2203,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   Widget _buildMyCommentsCountStatItem() {
     final uid = UserService().userId;
     if (uid.isEmpty) {
-      return _buildStatItem('Posts', '0', icon: Icons.chat_bubble_outline, color: Colors.amberAccent);
+      return _buildStatItem(
+        'Posts',
+        '0',
+        icon: Icons.chat_bubble_outline,
+        color: Colors.amberAccent,
+      );
     }
 
     return StreamBuilder<QuerySnapshot>(
@@ -1691,8 +2223,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               .where('userId', isEqualTo: uid)
               .snapshots(),
           builder: (context, messagesSnapshot) {
-            final postCount = postsSnapshot.hasData ? postsSnapshot.data!.docs.length : 0;
-            final messageCount = messagesSnapshot.hasData ? messagesSnapshot.data!.docs.length : 0;
+            final postCount = postsSnapshot.hasData
+                ? postsSnapshot.data!.docs.length
+                : 0;
+            final messageCount = messagesSnapshot.hasData
+                ? messagesSnapshot.data!.docs.length
+                : 0;
             final totalComments = postCount + messageCount;
 
             return _buildStatItem(
@@ -1764,124 +2300,132 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             likes = (data['likes'] as int?) ?? 0;
           }
 
-            final commentPreview = '"$topComment"';
-            final canExpand = topComment.isNotEmpty &&
-                topComment != 'Post your first comment to start your activity.' &&
-                topComment != 'Comment text unavailable';
+          final commentPreview = '"$topComment"';
+          final canExpand =
+              topComment.isNotEmpty &&
+              topComment != 'Post your first comment to start your activity.' &&
+              topComment != 'Comment text unavailable';
 
-            void showExpandedComment() {
-              showDialog<void>(
-                context: context,
-                builder: (dialogContext) {
-                  return AlertDialog(
-                    backgroundColor: const Color(0xFF1E1E1E),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.2),
-                      ),
+          void showExpandedComment() {
+            showDialog<void>(
+              context: context,
+              builder: (dialogContext) {
+                return AlertDialog(
+                  backgroundColor: const Color(0xFF1E1E1E),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.2),
                     ),
-                    title: const Text(
-                      'My Most Liked Post',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  ),
+                  title: const Text(
+                    'My Most Liked Post',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
                     ),
-                    content: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            topComment,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              height: 1.35,
-                              fontStyle: FontStyle.italic,
-                            ),
+                  ),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          topComment,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            height: 1.35,
+                            fontStyle: FontStyle.italic,
                           ),
-                          const SizedBox(height: 14),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.thumb_up,
-                                size: 16,
-                                color: Colors.greenAccent,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '$likes',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                        child: const Text(
-                          'Close',
-                          style: TextStyle(color: Colors.amberAccent),
                         ),
-                      ),
-                    ],
-                  );
-                },
-              );
-            }
-
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: canExpand ? showExpandedComment : null,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.star, color: Colors.amber, size: 16),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'My Most Liked Post',
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                      const Spacer(),
-                      const Icon(Icons.thumb_up, size: 12, color: Colors.greenAccent),
-                      const SizedBox(width: 4),
-                      Text(
-                        '$likes',
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
-                      ),
-                    ],
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.thumb_up,
+                              size: 16,
+                              color: Colors.greenAccent,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '$likes',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    commentPreview,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
-                  ),
-                  if (canExpand) ...[
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Tap anywhere on this card to expand',
-                      style: TextStyle(
-                        color: Colors.amberAccent,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(color: Colors.amberAccent),
                       ),
                     ),
                   ],
-                ],
-              ),
+                );
+              },
             );
+          }
+
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: canExpand ? showExpandedComment : null,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.star, color: Colors.amber, size: 16),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'My Most Liked Post',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    const Spacer(),
+                    const Icon(
+                      Icons.thumb_up,
+                      size: 12,
+                      color: Colors.greenAccent,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$likes',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  commentPreview,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+                if (canExpand) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Tap anywhere on this card to expand',
+                    style: TextStyle(
+                      color: Colors.amberAccent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
         },
       ),
     );
@@ -1896,7 +2440,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         border: Border.all(color: Colors.white12),
       ),
       child: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('community_posts').snapshots(),
+        stream: FirebaseFirestore.instance
+            .collection('community_posts')
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return const Text(
@@ -1905,7 +2451,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             );
           }
 
-          String topComment = 'Your community activity will appear here after you post.';
+          String topComment =
+              'Your community activity will appear here after you post.';
           var likes = 0;
 
           if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
@@ -1930,9 +2477,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             likes = (data['likes'] as int?) ?? 0;
           }
 
-                    final commentPreview = '"$topComment"';
-          final canExpand = topComment.isNotEmpty &&
-              topComment != 'Your community activity will appear here after you post.' &&
+          final commentPreview = '"$topComment"';
+          final canExpand =
+              topComment.isNotEmpty &&
+              topComment !=
+                  'Your community activity will appear here after you post.' &&
               topComment != 'Comment text unavailable';
 
           void showExpandedComment() {
@@ -2019,7 +2568,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       style: TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                     const Spacer(),
-                    const Icon(Icons.thumb_up, size: 12, color: Colors.greenAccent),
+                    const Icon(
+                      Icons.thumb_up,
+                      size: 12,
+                      color: Colors.greenAccent,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       '$likes',
@@ -2032,7 +2585,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   commentPreview,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
                 if (canExpand) ...[
                   const SizedBox(height: 8),
@@ -2083,7 +2639,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             .doc('community_support')
             .snapshots(),
         builder: (context, supportConfigSnap) {
-          final supportConfig = supportConfigSnap.data?.data() ?? const <String, dynamic>{};
+          final supportConfig =
+              supportConfigSnap.data?.data() ?? const <String, dynamic>{};
 
           return StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
@@ -2099,7 +2656,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 );
               }
 
-              String topContent = 'Request community support to start your activity.';
+              String topContent =
+                  'Request community support to start your activity.';
               var supportCount = 0;
 
               if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
@@ -2113,15 +2671,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 });
 
                 final data = docs.first.data() as Map<String, dynamic>;
-                topContent = (data['content'] as String?)?.trim().isNotEmpty == true
+                topContent =
+                    (data['content'] as String?)?.trim().isNotEmpty == true
                     ? data['content'] as String
                     : 'Request text unavailable';
                 supportCount = (data['supportTapCount'] as int?) ?? 0;
               }
 
               final contentPreview = '"$topContent"';
-              final canExpand = topContent.isNotEmpty &&
-                  topContent != 'Request community support to start your activity.' &&
+              final canExpand =
+                  topContent.isNotEmpty &&
+                  topContent !=
+                      'Request community support to start your activity.' &&
                   topContent != 'Request text unavailable';
 
               void showExpandedRequest() {
@@ -2132,11 +2693,16 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       backgroundColor: const Color(0xFF1E1E1E),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+                        side: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.2),
+                        ),
                       ),
                       title: const Text(
                         'My Most Supported Request',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       content: SingleChildScrollView(
                         child: Column(
@@ -2155,7 +2721,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                             const SizedBox(height: 14),
                             Row(
                               children: [
-                                SupportIcon(config: supportConfig, size: 16, fallbackColor: Colors.amberAccent),
+                                SupportIcon(
+                                  config: supportConfig,
+                                  size: 16,
+                                  fallbackColor: Colors.amberAccent,
+                                ),
                                 const SizedBox(width: 6),
                                 Text(
                                   '$supportCount',
@@ -2173,7 +2743,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.of(dialogContext).pop(),
-                          child: const Text('Close', style: TextStyle(color: Colors.amberAccent)),
+                          child: const Text(
+                            'Close',
+                            style: TextStyle(color: Colors.amberAccent),
+                          ),
                         ),
                       ],
                     );
@@ -2196,11 +2769,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                           style: TextStyle(color: Colors.white70, fontSize: 12),
                         ),
                         const Spacer(),
-                        SupportIcon(config: supportConfig, size: 12, fallbackColor: Colors.amberAccent),
+                        SupportIcon(
+                          config: supportConfig,
+                          size: 12,
+                          fallbackColor: Colors.amberAccent,
+                        ),
                         const SizedBox(width: 4),
                         Text(
                           '$supportCount',
-                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     ),
@@ -2209,7 +2789,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                       contentPreview,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontStyle: FontStyle.italic,
+                      ),
                     ),
                     if (canExpand) ...[
                       const SizedBox(height: 8),
