@@ -13,6 +13,7 @@ class EventOverlayScreen extends StatelessWidget {
   final String description;
   final bool isWorldwide;
   final String? mediaUrl;
+  final String? audioUrl;
   final String? userIntent;
   final String? eventId;
   final int participantCount;
@@ -29,6 +30,7 @@ class EventOverlayScreen extends StatelessWidget {
     required this.description,
     required this.isWorldwide,
     this.mediaUrl,
+    this.audioUrl,
     this.userIntent,
     this.eventId,
     this.participantCount = 0,
@@ -93,6 +95,15 @@ class EventOverlayScreen extends StatelessWidget {
                     size: 120,
                     color: Colors.white.withValues(alpha: 0.2),
                   ),
+                ),
+              ),
+            ),
+          if (audioUrl != null && audioUrl!.isNotEmpty)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: 0,
+                  child: ContentViewer(url: audioUrl!, controls: false, autoPlay: true),
                 ),
               ),
             ),

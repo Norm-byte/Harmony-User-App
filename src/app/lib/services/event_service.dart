@@ -262,6 +262,7 @@ class EventService extends ChangeNotifier {
   String _currentEventTitle = '';
   String _currentEventDescription = '';
   String? _currentEventMediaUrl;
+  String? _currentEventAudioUrl;
   String? _currentEventId; // Track ID for dismissal logic
   int _currentEventParticipantCount = 0;
   String? _currentEventOriginTimeZone;
@@ -285,6 +286,7 @@ class EventService extends ChangeNotifier {
   String get currentEventTitle => _currentEventTitle;
   String get currentEventDescription => _currentEventDescription;
   String? get currentEventMediaUrl => _currentEventMediaUrl;
+  String? get currentEventAudioUrl => _currentEventAudioUrl;
   String? get currentEventId => _currentEventId;
   int get currentEventParticipantCount => _currentEventParticipantCount;
   String? get currentEventOriginTimeZone => _currentEventOriginTimeZone;
@@ -1221,6 +1223,7 @@ class EventService extends ChangeNotifier {
         'isThumbprintEvent': true,
         'visualUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
         'mediaUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
+        'soundUrl': data['chimeAudioUrl'] ?? data['customAudioUrl'],
         'originTimeZone': data['originTimeZone'],
         'noticeBoardShowBeforeMinutes': 0,
         'showBeforeMinutes': 0,
@@ -1254,6 +1257,7 @@ class EventService extends ChangeNotifier {
         'isThumbprintEvent': true,
         'visualUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
         'mediaUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
+        'soundUrl': data['chimeAudioUrl'] ?? data['customAudioUrl'],
         'originTimeZone': data['originTimeZone'],
         'noticeBoardShowBeforeMinutes': 0,
         'showBeforeMinutes': 0,
@@ -1525,6 +1529,7 @@ class EventService extends ChangeNotifier {
         description: bestEventToTrigger.description,
         isWorldwide: bestEventToTrigger.type == EventType.global,
         mediaUrl: _selectPlaybackMedia(bestEventToTrigger),
+        audioUrl: bestEventToTrigger.soundUrl,
         intent: bestEventToTrigger.mostPopularIntent,
         fromAlarmLaunch: false,
         startTime: bestEventToTrigger.startTime.toLocal(),
@@ -1547,6 +1552,7 @@ class EventService extends ChangeNotifier {
     required String description,
     required bool isWorldwide,
     String? mediaUrl,
+    String? audioUrl,
     String? intent,
     bool fromAlarmLaunch = false,
     DateTime? startTime,
@@ -1600,6 +1606,7 @@ class EventService extends ChangeNotifier {
 
     _isWorldwide = isWorldwide;
     _currentEventMediaUrl = mediaUrl;
+    _currentEventAudioUrl = audioUrl;
     _currentEventParticipantCount = participantCount;
     _currentEventOriginTimeZone = originTimeZone;
     _currentEventIsThumbprint = isThumbprintEvent;
@@ -1719,6 +1726,7 @@ class EventService extends ChangeNotifier {
 
     _isEventActive = false;
     _currentEventMediaUrl = null;
+    _currentEventAudioUrl = null;
     _currentEventId = null;
     _currentEventParticipantCount = 0;
     _currentEventOriginTimeZone = null;
