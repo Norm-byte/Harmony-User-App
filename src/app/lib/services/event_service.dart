@@ -1059,18 +1059,20 @@ class EventService extends ChangeNotifier {
   void _scheduleDormantPlaybackSync() {
     _notificationSyncTimer?.cancel();
     _notificationSyncTimer = Timer(const Duration(milliseconds: 300), () {
-      final dormantEvents = [
-        ..._processDocs(
-          _nationalDocs,
-          overrideType: EventType.national,
-          forDormantScheduling: true,
-        ),
-        ..._processDocs(
-          _globalDocs,
-          overrideType: EventType.global,
-          forDormantScheduling: true,
-        ),
-      ];
+      final dormantEvents = _livingCanvasEnabled
+          ? List<Event>.from(_livingCanvasEvents)
+          : [
+              ..._processDocs(
+                _nationalDocs,
+                overrideType: EventType.national,
+                forDormantScheduling: true,
+              ),
+              ..._processDocs(
+                _globalDocs,
+                overrideType: EventType.global,
+                forDormantScheduling: true,
+              ),
+            ];
 
       dormantEvents.sort((a, b) => a.startTime.compareTo(b.startTime));
 
