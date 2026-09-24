@@ -420,6 +420,7 @@ class EventService extends ChangeNotifier {
   List<QueryDocumentSnapshot> _nationalDocs = [];
   List<QueryDocumentSnapshot> _globalDocs = [];
   List<QueryDocumentSnapshot> _livingCanvasDocs = [];
+  Map<String, dynamic> _livingCanvasDefaults = const {};
   bool _livingCanvasEnabled = false;
   bool _hideLegacyEventsTab = false;
   bool get hideLegacyEventsTab => _hideLegacyEventsTab;
@@ -502,6 +503,9 @@ class EventService extends ChangeNotifier {
         .snapshots()
         .listen((snapshot) {
           _livingCanvasEnabled = snapshot.data()?['isThumbprintModeActive'] == true;
+          _livingCanvasDefaults = Map<String, dynamic>.from(
+            (snapshot.data()?['repeatingDefaults'] as Map?) ?? const <String, dynamic>{},
+          );
           _refreshEvents();
         });
     _noticeboardConfigSubscription = _firestore
@@ -574,7 +578,10 @@ class EventService extends ChangeNotifier {
     );
     _globalEvents = _processDocs(_globalDocs, overrideType: EventType.global);
     _livingCanvasEvents = _livingCanvasEnabled
-      ? _processLivingCanvasDocs(_livingCanvasDocs)
+      ? [
+          ..._processLivingCanvasDocs(_livingCanvasDocs),
+          ..._processLivingCanvasDefaults(_livingCanvasDefaults),
+        ]
       : const [];
     _mergeEvents();
   }
@@ -1202,6 +1209,39 @@ class EventService extends ChangeNotifier {
         'endTime': end.toIso8601String(),
         'durationSeconds': duration,
         'type': scope == 'international' ? 'global' : 'national',
+        'isPublished': true,
+        'isThumbprintEvent': true,
+        'visualUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
+        'mediaUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
+        'originTimeZone': data['originTimeZone'],
+        'noticeBoardShowBeforeMinutes': 0,
+        'showBeforeMinutes': 0,
+      }));
+    }
+    return events;
+  }
+
+  List<Event> _processLivingCanvasDefaults(Map<String, dynamic> defaults) {
+    final now = DateTime.now();
+    final events = <Event>[];
+    for (final entry in defaults.entries) {
+      final data = Map<String, dynamic>.from(entry.value as Map);
+      final hour = (data['hour'] as num?)?.toInt();
+      final minute = (data['laneMinute'] as num?)?.toInt();
+      if (hour == null || minute == null) continue;
+      final start = DateTime(now.year, now.month, now.day, hour, minute);
+      final duration = ((data['durationSeconds'] as num?)?.toInt() ?? 30).clamp(1, 3600);
+      final end = start.add(Duration(seconds: duration));
+      if (now.isAfter(end)) continue;
+      events.add(Event.fromJson({
+        ...data,
+        'id': 'repeating_${entry.key}_${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}',
+        'title': data['title'] ?? 'Thumbprint',
+        'description': data['thankYouBody'] ?? '',
+        'startTimeUTC': start.toUtc().toIso8601String(),
+        'endTime': end.toUtc().toIso8601String(),
+        'durationSeconds': duration,
+        'type': data['canvasScope'] == 'international' ? 'global' : 'national',
         'isPublished': true,
         'isThumbprintEvent': true,
         'visualUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
