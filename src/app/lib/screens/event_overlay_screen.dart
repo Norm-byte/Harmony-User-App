@@ -258,6 +258,7 @@ class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
           label: 'Thumbprint. Tap to add your intention.',
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
+            onTapDown: (_) => _tap(),
             onTap: _tap,
             child: SizedBox(
               width: 240,
@@ -287,9 +288,7 @@ class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
         ),
         const SizedBox(height: 18),
         Text(
-          _pressed
-              ? (widget.thankYouTitle?.trim().isNotEmpty == true ? widget.thankYouTitle! : 'Thank you')
-              : 'Tap and hold your intention',
+          'Tap and hold your intention',
           style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
           textAlign: TextAlign.center,
         ),
