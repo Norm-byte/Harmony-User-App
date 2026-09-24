@@ -717,8 +717,11 @@ class EventService extends ChangeNotifier {
         return isPublished && !isDraft && !isDraftId;
       }
 
-      final stillPublished =
-          existsAndPublished(national) || existsAndPublished(global);
+      final stillPublished = _livingCanvasEnabled
+          ? _livingCanvasEvents.any(
+              (event) => event.id == eventId && event.isThumbprintEvent,
+            )
+          : existsAndPublished(national) || existsAndPublished(global);
 
       // Ignore verification result if pending ID changed mid-flight.
       if (_pendingAlarmEventId != eventId) return;
@@ -861,12 +864,18 @@ class EventService extends ChangeNotifier {
       description: target.description,
       isWorldwide: target.type == EventType.global,
       mediaUrl: forcedMedia,
+      audioUrl: target.soundUrl,
       intent: target.mostPopularIntent,
       fromAlarmLaunch: true,
       startTime: forcedStart,
       participantCount: target.participantCount,
       originTimeZone: target.originTimeZone,
       durationSeconds: cappedSeconds,
+      isThumbprintEvent: target.isThumbprintEvent,
+      thumbprintGlowColor: target.thumbprintGlowColor,
+      thankYouTitle: target.thankYouTitle,
+      thankYouBody: target.thankYouBody,
+      pinCardText: target.pinCardText,
     );
 
     _clearPendingAlarmPlayback(
