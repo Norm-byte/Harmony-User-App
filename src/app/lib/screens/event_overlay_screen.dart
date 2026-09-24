@@ -248,12 +248,20 @@ class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        GestureDetector(
-          onTap: _tap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            width: 190,
-            height: 190,
+        Semantics(
+          button: true,
+          label: 'Thumbprint. Tap to add your intention.',
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _tap,
+            child: SizedBox(
+              width: 240,
+              height: 240,
+              child: Center(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  width: 190,
+                  height: 190,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Colors.black.withValues(alpha: 0.24),
@@ -266,7 +274,10 @@ class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
                 ),
               ],
             ),
-            child: Icon(Icons.fingerprint, size: 112, color: glow),
+                  child: Icon(Icons.fingerprint, size: 112, color: glow),
+                ),
+              ),
+            ),
           ),
         ),
         const SizedBox(height: 18),

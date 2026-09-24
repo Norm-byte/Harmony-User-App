@@ -792,10 +792,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                                               MainAxisAlignment.spaceAround,
                                           children: [
                                             _buildStatItem(
-                                              'Intents Added',
-                                              '${eventService.myEvents.length}',
-                                            ),
-                                            _buildStatItem(
                                               'Thumbprints Tapped',
                                               '$thumbprintCount',
                                             ),
@@ -1192,6 +1188,9 @@ class _SettingsScreenState extends State<SettingsScreen>
 
                         // DEBUG MODE: SHOW ALL EVENTS NO FILTER
                         // final activeEvents = eventService.myEvents;
+                        final totalIntents = combinedEvents
+                          .where((event) => event['isVirtual'] != true)
+                          .length;
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1200,7 +1199,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                               children: [
                                 Expanded(
                                   child: Text(
-                                    'My Intents (${activeEvents.length})',
+                                    'My Intents ($totalIntents)',
                                     style: const TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
