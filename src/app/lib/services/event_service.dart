@@ -32,6 +32,7 @@ class EventService extends ChangeNotifier {
   String? _pendingAlarmEventId;
   DateTime? _pendingAlarmEventExpiresAt;
   bool _pendingAlarmForceVideo = false;
+  bool _pendingThumbprintWaitedForStart = false;
   bool? _pendingAlarmVerifiedExists;
   bool _currentEventFromAlarmLaunch = false;
   bool _isAlarmLaunchTransitionActive = false;
@@ -669,6 +670,7 @@ class EventService extends ChangeNotifier {
     _pendingAlarmEventId = eventId.trim();
     _pendingAlarmEventExpiresAt = DateTime.now().add(holdFor);
     _pendingAlarmForceVideo = forceVideo;
+    _pendingThumbprintWaitedForStart = false;
     _pendingAlarmVerifiedExists = null;
     _alarmLaunchTransitionTimer?.cancel();
     print('HARMONY_ALARM: queued immediate playback for $_pendingAlarmEventId');
@@ -688,6 +690,7 @@ class EventService extends ChangeNotifier {
     _pendingAlarmEventId = null;
     _pendingAlarmEventExpiresAt = null;
     _pendingAlarmForceVideo = false;
+    _pendingThumbprintWaitedForStart = false;
     _pendingAlarmVerifiedExists = null;
     if (!_isEventActive && _isAlarmLaunchTransitionActive) {
       _alarmLaunchTransitionTimer?.cancel();
@@ -804,6 +807,19 @@ class EventService extends ChangeNotifier {
 
     final startLocal = target.startTime.toLocal();
     final endLocal = target.endTime.toLocal();
+
+    // Thumbprint notifications may be delivered before their scheduled slot.
+    // Keep the launch queued so playback and its exact duration begin at the
+    // configured start time, without changing legacy event behavior.
+    if (target.isThumbprintEvent && now.isBefore(startLocal)) {
+      _pendingThumbprintWaitedForStart = true;
+      print(
+        'HARMONY_ALARM: early Thumbprint launch for ${target.id}; '
+        'waiting until ${startLocal.toIso8601String()}',
+      );
+      return true;
+    }
+
     final inWindow =
         now.isAfter(startLocal.subtract(const Duration(minutes: 2))) &&
         now.isBefore(endLocal.add(const Duration(minutes: 5)));
@@ -836,10 +852,11 @@ class EventService extends ChangeNotifier {
 
     // Cap playback duration to whatever time is left in the event window.
     // The user sees only what there is still to see — no full replay.
-    final cappedSeconds = remaining.inSeconds.clamp(
-      1,
-      target.durationSeconds ?? 3600,
-    );
+    final configuredSeconds = target.durationSeconds ?? 3600;
+    final cappedSeconds =
+        target.isThumbprintEvent && _pendingThumbprintWaitedForStart
+        ? configuredSeconds
+        : remaining.inSeconds.clamp(1, configuredSeconds);
     if (cappedSeconds < (target.durationSeconds ?? 3600)) {
       print(
         'HARMONY_ALARM: late tap for ${target.id} — capping duration to '
