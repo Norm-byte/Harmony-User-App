@@ -2,6 +2,12 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const vision = require('@google-cloud/vision');
 const nodemailer = require('nodemailer');
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const ffmpeg = require('fluent-ffmpeg');
+ffmpeg.setFfmpegPath(require('@ffmpeg-installer/ffmpeg').path);
 const { onObjectFinalized } = require('firebase-functions/v2/storage');
 admin.initializeApp();
 const visionClient = new vision.ImageAnnotatorClient();
@@ -695,6 +701,96 @@ exports.provisionAppUserAccount = functions.https.onCall(async (data, context) =
         username,
     };
 });
+
+function parseStorageObjectPath(mediaUrl) {
+    try {
+        const parsed = new URL(mediaUrl);
+        if (parsed.hostname === 'firebasestorage.googleapis.com') {
+            const match = parsed.pathname.match(/\/v0\/b\/[^/]+\/o\/(.+)$/);
+            if (match && match[1]) return decodeURIComponent(match[1]);
+        }
+        if (parsed.hostname === 'storage.googleapis.com') {
+            const segments = parsed.pathname.split('/').filter(Boolean);
+            segments.shift(); // drop bucket name
+            if (segments.length) return decodeURIComponent(segments.join('/'));
+        }
+    } catch (_) {
+        // Not a parseable URL; fall through to null.
+    }
+    return null;
+}
+
+// Admin-only: strips the audio track from an uploaded Thumbprint background
+// video so it can never play over the event's dedicated chime audio. Leaves
+// the original file untouched and uploads a separate silent copy.
+exports.stripThumbprintVideoAudio = functions
+    .runWith({ memory: '1GB', timeoutSeconds: 300 })
+    .https.onCall(async (data, context) => {
+        await assertAdminPermission(context, 'living_canvas_studio', 'mute Thumbprint background video audio');
+
+        const mediaUrl = String(data?.mediaUrl || '').trim();
+        if (!mediaUrl) {
+            throw new functions.https.HttpsError('invalid-argument', 'mediaUrl is required.');
+        }
+
+        const objectPath = parseStorageObjectPath(mediaUrl);
+        if (!objectPath) {
+            throw new functions.https.HttpsError('invalid-argument', 'Could not resolve a Storage path from mediaUrl.');
+        }
+
+        const bucket = admin.storage().bucket();
+        const sourceFile = bucket.file(objectPath);
+        const [exists] = await sourceFile.exists();
+        if (!exists) {
+            throw new functions.https.HttpsError('not-found', 'Source video was not found in Storage.');
+        }
+
+        const [meta] = await sourceFile.getMetadata();
+        const contentType = meta.contentType || 'video/mp4';
+        const ext = path.extname(objectPath) || '.mp4';
+        const stamp = Date.now();
+        const tmpInput = path.join(os.tmpdir(), `thumbprint_in_${stamp}${ext}`);
+        const tmpOutput = path.join(os.tmpdir(), `thumbprint_muted_${stamp}${ext}`);
+
+        try {
+            await sourceFile.download({ destination: tmpInput });
+
+            await new Promise((resolve, reject) => {
+                ffmpeg(tmpInput)
+                    .noAudio()
+                    .videoCodec('copy')
+                    .on('error', reject)
+                    .on('end', resolve)
+                    .save(tmpOutput);
+            });
+
+            const dir = path.dirname(objectPath);
+            const base = path.basename(objectPath, ext);
+            const mutedObjectPath = dir === '.' ? `${base}_muted${ext}` : `${dir}/${base}_muted${ext}`;
+            const downloadToken = crypto.randomUUID();
+
+            await bucket.upload(tmpOutput, {
+                destination: mutedObjectPath,
+                metadata: {
+                    contentType,
+                    metadata: { firebaseStorageDownloadTokens: downloadToken },
+                },
+            });
+
+            const encodedPath = encodeURIComponent(mutedObjectPath);
+            const mutedUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodedPath}?alt=media&token=${downloadToken}`;
+
+            return { mutedUrl, mutedPath: mutedObjectPath };
+        } finally {
+            for (const file of [tmpInput, tmpOutput]) {
+                try {
+                    if (fs.existsSync(file)) fs.unlinkSync(file);
+                } catch (_) {
+                    // Best-effort cleanup only.
+                }
+            }
+        }
+    });
 
 exports.sendPushNotification = functions.https.onCall(async (data, context) => {
     // Check authentication (optional but recommended)
