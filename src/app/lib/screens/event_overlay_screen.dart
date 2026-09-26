@@ -23,6 +23,7 @@ class EventOverlayScreen extends StatelessWidget {
   final String? thankYouTitle;
   final String? thankYouBody;
   final String? pinCardText;
+  final int thankYouDisplaySeconds;
   final VoidCallback onDismiss;
 
   const EventOverlayScreen({
@@ -41,6 +42,7 @@ class EventOverlayScreen extends StatelessWidget {
     this.thankYouTitle,
     this.thankYouBody,
     this.pinCardText,
+    this.thankYouDisplaySeconds = 3,
     required this.onDismiss,
   });
 
@@ -74,6 +76,7 @@ class EventOverlayScreen extends StatelessWidget {
                 controls: false,
                 autoPlay: true,
                 loop: true,
+                muted: audioUrl?.isNotEmpty == true,
               ),
             )
           else
@@ -129,6 +132,8 @@ class EventOverlayScreen extends StatelessWidget {
                                 thankYouTitle: thankYouTitle,
                                 thankYouBody: thankYouBody,
                                 pinCardText: pinCardText,
+                                thankYouDisplaySeconds:
+                                  thankYouDisplaySeconds,
                               ),
                           ],
                         ),
@@ -190,6 +195,7 @@ class _ThumbprintSurface extends StatefulWidget {
   final String? thankYouTitle;
   final String? thankYouBody;
   final String? pinCardText;
+  final int thankYouDisplaySeconds;
 
   const _ThumbprintSurface({
     required this.eventId,
@@ -197,6 +203,7 @@ class _ThumbprintSurface extends StatefulWidget {
     required this.thankYouTitle,
     required this.thankYouBody,
     required this.pinCardText,
+    required this.thankYouDisplaySeconds,
   });
 
   @override
@@ -206,6 +213,14 @@ class _ThumbprintSurface extends StatefulWidget {
 class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
   bool _pressed = false;
   bool _saving = false;
+  bool _hidden = false;
+  Timer? _hideTimer;
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    super.dispose();
+  }
 
   Color _glow() {
     final raw = (widget.glowColor ?? '').replaceAll('#', '').trim();
@@ -219,6 +234,12 @@ class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
       _saving = true;
       _pressed = true;
     });
+    _hideTimer = Timer(
+      Duration(seconds: widget.thankYouDisplaySeconds.clamp(1, 60)),
+      () {
+        if (mounted) setState(() => _hidden = true);
+      },
+    );
     await HapticFeedback.mediumImpact();
     await Future<void>.delayed(const Duration(milliseconds: 90));
     await HapticFeedback.heavyImpact();
@@ -243,7 +264,7 @@ class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
         }
       });
     } catch (_) {
-      if (mounted) setState(() => _pressed = false);
+      // Keep the local acknowledgement visible when counting is offline.
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -251,6 +272,7 @@ class _ThumbprintSurfaceState extends State<_ThumbprintSurface> {
 
   @override
   Widget build(BuildContext context) {
+    if (_hidden) return const SizedBox.shrink();
     final glow = _glow();
     return Column(
       mainAxisSize: MainAxisSize.min,

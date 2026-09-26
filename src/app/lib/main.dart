@@ -177,6 +177,8 @@ class _AppLifecycleManagerState extends State<AppLifecycleManager>
                   thankYouTitle: eventService.currentThankYouTitle,
                   thankYouBody: eventService.currentThankYouBody,
                   pinCardText: eventService.currentPinCardText,
+                    thankYouDisplaySeconds:
+                      eventService.currentThankYouDisplaySeconds,
                   userIntent: null,
                   onDismiss: eventService.dismissEvent,
                 ),

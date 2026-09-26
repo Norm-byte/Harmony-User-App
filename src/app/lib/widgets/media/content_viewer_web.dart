@@ -10,6 +10,7 @@ class ContentViewer extends StatelessWidget {
   final bool controls;
   final bool autoPlay;
   final bool loop;
+  final bool muted;
   final BoxFit fit;
 
   const ContentViewer({
@@ -18,6 +19,7 @@ class ContentViewer extends StatelessWidget {
     this.controls = true,
     this.autoPlay = false,
     this.loop = false,
+    this.muted = false,
     this.fit = BoxFit.contain,
   });
 
@@ -55,7 +57,7 @@ class ContentViewer extends StatelessWidget {
     if (isYoutube) {
       final videoId = _extractYoutubeId(url);
       // Autoplay enabled (autoplay=1)
-      final embedUrl = 'https://www.youtube.com/embed/$videoId?autoplay=${autoPlay ? 1 : 0}&rel=0';
+      final embedUrl = 'https://www.youtube.com/embed/$videoId?autoplay=${autoPlay ? 1 : 0}&mute=${muted ? 1 : 0}&rel=0';
       final viewId = 'content-viewer-youtube-${url.hashCode}';
       
       // ignore: undefined_prefixed_name
@@ -83,6 +85,7 @@ class ContentViewer extends StatelessWidget {
           ..src = url
           ..autoplay = autoPlay
           ..loop = loop
+          ..muted = muted
           ..controls = controls
           ..style.objectFit = fit == BoxFit.cover ? 'cover' : 'contain'
           ..style.width = '100%'

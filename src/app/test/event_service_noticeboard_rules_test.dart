@@ -29,6 +29,23 @@ void main() {
       );
     }
 
+    Event buildThumbprint({String? visualUrl, String? mediaUrl, String? soundUrl}) {
+      final start = DateTime(2026, 9, 26, 12, 0);
+      return Event(
+        id: 'thumbprint-id',
+        title: '',
+        description: '',
+        startTime: start,
+        endTime: start.add(const Duration(seconds: 14)),
+        type: EventType.national,
+        visualUrl: visualUrl,
+        mediaUrl: mediaUrl,
+        soundUrl: soundUrl,
+        durationSeconds: 14,
+        isThumbprintEvent: true,
+      );
+    }
+
     test('published gate requires explicit published=true and rejects drafts/legacy docs', () {
       expect(
         EventService.isPublishedForUserApp({'isPublished': true}, docId: 'slot_1815_20260428'),
@@ -49,6 +66,87 @@ void main() {
       expect(
         EventService.isPublishedForUserApp({'isPublished': true}, docId: 'draft_slot_1815_20260428'),
         isFalse,
+      );
+    });
+
+    test('Thumbprint thank-you duration parses, clamps, and survives copyWith', () {
+      final event = Event.fromJson({
+        'id': 'thumbprint-test',
+        'title': 'Test',
+        'description': '',
+        'startTimeUTC': '2026-09-25T20:00:00Z',
+        'durationSeconds': 10,
+        'isPublished': true,
+        'isThumbprintEvent': true,
+        'thankYouDisplaySeconds': 75,
+      });
+
+      expect(event.thankYouDisplaySeconds, 60);
+      expect(event.copyWith().thankYouDisplaySeconds, 60);
+      expect(
+        Event.fromJson({
+          'id': 'thumbprint-default',
+          'title': 'Test',
+          'description': '',
+          'startTimeUTC': '2026-09-25T20:00:00Z',
+          'durationSeconds': 10,
+          'isPublished': true,
+        }).thankYouDisplaySeconds,
+        3,
+      );
+    });
+
+    test('Thumbprint video mode selects visual media while audio remains separate', () {
+      final event = buildThumbprint(
+        visualUrl: 'https://example.com/background.mp4',
+        mediaUrl: 'https://example.com/background.mp4',
+        soundUrl: 'https://example.com/chime.mp3',
+      );
+
+      expect(
+        EventService.resolveThumbprintVisualMedia(event, audioOnly: false),
+        'https://example.com/background.mp4',
+      );
+    });
+
+    test('Thumbprint audio-only mode suppresses visual media', () {
+      final event = buildThumbprint(
+        visualUrl: 'https://example.com/background.mp4',
+        soundUrl: 'https://example.com/chime.mp3',
+      );
+
+      expect(
+        EventService.resolveThumbprintVisualMedia(event, audioOnly: true),
+        isNull,
+      );
+    });
+
+    test('Thumbprint standalone audio is never duplicated as visual media', () {
+      final event = buildThumbprint(
+        mediaUrl: 'https://example.com/chime.mp3',
+        soundUrl: 'https://example.com/chime.mp3',
+      );
+
+      expect(
+        EventService.resolveThumbprintVisualMedia(event, audioOnly: false),
+        isNull,
+      );
+    });
+
+    test('Thumbprint image and YouTube backgrounds remain visual media', () {
+      expect(
+        EventService.resolveThumbprintVisualMedia(
+          buildThumbprint(mediaUrl: 'https://example.com/background.jpg'),
+          audioOnly: false,
+        ),
+        'https://example.com/background.jpg',
+      );
+      expect(
+        EventService.resolveThumbprintVisualMedia(
+          buildThumbprint(mediaUrl: 'https://youtu.be/video-id'),
+          audioOnly: false,
+        ),
+        'https://youtu.be/video-id',
       );
     });
 

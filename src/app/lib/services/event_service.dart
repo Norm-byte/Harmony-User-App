@@ -272,6 +272,7 @@ class EventService extends ChangeNotifier {
   String? _currentThankYouTitle;
   String? _currentThankYouBody;
   String? _currentPinCardText;
+  int _currentThankYouDisplaySeconds = 3;
   DateTime? _currentEventStartTime; // Track Start Time for valid dismissal key
   DateTime? _currentEventEndTime; // Track End Time for auto-dismissal
   final Duration _eventGracePeriod = const Duration(
@@ -297,12 +298,11 @@ class EventService extends ChangeNotifier {
   String? get currentThankYouTitle => _currentThankYouTitle;
   String? get currentThankYouBody => _currentThankYouBody;
   String? get currentPinCardText => _currentPinCardText;
+  int get currentThankYouDisplaySeconds => _currentThankYouDisplaySeconds;
 
   void setAppInForegroundState(bool isForeground) {
     _isAppInForeground = isForeground;
     if (isForeground) {
-      // Strict behavior: clear queued dormant alerts when user is actively in-app.
-      unawaited(NotificationService().cancelDormantPlaybackReminders());
       _scheduleDormantPlaybackSync();
     }
   }
@@ -576,7 +576,7 @@ class EventService extends ChangeNotifier {
         );
   }
 
-  void _refreshEvents() {
+  void _refreshEvents({bool syncDormant = true}) {
     _nationalEvents = _livingCanvasEnabled
         ? const []
         : _processDocs(
@@ -592,7 +592,7 @@ class EventService extends ChangeNotifier {
           ..._processLivingCanvasDefaults(_livingCanvasDefaults),
         ]
       : const [];
-    _mergeEvents();
+    _mergeEvents(syncDormant: syncDormant);
   }
 
   // Synchronously peek at SharedPreferences for a stored launch payload from MainActivity.
@@ -704,6 +704,21 @@ class EventService extends ChangeNotifier {
 
   Future<void> _verifyPendingAlarmEventStillPublished(String eventId) async {
     try {
+      if (_livingCanvasEnabled) {
+        final stillPublished = _livingCanvasEvents.any(
+          (event) => event.id == eventId && event.isThumbprintEvent,
+        );
+        if (_pendingAlarmEventId != eventId) return;
+        _pendingAlarmVerifiedExists = stillPublished;
+        if (!stillPublished) {
+          await NotificationService().cancelNotificationForEvent(eventId);
+          _clearPendingAlarmPlayback(
+            reason: 'stale Thumbprint alarm dropped for $eventId',
+          );
+        }
+        return;
+      }
+
       final national = await _firestore.collection('events').doc(eventId).get();
       final global = await _firestore
           .collection('global_events')
@@ -720,11 +735,8 @@ class EventService extends ChangeNotifier {
         return isPublished && !isDraft && !isDraftId;
       }
 
-      final stillPublished = _livingCanvasEnabled
-          ? _livingCanvasEvents.any(
-              (event) => event.id == eventId && event.isThumbprintEvent,
-            )
-          : existsAndPublished(national) || existsAndPublished(global);
+      final stillPublished =
+          existsAndPublished(national) || existsAndPublished(global);
 
       // Ignore verification result if pending ID changed mid-flight.
       if (_pendingAlarmEventId != eventId) return;
@@ -893,6 +905,7 @@ class EventService extends ChangeNotifier {
       thankYouTitle: target.thankYouTitle,
       thankYouBody: target.thankYouBody,
       pinCardText: target.pinCardText,
+      thankYouDisplaySeconds: target.thankYouDisplaySeconds,
     );
 
     _clearPendingAlarmPlayback(
@@ -902,7 +915,7 @@ class EventService extends ChangeNotifier {
     return true;
   }
 
-  void _mergeEvents() {
+  void _mergeEvents({bool syncDormant = true}) {
     final oldEvents = [..._events];
     _events = _dedupeNationalEvents([
       ..._nationalEvents,
@@ -915,7 +928,7 @@ class EventService extends ChangeNotifier {
     if (!_areEventListsEqual(oldEvents, _events)) {
       // Rebuild dormant reminders only when event content actually changes.
       // This avoids cancel/recreate churn right around trigger times.
-      _scheduleDormantPlaybackSync();
+      if (syncDormant) _scheduleDormantPlaybackSync();
       notifyListeners();
     }
   }
@@ -1258,6 +1271,7 @@ class EventService extends ChangeNotifier {
         'visualUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
         'mediaUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
         'soundUrl': data['chimeAudioUrl'] ?? data['customAudioUrl'],
+        'thankYouDisplaySeconds': data['thankYouDisplaySeconds'],
         'originTimeZone': data['originTimeZone'],
         'noticeBoardShowBeforeMinutes': 0,
         'showBeforeMinutes': 0,
@@ -1292,6 +1306,7 @@ class EventService extends ChangeNotifier {
         'visualUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
         'mediaUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
         'soundUrl': data['chimeAudioUrl'] ?? data['customAudioUrl'],
+        'thankYouDisplaySeconds': data['thankYouDisplaySeconds'],
         'originTimeZone': data['originTimeZone'],
         'noticeBoardShowBeforeMinutes': 0,
         'showBeforeMinutes': 0,
@@ -1384,7 +1399,7 @@ class EventService extends ChangeNotifier {
 
     // Rebuild time-dependent event windows each tick so expired slot cards
     // clear promptly under strict noticeboard rules.
-    _refreshEvents();
+    _refreshEvents(syncDormant: false);
 
     if (_attemptPendingAlarmPlayback()) {
       return;
@@ -1577,6 +1592,7 @@ class EventService extends ChangeNotifier {
         thankYouTitle: bestEventToTrigger.thankYouTitle,
         thankYouBody: bestEventToTrigger.thankYouBody,
         pinCardText: bestEventToTrigger.pinCardText,
+        thankYouDisplaySeconds: bestEventToTrigger.thankYouDisplaySeconds,
       );
     }
   }
@@ -1600,6 +1616,7 @@ class EventService extends ChangeNotifier {
     String? thankYouTitle,
     String? thankYouBody,
     String? pinCardText,
+    int thankYouDisplaySeconds = 3,
   }) {
     final effectiveFromAlarmLaunch =
         fromAlarmLaunch || (id != null && id == _lastKnownAlarmLaunchEventId);
@@ -1624,7 +1641,7 @@ class EventService extends ChangeNotifier {
     _isEventActive = true;
     _currentEventId = id;
     NotificationService().cancelNotificationForEvent(id);
-    _currentEventStartTime = startTime;
+    _currentEventStartTime = isThumbprintEvent ? DateTime.now() : startTime;
     _currentEventEndTime =
         null; // Explicitly nullify this. use STRICT timer only.
     _currentEventTitle = title;
@@ -1650,6 +1667,7 @@ class EventService extends ChangeNotifier {
     _currentThankYouTitle = thankYouTitle;
     _currentThankYouBody = thankYouBody;
     _currentPinCardText = pinCardText;
+    _currentThankYouDisplaySeconds = thankYouDisplaySeconds.clamp(1, 60);
     _currentEventFromAlarmLaunch = effectiveFromAlarmLaunch;
 
     if (effectiveFromAlarmLaunch && id != null) {
@@ -1772,6 +1790,7 @@ class EventService extends ChangeNotifier {
     _currentThankYouTitle = null;
     _currentThankYouBody = null;
     _currentPinCardText = null;
+    _currentThankYouDisplaySeconds = 3;
     _currentEventEndTime = null;
     _currentEventStartTime = null;
     _currentEventFromAlarmLaunch = false;
@@ -1868,6 +1887,13 @@ class EventService extends ChangeNotifier {
     final userService = UserService();
     final mode = userService.playbackModeFor(event.startTime.toLocal());
 
+    if (event.isThumbprintEvent) {
+      return resolveThumbprintVisualMedia(
+        event,
+        audioOnly: mode == PlaybackMode.audio,
+      );
+    }
+
     if (mode == PlaybackMode.audio) {
       if (event.soundUrl != null && event.soundUrl!.isNotEmpty) {
         return event.soundUrl;
@@ -1884,6 +1910,19 @@ class EventService extends ChangeNotifier {
     return event.mediaUrl ?? event.soundUrl;
   }
 
+  @visibleForTesting
+  static String? resolveThumbprintVisualMedia(
+    Event event, {
+    required bool audioOnly,
+  }) {
+    if (audioOnly) return null;
+    if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
+      return event.visualUrl;
+    }
+    if (!_isAudioUrl(event.mediaUrl)) return event.mediaUrl;
+    return null;
+  }
+
   String? _selectPlaybackMediaForForcedVideo(Event event) {
     if (event.visualUrl != null && event.visualUrl!.isNotEmpty) {
       return event.visualUrl;
@@ -1896,7 +1935,7 @@ class EventService extends ChangeNotifier {
     return event.soundUrl ?? event.mediaUrl;
   }
 
-  bool _isAudioUrl(String? url) {
+  static bool _isAudioUrl(String? url) {
     if (url == null || url.isEmpty) return false;
 
     final lower = url.toLowerCase();

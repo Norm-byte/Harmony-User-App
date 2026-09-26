@@ -5,6 +5,7 @@ class ContentViewer extends StatelessWidget {
   final bool controls;
   final bool autoPlay;
   final bool loop;
+  final bool muted;
   final BoxFit fit;
 
   const ContentViewer({
@@ -13,6 +14,7 @@ class ContentViewer extends StatelessWidget {
     this.controls = true,
     this.autoPlay = false,
     this.loop = false,
+    this.muted = false,
     this.fit = BoxFit.contain,
   });
 

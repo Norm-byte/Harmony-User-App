@@ -74,6 +74,7 @@ class NotificationService {
     _methodChannelName,
   );
   StreamSubscription<User?>? _authStateSubscription;
+  Future<void> _dormantSyncQueue = Future<void>.value();
 
   bool _isInitialized = false;
 
@@ -647,6 +648,20 @@ class NotificationService {
   Future<void> syncDormantPlaybackReminders({
     required List<Event> events,
     required UserService userService,
+  }) {
+    final eventSnapshot = List<Event>.from(events);
+    _dormantSyncQueue = _dormantSyncQueue
+        .catchError((_) {})
+        .then((_) => _performDormantPlaybackSync(
+              events: eventSnapshot,
+              userService: userService,
+            ));
+    return _dormantSyncQueue;
+  }
+
+  Future<void> _performDormantPlaybackSync({
+    required List<Event> events,
+    required UserService userService,
   }) async {
     final probeNow = DateTime.now();
     final probeWindowEnd = probeNow.add(const Duration(hours: 24));
@@ -686,7 +701,7 @@ class NotificationService {
     int fallbackCount = 0;
     int attemptCount = 0;
     int iosQueuedAlerts = 0;
-    const int iosMaxQueuedAlerts = 8;
+    const int iosMaxQueuedAlerts = 40;
     final Set<String> iosScheduledSlotKeys = <String>{};
 
     final sortedEvents = [...events]

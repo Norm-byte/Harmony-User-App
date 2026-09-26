@@ -14,6 +14,7 @@ class ContentViewer extends StatelessWidget {
   final bool controls;
   final bool autoPlay; // Added autoPlay
   final bool loop; // Added loop
+  final bool muted;
   final BoxFit fit;
 
   const ContentViewer({
@@ -22,13 +23,14 @@ class ContentViewer extends StatelessWidget {
     this.controls = true,
     this.autoPlay = false,
     this.loop = false,
+    this.muted = false,
     this.fit = BoxFit.contain,
   });
 
   @override
   Widget build(BuildContext context) {
     final userService = Provider.of<UserService>(context, listen: false);
-    final volume = userService.eventVolume;
+    final volume = muted ? 0.0 : userService.eventVolume;
 
     if (url.isEmpty) {
       return const Center(
@@ -52,6 +54,11 @@ class ContentViewer extends StatelessWidget {
         url.toLowerCase().contains('.avi') ||
         url.toLowerCase().contains('.mkv') ||
         url.toLowerCase().contains('.mp3') || // Added Audio
+        url.toLowerCase().contains('.wav') ||
+        url.toLowerCase().contains('.aac') ||
+        url.toLowerCase().contains('.m4a');
+      final isAudio =
+        url.toLowerCase().contains('.mp3') ||
         url.toLowerCase().contains('.wav') ||
         url.toLowerCase().contains('.aac') ||
         url.toLowerCase().contains('.m4a');
@@ -99,6 +106,7 @@ class ContentViewer extends StatelessWidget {
         loop: loop,
         fit: fit,
         volume: volume,
+        useCache: !isAudio,
       );
     } else if (isPdf) {
       return SfPdfViewer.network(
@@ -475,6 +483,7 @@ class _NativeVideoPlayer extends StatefulWidget {
   final bool loop;
   final BoxFit fit;
   final double volume;
+  final bool useCache;
 
   const _NativeVideoPlayer({
     required this.url,
@@ -483,6 +492,7 @@ class _NativeVideoPlayer extends StatefulWidget {
     required this.loop,
     required this.fit,
     required this.volume,
+    required this.useCache,
   });
 
   @override
@@ -655,31 +665,48 @@ class _NativeVideoPlayerState extends State<_NativeVideoPlayer>
       // 2. If cached -> Play file (Instant).
       // 3. If NOT cached -> Stream from Network (Instant Start) while caching in background.
 
-      final fileInfo = await DefaultCacheManager().getFileFromCache(widget.url);
+        final fileInfo = widget.useCache
+          ? await DefaultCacheManager().getFileFromCache(widget.url)
+          : null;
 
       if (fileInfo != null && await fileInfo.file.exists()) {
         debugPrint("Playing from local cache: ${widget.url}");
-        _controller = VideoPlayerController.file(fileInfo.file);
+        _controller = VideoPlayerController.file(
+          fileInfo.file,
+          videoPlayerOptions: VideoPlayerOptions(
+            mixWithOthers: widget.volume == 0,
+          ),
+        );
       } else {
         debugPrint(
           "File not in cache. Streaming network URL for immediate playback: ${widget.url}",
         );
-        _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+        _controller = VideoPlayerController.networkUrl(
+          Uri.parse(widget.url),
+          videoPlayerOptions: VideoPlayerOptions(
+            mixWithOthers: widget.volume == 0,
+          ),
+        );
 
-        // Verify connection/validity implicitly by letting initialize() run below.
-        // Trigger background download for next time (Fire and Forget)
-        DefaultCacheManager()
-            .downloadFile(widget.url)
-            .then((_) {
-              debugPrint("Background download complete for: ${widget.url}");
-            })
-            .catchError((e) {
-              debugPrint("Background download failed (non-fatal): $e");
-            });
+        if (widget.useCache) {
+          DefaultCacheManager()
+              .downloadFile(widget.url)
+              .then((_) {
+                debugPrint("Background download complete for: ${widget.url}");
+              })
+              .catchError((e) {
+                debugPrint("Background download failed (non-fatal): $e");
+              });
+        }
       }
     } catch (e) {
       debugPrint("Player init error: $e. Fallback to network stream.");
-      _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+      _controller = VideoPlayerController.networkUrl(
+        Uri.parse(widget.url),
+        videoPlayerOptions: VideoPlayerOptions(
+          mixWithOthers: widget.volume == 0,
+        ),
+      );
     }
 
     try {

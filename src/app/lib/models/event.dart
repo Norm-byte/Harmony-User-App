@@ -38,6 +38,7 @@ class Event {
   final String? thankYouTitle;
   final String? thankYouBody;
   final String? pinCardText;
+  final int thankYouDisplaySeconds;
 
   Event({
     required this.id,
@@ -73,6 +74,7 @@ class Event {
     this.thankYouTitle,
     this.thankYouBody,
     this.pinCardText,
+    this.thankYouDisplaySeconds = 3,
   });
 
   factory Event.fromJson(Map<String, dynamic> json) {
@@ -143,6 +145,8 @@ class Event {
         thankYouTitle: json['thankYouTitle'],
         thankYouBody: json['thankYouBody'],
         pinCardText: json['pinCardText'],
+        thankYouDisplaySeconds:
+          (_asInt(json['thankYouDisplaySeconds']) ?? 3).clamp(1, 60),
       imageUrl:
           json['visualUrl'] ??
           json['imageUrl'] ??
@@ -241,6 +245,8 @@ class Event {
       thumbprintGlowColor: thumbprintGlowColor,
       thankYouTitle: thankYouTitle,
       thankYouBody: thankYouBody,
+      pinCardText: pinCardText,
+      thankYouDisplaySeconds: thankYouDisplaySeconds,
     );
   }
 
@@ -274,6 +280,7 @@ class Event {
       'visualUrl': visualUrl,
       'mediaUrl': mediaUrl,
       'originTime': originTime,
+      'thankYouDisplaySeconds': thankYouDisplaySeconds,
     };
   }
 
