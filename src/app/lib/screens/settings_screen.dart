@@ -2790,6 +2790,89 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  Widget _buildMostLikedPoemExpandedModeSelector(String uid) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      builder: (context, preferenceSnapshot) {
+        final selectedMode =
+            preferenceSnapshot.data?.data()?['mostLikedPoemExpandedMode'] ==
+                'overall'
+            ? 'overall'
+            : 'personal';
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('app_config')
+              .doc('community_support')
+              .snapshots(),
+          builder: (context, configSnapshot) {
+            final config =
+                configSnapshot.data?.data() ?? const <String, dynamic>{};
+            return DropdownButtonFormField<String>(
+              initialValue: selectedMode,
+              isExpanded: true,
+              dropdownColor: const Color(0xFF292638),
+              decoration: const InputDecoration(
+                labelText: 'Poem shown when expanded',
+                labelStyle: TextStyle(color: Colors.white70),
+                filled: true,
+                fillColor: Color(0x331D1A2B),
+                border: OutlineInputBorder(),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.white30),
+                ),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+              ),
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+              items: [
+                DropdownMenuItem(
+                  value: 'personal',
+                  child: Text(
+                    _supportConfigText(
+                      config,
+                      'myMostLikedPoemOptionText',
+                      'My most-liked poem',
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                DropdownMenuItem(
+                  value: 'overall',
+                  child: Text(
+                    _supportConfigText(
+                      config,
+                      'overallMostLikedPoemOptionText',
+                      'Overall most-liked poem',
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+              onChanged: (mode) async {
+                if (mode == null) return;
+                try {
+                  await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(uid)
+                      .set({
+                        'mostLikedPoemExpandedMode': mode,
+                      }, SetOptions(merge: true));
+                } catch (error) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Could not save poem choice: $error')),
+                  );
+                }
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildMostLikedCommentCard() {
     final uid = UserService().userId;
     if (uid.isEmpty) {
@@ -2874,91 +2957,32 @@ class _SettingsScreenState extends State<SettingsScreen>
                   children: [
                     const Icon(Icons.star, color: Colors.amber, size: 16),
                     const SizedBox(width: 8),
-                    StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      stream: FirebaseFirestore.instance
-                          .collection('users')
-                          .doc(uid)
-                          .snapshots(),
-                      builder: (context, preferenceSnapshot) {
-                        final showOverall =
-                            preferenceSnapshot.data?.data()?[
-                                  'mostLikedPoemExpandedMode'
-                                ] ==
-                                'overall';
-                        return StreamBuilder<
-                          DocumentSnapshot<Map<String, dynamic>>
-                        >(
-                          stream: FirebaseFirestore.instance
-                              .collection('app_config')
-                              .doc('community_support')
-                              .snapshots(),
-                          builder: (context, configSnapshot) {
-                            final config =
-                                configSnapshot.data?.data() ??
-                                const <String, dynamic>{};
-                            final label = _supportConfigText(
+                    Expanded(
+                      child: StreamBuilder<
+                        DocumentSnapshot<Map<String, dynamic>>
+                      >(
+                        stream: FirebaseFirestore.instance
+                            .collection('app_config')
+                            .doc('community_support')
+                            .snapshots(),
+                        builder: (context, configSnapshot) {
+                          final config =
+                              configSnapshot.data?.data() ??
+                              const <String, dynamic>{};
+                          return Text(
+                            _supportConfigText(
                               config,
                               'myMostLikedPoemTitle',
                               'My Most Liked Poem',
-                            );
-                            return PopupMenuButton<String>(
-                                tooltip: showOverall
-                                  ? 'Overall most-liked poem selected. Change poem'
-                                  : 'My most-liked poem selected. Change poem',
-                              onSelected: (mode) async {
-                                await FirebaseFirestore.instance
-                                    .collection('users')
-                                    .doc(uid)
-                                    .set({
-                                      'mostLikedPoemExpandedMode': mode,
-                                    }, SetOptions(merge: true));
-                              },
-                              itemBuilder: (context) => [
-                                PopupMenuItem(
-                                  value: 'personal',
-                                  child: Text(
-                                    _supportConfigText(
-                                      config,
-                                      'myMostLikedPoemOptionText',
-                                      'My most-liked poem',
-                                    ),
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: 'overall',
-                                  child: Text(
-                                    _supportConfigText(
-                                      config,
-                                      'overallMostLikedPoemOptionText',
-                                      'Overall most-liked poem',
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      label,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                  const Icon(
-                                    Icons.arrow_drop_down,
-                                    color: Colors.white70,
-                                    size: 18,
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        );
-                      },
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          );
+                        },
+                      ),
                     ),
                     const Spacer(),
                     const Icon(
@@ -2973,6 +2997,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                _buildMostLikedPoemExpandedModeSelector(uid),
                 const SizedBox(height: 8),
                 Text(
                   commentPreview,
