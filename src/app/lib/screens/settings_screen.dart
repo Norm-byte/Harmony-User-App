@@ -802,14 +802,30 @@ class _SettingsScreenState extends State<SettingsScreen>
                                         const SizedBox(height: 16),
                                         const Divider(color: Colors.white24),
                                         const SizedBox(height: 16),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceAround,
-                                          children: [
-                                            _buildLikesReceivedStatItem(),
-                                            _buildMyCommentsCountStatItem(),
-                                            _buildSupportReceivedStatItem(),
-                                          ],
+                                        StreamBuilder<
+                                            DocumentSnapshot<Map<String, dynamic>>>(
+                                          stream: FirebaseFirestore.instance
+                                              .collection('app_config')
+                                              .doc('community_support')
+                                              .snapshots(),
+                                          builder: (context, supportConfigSnapshot) {
+                                            final supportConfig =
+                                                supportConfigSnapshot.data?.data() ??
+                                                    const <String, dynamic>{};
+                                            final statItems = <Widget>[
+                                              _buildLikesReceivedStatItem(),
+                                              _buildMyCommentsCountStatItem(),
+                                              if (supportConfig['isSupportFeatureEnabled'] == true)
+                                                _buildSupportReceivedStatItem(
+                                                  supportConfig: supportConfig,
+                                                ),
+                                            ];
+                                            return Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.spaceEvenly,
+                                              children: statItems,
+                                            );
+                                          },
                                         ),
                                         const SizedBox(height: 16),
                                         _buildMostLikedCommentCard(),
@@ -2122,12 +2138,14 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  Widget _buildSupportReceivedStatItem() {
+  Widget _buildSupportReceivedStatItem({
+    required Map<String, dynamic> supportConfig,
+  }) {
     final uid = UserService().userId;
     if (uid.isEmpty) {
-      return const Column(
+      return Column(
         children: [
-          Icon(Icons.front_hand, color: Colors.white, size: 24),
+          SupportIcon(config: supportConfig, size: 24, fallbackColor: Colors.white),
           SizedBox(height: 4),
           Text(
             '0',
@@ -2139,27 +2157,16 @@ class _SettingsScreenState extends State<SettingsScreen>
           ),
           SizedBox(height: 4),
           Text(
-            'Support Recv.',
+            (supportConfig['supportReceivedLabel'] as String?)?.trim().isNotEmpty == true
+                ? supportConfig['supportReceivedLabel'] as String
+                : 'Support Recv.',
             style: TextStyle(fontSize: 12, color: Colors.white70),
           ),
         ],
       );
     }
 
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('app_config')
-          .doc('community_support')
-          .snapshots(),
-      builder: (context, configSnap) {
-        final supportConfig =
-            configSnap.data?.data() ?? const <String, dynamic>{};
-
-        if (supportConfig['isSupportFeatureEnabled'] != true) {
-          return const SizedBox.shrink();
-        }
-
-        return StreamBuilder<QuerySnapshot>(
+    return StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('community_posts')
               .where('userId', isEqualTo: uid)
@@ -2191,16 +2198,16 @@ class _SettingsScreenState extends State<SettingsScreen>
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'Support Recv.',
+                Text(
+                  (supportConfig['supportReceivedLabel'] as String?)?.trim().isNotEmpty == true
+                      ? supportConfig['supportReceivedLabel'] as String
+                      : 'Support Recv.',
                   style: TextStyle(fontSize: 12, color: Colors.white70),
                 ),
               ],
             );
           },
         );
-      },
-    );
   }
 
   Widget _buildMyCommentsCountStatItem() {
