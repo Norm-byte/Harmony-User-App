@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../constants/report_reasons.dart';
+import '../services/community_poem_favorites_service.dart';
 import '../services/profanity_service.dart';
 import '../services/translation_service.dart';
 import '../services/user_service.dart';
@@ -329,6 +330,37 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
     return currentIds.any(postIds.contains);
   }
 
+  Future<void> _toggleSavedPoem({
+    required String postId,
+    required Map<String, dynamic> post,
+    required bool isSaved,
+  }) async {
+    final favorites = CommunityPoemFavoritesService();
+    try {
+      if (isSaved) {
+        await favorites.removePost(postId);
+      } else {
+        await favorites.savePost(postId: postId, post: post);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isSaved
+                ? 'Removed from saved poems.'
+                : 'Poem saved to My Harmony.',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
+      );
+    }
+  }
+
   // Same document as the Common Room post, so an edit/delete here is
   // instantly reflected there too — no separate sync step required.
   Future<void> _showEditPostDialog(String postId, String initialText) async {
@@ -561,13 +593,65 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                                           PopupMenuItem(value: 'delete', child: Text('Delete')),
                                         ],
                                       )
-                                    else
+                                    else ...[
+                                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                                        stream: _currentAuthUid().isEmpty
+                                            ? null
+                                            : FirebaseFirestore.instance
+                                                .collection('users')
+                                                .doc(_currentAuthUid())
+                                                .collection('saved_support_posts')
+                                                .doc(doc.id)
+                                                .snapshots(),
+                                        builder: (context, savedSnapshot) {
+                                          final isSaved =
+                                              savedSnapshot.data?.exists == true;
+                                          final saveLabel =
+                                              (config['saveSupportPostLabel']
+                                                          as String?)
+                                                      ?.trim()
+                                                      .isNotEmpty ==
+                                                  true
+                                              ? config['saveSupportPostLabel']
+                                                    as String
+                                              : 'Save poem';
+                                          final removeLabel =
+                                              (config['removeSavedSupportPostLabel']
+                                                          as String?)
+                                                      ?.trim()
+                                                      .isNotEmpty ==
+                                                  true
+                                              ? config['removeSavedSupportPostLabel']
+                                                    as String
+                                              : 'Remove from saved poems';
+                                          return IconButton(
+                                            iconSize: 18,
+                                            tooltip: isSaved
+                                                ? removeLabel
+                                                : saveLabel,
+                                            icon: Icon(
+                                              isSaved
+                                                  ? Icons.bookmark_added
+                                                  : Icons.bookmark_add_outlined,
+                                              color: isSaved
+                                                  ? Colors.amberAccent
+                                                  : Colors.white54,
+                                            ),
+                                            onPressed: () => _toggleSavedPoem(
+                                              postId: doc.id,
+                                              post: post,
+                                              isSaved: isSaved,
+                                            ),
+                                          );
+                                        },
+                                      ),
                                       IconButton(
                                         iconSize: 18,
                                         tooltip: 'Report this post',
                                         icon: const Icon(Icons.flag_outlined, color: Colors.white54),
                                         onPressed: () => _reportPost(doc.id, post),
                                       ),
+                                    ],
                                   ],
                                 ),
                                 if (content.isNotEmpty) ...[
