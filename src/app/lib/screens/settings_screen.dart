@@ -2644,6 +2644,21 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Widget _buildMostSupportedRequestCard() {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('app_config')
+          .doc('community_support')
+          .snapshots(),
+      builder: (context, configSnapshot) {
+        if (configSnapshot.data?.data()?['isSupportFeatureEnabled'] != true) {
+          return const SizedBox.shrink();
+        }
+        return _buildMostSupportedRequestCardContent();
+      },
+    );
+  }
+
+  Widget _buildMostSupportedRequestCardContent() {
     final uid = UserService().userId;
     if (uid.isEmpty) {
       return Container(
@@ -2731,8 +2746,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                           color: Colors.white.withValues(alpha: 0.2),
                         ),
                       ),
-                      title: const Text(
-                        'My Most Supported Request',
+                      title: Text(
+                        (supportConfig['mostSupportedRequestTitle'] as String?)?.trim().isNotEmpty == true
+                            ? supportConfig['mostSupportedRequestTitle'] as String
+                            : 'My Most Supported Request',
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -2798,8 +2815,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                       children: [
                         const Icon(Icons.star, color: Colors.amber, size: 16),
                         const SizedBox(width: 8),
-                        const Text(
-                          'My Most Supported Request',
+                        Text(
+                          (supportConfig['mostSupportedRequestTitle'] as String?)?.trim().isNotEmpty == true
+                              ? supportConfig['mostSupportedRequestTitle'] as String
+                              : 'My Most Supported Request',
                           style: TextStyle(color: Colors.white70, fontSize: 12),
                         ),
                         const Spacer(),
