@@ -59,9 +59,7 @@ class SupportIcon extends StatelessWidget {
       }
     }
 
-    final key = (config['supportReceivedIconBuiltInKey'] as String?) ??
-      (config['supportIconBuiltInKey'] as String?) ??
-      'front_hand';
+    final key = (config['supportIconBuiltInKey'] as String?) ?? 'front_hand';
     return Icon(
       kSupportBuiltInIcons[key] ?? Icons.front_hand,
       size: size,

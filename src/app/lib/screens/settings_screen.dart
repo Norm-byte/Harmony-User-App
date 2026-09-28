@@ -390,7 +390,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                         ? (supportConfig['supportRequestsEmptyText'] as String?)?.trim().isNotEmpty == true
                           ? supportConfig['supportRequestsEmptyText'] as String
                           : 'Requests you post with "Add to Community Focus" will appear here.'
-                      : 'No support requests match this filter.',
+                        : (supportConfig['supportRequestsNoMatchText'] as String?)?.trim().isNotEmpty == true
+                          ? supportConfig['supportRequestsNoMatchText'] as String
+                          : 'No Community Focus requests match this filter.',
                   style: const TextStyle(color: Colors.white54),
                 ),
               )
