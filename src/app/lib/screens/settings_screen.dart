@@ -2705,8 +2705,14 @@ class _SettingsScreenState extends State<SettingsScreen>
                 );
               }
 
-              String topContent =
-                  'Request community support to start your activity.';
+                final emptyRequestText =
+                  (supportConfig['mostSupportedRequestEmptyText'] as String?)
+                      ?.trim()
+                      .isNotEmpty ==
+                    true
+                  ? supportConfig['mostSupportedRequestEmptyText'] as String
+                  : 'Add to Community Focus to start your activity.';
+                String topContent = emptyRequestText;
               var supportCount = 0;
 
               if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
@@ -2731,7 +2737,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               final canExpand =
                   topContent.isNotEmpty &&
                   topContent !=
-                      'Request community support to start your activity.' &&
+                      emptyRequestText &&
                   topContent != 'Request text unavailable';
 
               void showExpandedRequest() {
