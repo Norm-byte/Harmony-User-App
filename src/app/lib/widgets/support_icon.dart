@@ -15,12 +15,14 @@ class SupportIcon extends StatelessWidget {
   final Map<String, dynamic> config;
   final double size;
   final Color? fallbackColor;
+  final String? builtInKeyOverride;
 
   const SupportIcon({
     super.key,
     required this.config,
     this.size = 24,
     this.fallbackColor,
+    this.builtInKeyOverride,
   });
 
   Color? _parseHexColor(String hex) {
@@ -32,6 +34,14 @@ class SupportIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (builtInKeyOverride != null) {
+      return Icon(
+        kSupportBuiltInIcons[builtInKeyOverride] ?? Icons.front_hand,
+        size: size,
+        color: fallbackColor ?? Colors.white70,
+      );
+    }
+
     final mode = (config['supportIconMode'] as String?) ?? 'builtin';
 
     if (mode == 'text') {

@@ -523,6 +523,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                             config: supportConfig,
                             size: 14,
                             fallbackColor: Colors.amberAccent,
+                            builtInKeyOverride:
+                                supportConfig['supportReceivedIconBuiltInKey']
+                                    as String?,
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -641,11 +644,20 @@ class _SettingsScreenState extends State<SettingsScreen>
             ),
             child: Row(
               children: [
-                Icon(
-                  isRealized ? Icons.check_circle : Icons.front_hand,
-                  color: isRealized ? Colors.greenAccent : Colors.amberAccent,
-                  size: 20,
-                ),
+                isRealized
+                    ? const Icon(
+                        Icons.check_circle,
+                        color: Colors.greenAccent,
+                        size: 20,
+                      )
+                    : SupportIcon(
+                        config: supportConfig,
+                        size: 20,
+                        fallbackColor: Colors.amberAccent,
+                        builtInKeyOverride:
+                            supportConfig['supportReceivedIconBuiltInKey']
+                                as String?,
+                      ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -679,6 +691,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                               config: supportConfig,
                               size: 14,
                               fallbackColor: Colors.amberAccent,
+                              builtInKeyOverride:
+                                  supportConfig['supportReceivedIconBuiltInKey']
+                                      as String?,
                             ),
                             const SizedBox(width: 4),
                             Text(
@@ -2587,13 +2602,19 @@ class _SettingsScreenState extends State<SettingsScreen>
         .get();
     final config = configSnapshot.data() ?? const <String, dynamic>{};
     final preference = await firestore.collection('users').doc(uid).get();
-    final showOverall =
-        preference.data()?['mostLikedPoemExpandedMode'] == 'overall';
+    var selectedMode =
+        preference.data()?['mostLikedPoemExpandedMode'] == 'overall'
+        ? 'overall'
+        : 'personal';
 
-    var content = personalContent;
-    var likes = personalLikes;
-    var author = UserService().userName;
-    if (showOverall) {
+    Future<Map<String, dynamic>> poemForMode(String mode) async {
+      if (mode == 'personal') {
+        return {
+          'content': personalContent,
+          'likes': personalLikes,
+          'author': UserService().userName,
+        };
+      }
       final overallSnapshot = await firestore
           .collection('community_posts')
           .where('isSupportRequest', isEqualTo: true)
@@ -2614,29 +2635,22 @@ class _SettingsScreenState extends State<SettingsScreen>
         });
       if (poems.isNotEmpty) {
         final top = poems.first.data();
-        content = (top['content'] as String?)?.trim() ?? '';
-        likes = (top['likes'] as num?)?.toInt() ?? 0;
-        author = (top['userName'] as String?)?.trim().isNotEmpty == true
+        return {
+          'content': (top['content'] as String?)?.trim() ?? '',
+          'likes': (top['likes'] as num?)?.toInt() ?? 0,
+          'author': (top['userName'] as String?)?.trim().isNotEmpty == true
             ? top['userName'] as String
-            : 'Member';
-      } else {
-        content = 'No Community Focus poems have been posted yet.';
-        likes = 0;
-        author = '';
+            : 'Member',
+        };
       }
+      return {
+        'content': 'No Community Focus poems have been posted yet.',
+        'likes': 0,
+        'author': '',
+      };
     }
 
-    final title = showOverall
-        ? _supportConfigText(
-            config,
-            'overallMostLikedPoemTitle',
-            'Overall Most Liked Poem',
-          )
-        : _supportConfigText(
-            config,
-            'myMostLikedPoemTitle',
-            'My Most Liked Poem',
-          );
+    var selectedPoem = await poemForMode(selectedMode);
     final countLabel = _supportConfigText(
       config,
       'overallPoemLikesLabel',
@@ -2646,55 +2660,132 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (!mounted) return;
     showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: Text(
-          title,
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (author.isNotEmpty) ...[
-                Text(author, style: const TextStyle(color: Colors.white70)),
-                const SizedBox(height: 8),
-              ],
-              SelectableText(
-                content,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  height: 1.4,
-                  fontStyle: FontStyle.italic,
-                ),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final title = selectedMode == 'overall'
+              ? _supportConfigText(
+                  config,
+                  'overallMostLikedPoemTitle',
+                  'Overall Most Liked Poem',
+                )
+              : _supportConfigText(
+                  config,
+                  'myMostLikedPoemTitle',
+                  'My Most Liked Poem',
+                );
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            title: Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(height: 14),
-              Row(
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.favorite, size: 16, color: Colors.pinkAccent),
-                  const SizedBox(width: 6),
-                  Text(
-                    '$likes $countLabel',
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedMode,
+                    dropdownColor: const Color(0xFF292638),
+                    decoration: const InputDecoration(
+                      labelText: 'Poem to display',
+                      labelStyle: TextStyle(color: Colors.white70),
+                      enabledBorder: UnderlineInputBorder(
+                        borderSide: BorderSide(color: Colors.white30),
+                      ),
+                    ),
+                    style: const TextStyle(color: Colors.white),
+                    items: [
+                      DropdownMenuItem(
+                        value: 'personal',
+                        child: Text(
+                          _supportConfigText(
+                            config,
+                            'myMostLikedPoemOptionText',
+                            'My most-liked poem',
+                          ),
+                        ),
+                      ),
+                      DropdownMenuItem(
+                        value: 'overall',
+                        child: Text(
+                          _supportConfigText(
+                            config,
+                            'overallMostLikedPoemOptionText',
+                            'Overall most-liked poem',
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (mode) async {
+                      if (mode == null) return;
+                      final poem = await poemForMode(mode);
+                      await firestore.collection('users').doc(uid).set({
+                        'mostLikedPoemExpandedMode': mode,
+                      }, SetOptions(merge: true));
+                      if (!dialogContext.mounted) return;
+                      setDialogState(() {
+                        selectedMode = mode;
+                        selectedPoem = poem;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  if ((selectedPoem['author'] as String).isNotEmpty) ...[
+                    Text(
+                      selectedPoem['author'] as String,
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  SelectableText(
+                    selectedPoem['content'] as String,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
+                      fontSize: 15,
+                      height: 1.4,
+                      fontStyle: FontStyle.italic,
                     ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.favorite,
+                        size: 16,
+                        color: Colors.pinkAccent,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${selectedPoem['likes']} $countLabel',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text(
+                  'Close',
+                  style: TextStyle(color: Colors.amberAccent),
+                ),
+              ),
             ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close', style: TextStyle(color: Colors.amberAccent)),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -2794,12 +2885,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                                   'mostLikedPoemExpandedMode'
                                 ] ==
                                 'overall';
-                        final optionKey = showOverall
-                            ? 'overallMostLikedPoemOptionText'
-                            : 'myMostLikedPoemOptionText';
-                        final optionFallback = showOverall
-                            ? 'Overall most-liked poem'
-                            : 'My most-liked poem';
                         return StreamBuilder<
                           DocumentSnapshot<Map<String, dynamic>>
                         >(
@@ -2813,11 +2898,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 const <String, dynamic>{};
                             final label = _supportConfigText(
                               config,
-                              optionKey,
-                              optionFallback,
+                              'myMostLikedPoemTitle',
+                              'My Most Liked Poem',
                             );
                             return PopupMenuButton<String>(
-                              tooltip: 'Choose poem shown when expanded',
+                                tooltip: showOverall
+                                  ? 'Overall most-liked poem selected. Change poem'
+                                  : 'My most-liked poem selected. Change poem',
                               onSelected: (mode) async {
                                 await FirebaseFirestore.instance
                                     .collection('users')
