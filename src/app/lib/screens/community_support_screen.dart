@@ -493,8 +493,10 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                         children: [
                           SupportIcon(config: config, size: 56, fallbackColor: Colors.white70),
                           const SizedBox(height: 16),
-                          const Text(
-                            'No community support requests yet. Check back soon, or add one from the Common Room.',
+                          Text(
+                            (config['communityFocusEmptyText'] as String?)?.trim().isNotEmpty == true
+                                ? config['communityFocusEmptyText'] as String
+                                : 'No Community Focus posts yet. Check back soon, or add one from the Common Room.',
                             style: TextStyle(color: Colors.white70, fontSize: 15),
                             textAlign: TextAlign.center,
                           ),
