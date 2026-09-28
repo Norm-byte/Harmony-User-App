@@ -37,7 +37,31 @@ class EventsScreen extends StatelessWidget {
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance.collection('noticeboard_studio_cards').limit(25).snapshots(),
           builder: (context, cardSnapshot) {
-            final cards = cardSnapshot.data?.docs.where((doc) => doc.data()['published'] == true).toList() ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+            final now = DateTime.now();
+            final cards = cardSnapshot.data?.docs.where((doc) {
+              final data = doc.data();
+              if (data['published'] != true) return false;
+              final eventDate = _asDateTime(data['eventDate']);
+              final removeDate = _asDateTime(data['removeDate']);
+              if (removeDate != null && now.isAfter(removeDate)) return false;
+              if (eventDate != null) {
+                final showBefore =
+                    (data['showBeforeHours'] as num?)?.toInt() ?? 24;
+                if (now.isBefore(
+                    eventDate.subtract(Duration(hours: showBefore)))) {
+                  return false;
+                }
+                if (removeDate == null) {
+                  final hideAfter =
+                      (data['hideAfterHours'] as num?)?.toInt() ?? 0;
+                  if (hideAfter > 0 &&
+                      now.isAfter(eventDate.add(Duration(hours: hideAfter)))) {
+                    return false;
+                  }
+                }
+              }
+              return true;
+            }).toList() ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
             return _buildEventsList(context, const <Event>[], cards);
           },
         );
@@ -63,11 +87,29 @@ class EventsScreen extends StatelessWidget {
     final body = (data['body'] as String?)?.trim() ?? '';
     final imageUrl = (data['imageUrl'] as String?)?.trim() ?? '';
     final learnMoreUrl = (data['learnMoreContentUrl'] as String?)?.trim() ?? '';
+    final imageFit = (data['imageFit'] as String?) == 'cover'
+      ? BoxFit.cover
+      : BoxFit.contain;
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       clipBehavior: Clip.antiAlias,
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        if (imageUrl.isNotEmpty) Image.network(imageUrl, height: 180, fit: BoxFit.cover),
+        if (imageUrl.isNotEmpty)
+          GestureDetector(
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) => Dialog(
+                child: InteractiveViewer(
+                  child: Image.network(imageUrl, fit: BoxFit.contain),
+                ),
+              ),
+            ),
+            child: Container(
+              height: 180,
+              color: Colors.black12,
+              child: Image.network(imageUrl, fit: imageFit),
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -90,6 +132,12 @@ class EventsScreen extends StatelessWidget {
         ),
       ]),
     );
+  }
+
+  DateTime? _asDateTime(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is String) return DateTime.tryParse(value);
+    return null;
   }
 
   Widget _buildEventCard(BuildContext context, Event event) {

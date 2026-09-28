@@ -1895,9 +1895,17 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
             builder: (context, supportSnapshot) {
               final supportConfig =
                   supportSnapshot.data?.data() as Map<String, dynamic>? ?? {};
-              if (supportConfig['isSupportFeatureEnabled'] != true) {
+              if (supportConfig['isSupportFeatureEnabled'] != true ||
+                supportConfig['showSupportRequestCheckbox'] == false) {
                 return const SizedBox.shrink();
               }
+              final checkboxText =
+                (supportConfig['supportRequestCheckboxText'] as String?)
+                    ?.trim()
+                    .isNotEmpty ==
+                  true
+                ? supportConfig['supportRequestCheckboxText'] as String
+                : 'Add to Community Focus';
               return Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: CheckboxListTile(
@@ -1908,8 +1916,8 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                   contentPadding: EdgeInsets.zero,
                   dense: true,
                   activeColor: Colors.amber,
-                  title: const Text(
-                    'Request Community Support',
+                  title: Text(
+                    checkboxText,
                     style: TextStyle(color: Colors.white70, fontSize: 13),
                   ),
                 ),

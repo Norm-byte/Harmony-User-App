@@ -2155,6 +2155,10 @@ class _SettingsScreenState extends State<SettingsScreen>
         final supportConfig =
             configSnap.data?.data() ?? const <String, dynamic>{};
 
+        if (supportConfig['isSupportFeatureEnabled'] != true) {
+          return const SizedBox.shrink();
+        }
+
         return StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
               .collection('community_posts')
