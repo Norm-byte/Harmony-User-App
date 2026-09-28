@@ -25,12 +25,7 @@ class CommunityPoemFavoritesService {
 
   static bool canSavePost(Map<String, dynamic> post, String currentUid) {
     final uid = currentUid.trim();
-    if (uid.isEmpty) return false;
-    final sourceIds = <String>{
-      (post['userId'] ?? '').toString().trim(),
-      (post['authorUid'] ?? '').toString().trim(),
-    }..removeWhere((id) => id.isEmpty);
-    return !sourceIds.contains(uid);
+    return uid.isNotEmpty && post['isSupportRequest'] == true;
   }
 
   static Map<String, dynamic> snapshotForSave({

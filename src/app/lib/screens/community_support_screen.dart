@@ -578,6 +578,57 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                                     Expanded(
                                       child: Text(userName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                                     ),
+                                    StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                                      stream: _currentAuthUid().isEmpty
+                                          ? null
+                                          : FirebaseFirestore.instance
+                                              .collection('users')
+                                              .doc(_currentAuthUid())
+                                              .collection('saved_support_posts')
+                                              .doc(doc.id)
+                                              .snapshots(),
+                                      builder: (context, savedSnapshot) {
+                                        final isSaved =
+                                            savedSnapshot.data?.exists == true;
+                                        final saveLabel =
+                                            (config['saveSupportPostLabel']
+                                                        as String?)
+                                                    ?.trim()
+                                                    .isNotEmpty ==
+                                                true
+                                            ? config['saveSupportPostLabel']
+                                                  as String
+                                            : 'Save poem';
+                                        final removeLabel =
+                                            (config['removeSavedSupportPostLabel']
+                                                        as String?)
+                                                    ?.trim()
+                                                    .isNotEmpty ==
+                                                true
+                                            ? config['removeSavedSupportPostLabel']
+                                                  as String
+                                            : 'Remove from saved poems';
+                                        return IconButton(
+                                          iconSize: 18,
+                                          tooltip: isSaved
+                                              ? removeLabel
+                                              : saveLabel,
+                                          icon: Icon(
+                                            isSaved
+                                                ? Icons.bookmark_added
+                                                : Icons.bookmark_add_outlined,
+                                            color: isSaved
+                                                ? Colors.amberAccent
+                                                : Colors.white54,
+                                          ),
+                                          onPressed: () => _toggleSavedPoem(
+                                            postId: doc.id,
+                                            post: post,
+                                            isSaved: isSaved,
+                                          ),
+                                        );
+                                      },
+                                    ),
                                     if (isOwnPost)
                                       PopupMenuButton<String>(
                                         icon: const Icon(Icons.more_vert, size: 18, color: Colors.white54),
@@ -593,65 +644,13 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                                           PopupMenuItem(value: 'delete', child: Text('Delete')),
                                         ],
                                       )
-                                    else ...[
-                                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                                        stream: _currentAuthUid().isEmpty
-                                            ? null
-                                            : FirebaseFirestore.instance
-                                                .collection('users')
-                                                .doc(_currentAuthUid())
-                                                .collection('saved_support_posts')
-                                                .doc(doc.id)
-                                                .snapshots(),
-                                        builder: (context, savedSnapshot) {
-                                          final isSaved =
-                                              savedSnapshot.data?.exists == true;
-                                          final saveLabel =
-                                              (config['saveSupportPostLabel']
-                                                          as String?)
-                                                      ?.trim()
-                                                      .isNotEmpty ==
-                                                  true
-                                              ? config['saveSupportPostLabel']
-                                                    as String
-                                              : 'Save poem';
-                                          final removeLabel =
-                                              (config['removeSavedSupportPostLabel']
-                                                          as String?)
-                                                      ?.trim()
-                                                      .isNotEmpty ==
-                                                  true
-                                              ? config['removeSavedSupportPostLabel']
-                                                    as String
-                                              : 'Remove from saved poems';
-                                          return IconButton(
-                                            iconSize: 18,
-                                            tooltip: isSaved
-                                                ? removeLabel
-                                                : saveLabel,
-                                            icon: Icon(
-                                              isSaved
-                                                  ? Icons.bookmark_added
-                                                  : Icons.bookmark_add_outlined,
-                                              color: isSaved
-                                                  ? Colors.amberAccent
-                                                  : Colors.white54,
-                                            ),
-                                            onPressed: () => _toggleSavedPoem(
-                                              postId: doc.id,
-                                              post: post,
-                                              isSaved: isSaved,
-                                            ),
-                                          );
-                                        },
-                                      ),
+                                    else
                                       IconButton(
                                         iconSize: 18,
                                         tooltip: 'Report this post',
                                         icon: const Icon(Icons.flag_outlined, color: Colors.white54),
                                         onPressed: () => _reportPost(doc.id, post),
                                       ),
-                                    ],
                                   ],
                                 ),
                                 if (content.isNotEmpty) ...[

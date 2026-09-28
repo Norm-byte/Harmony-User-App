@@ -409,7 +409,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                   padding: EdgeInsets.zero,
                   itemCount: visibleDocs.length,
                   itemBuilder: (context, index) =>
-                      _buildSupportIntentCard(visibleDocs[index]),
+                      _buildSupportIntentCard(visibleDocs[index], supportConfig),
                 ),
               ),
             const SizedBox(height: 18),
@@ -422,6 +422,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Widget _buildSupportIntentCard(
     QueryDocumentSnapshot<Map<String, dynamic>> intentDoc,
+    Map<String, dynamic> supportConfig,
   ) {
     final intent = intentDoc.data();
     final postId = (intent['postId'] as String?) ?? '';
@@ -465,7 +466,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
               ),
               title: const Text(
-                'My Support Request',
+                'Poem',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -505,9 +506,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                       Row(
                         children: [
                           const Icon(
-                            Icons.thumb_up,
+                            Icons.favorite,
                             size: 14,
-                            color: Colors.greenAccent,
+                            color: Colors.pinkAccent,
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -518,10 +519,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                             ),
                           ),
                           const SizedBox(width: 12),
-                          const Icon(
-                            Icons.front_hand,
+                          SupportIcon(
+                            config: supportConfig,
                             size: 14,
-                            color: Colors.amberAccent,
+                            fallbackColor: Colors.amberAccent,
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -563,7 +564,7 @@ class _SettingsScreenState extends State<SettingsScreen>
           final result = await showDialog<String>(
             context: context,
             builder: (dialogContext) => AlertDialog(
-              title: const Text('Edit support request'),
+              title: const Text('Edit'),
               content: TextField(
                 controller: controller,
                 maxLines: 4,
@@ -660,14 +661,35 @@ class _SettingsScreenState extends State<SettingsScreen>
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        isLive
-                            ? '$dateLabel • Support taps: $supportCount'
-                            : '$dateLabel • Removed from feed',
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 11,
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              isLive ? dateLabel : '$dateLabel • Removed from feed',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                          if (isLive) ...[
+                            const SizedBox(width: 8),
+                            SupportIcon(
+                              config: supportConfig,
+                              size: 14,
+                              fallbackColor: Colors.amberAccent,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$supportCount',
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ],
                   ),
@@ -732,12 +754,12 @@ class _SettingsScreenState extends State<SettingsScreen>
         final description = _supportConfigText(
           supportConfig,
           'savedSupportPostsDescription',
-          'Poems saved from other members. Tap a poem to read it in full.',
+          'Poems you choose to keep. Tap a poem to read it in full.',
         );
         final emptyText = _supportConfigText(
           supportConfig,
           'savedSupportPostsEmptyText',
-          'Poems you save from other members will appear here.',
+          'Poems you save will appear here.',
         );
 
         return Column(

@@ -3,30 +3,37 @@ import 'package:harmony_user_app/services/community_poem_favorites_service.dart'
 
 void main() {
   group('CommunityPoemFavoritesService', () {
-    test('only another signed-in author can be saved', () {
+    test('a signed-in user can save their own or another member’s poem', () {
       expect(
         CommunityPoemFavoritesService.canSavePost(
-          {'userId': 'author-1', 'authorUid': 'author-1'},
+          {
+            'userId': 'author-1',
+            'authorUid': 'author-1',
+            'isSupportRequest': true,
+          },
           'reader-1',
         ),
         isTrue,
       );
       expect(
         CommunityPoemFavoritesService.canSavePost(
-          {'userId': 'author-1'},
+          {'userId': 'author-1', 'isSupportRequest': true},
           'author-1',
+        ),
+        isTrue,
+      );
+      expect(
+        CommunityPoemFavoritesService.canSavePost(
+          {'userId': 'author-1', 'isSupportRequest': true},
+          '',
         ),
         isFalse,
       );
       expect(
         CommunityPoemFavoritesService.canSavePost(
-          {'authorUid': 'reader-1'},
+          {'userId': 'author-1', 'isSupportRequest': false},
           'reader-1',
         ),
-        isFalse,
-      );
-      expect(
-        CommunityPoemFavoritesService.canSavePost({'userId': 'author-1'}, ''),
         isFalse,
       );
     });
