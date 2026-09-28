@@ -241,6 +241,22 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Widget _buildSupportIntentsSection() {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('app_config')
+          .doc('community_support')
+          .snapshots(),
+      builder: (context, configSnapshot) {
+        final config = configSnapshot.data?.data() ?? const <String, dynamic>{};
+        if (config['isSupportFeatureEnabled'] != true) {
+          return const SizedBox.shrink();
+        }
+        return _buildSupportIntentsContent(config);
+      },
+    );
+  }
+
+  Widget _buildSupportIntentsContent(Map<String, dynamic> supportConfig) {
     final uid = UserService().userId;
     if (uid.isEmpty) return const SizedBox.shrink();
 
@@ -267,8 +283,10 @@ class _SettingsScreenState extends State<SettingsScreen>
           children: [
             Row(
               children: [
-                const Text(
-                  'My Support Requests',
+                Text(
+                    (supportConfig['supportRequestsTitle'] as String?)?.trim().isNotEmpty == true
+                      ? supportConfig['supportRequestsTitle'] as String
+                      : 'My Support Requests',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -352,8 +370,10 @@ class _SettingsScreenState extends State<SettingsScreen>
               ],
             ),
             const SizedBox(height: 4),
-            const Text(
-              'A permanent record of requests you have posted, even after they leave the public feed.',
+            Text(
+              (supportConfig['supportRequestsDescription'] as String?)?.trim().isNotEmpty == true
+                  ? supportConfig['supportRequestsDescription'] as String
+                  : 'A permanent record of requests you have posted, even after they leave the public feed.',
               style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
             const SizedBox(height: 8),
@@ -367,7 +387,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
                 child: Text(
                   docs.isEmpty
-                      ? 'Requests you post with "Request Community Support" will appear here.'
+                        ? (supportConfig['supportRequestsEmptyText'] as String?)?.trim().isNotEmpty == true
+                          ? supportConfig['supportRequestsEmptyText'] as String
+                          : 'Requests you post with "Add to Community Focus" will appear here.'
                       : 'No support requests match this filter.',
                   style: const TextStyle(color: Colors.white54),
                 ),
