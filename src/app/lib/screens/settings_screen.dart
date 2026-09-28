@@ -2594,6 +2594,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     required String uid,
     required String personalContent,
     required int personalLikes,
+    bool allowModeSelection = true,
+    String? titleOverride,
   }) async {
     final firestore = FirebaseFirestore.instance;
     final configSnapshot = await firestore
@@ -2602,7 +2604,7 @@ class _SettingsScreenState extends State<SettingsScreen>
         .get();
     final config = configSnapshot.data() ?? const <String, dynamic>{};
     final preference = await firestore.collection('users').doc(uid).get();
-    var selectedMode =
+    var selectedMode = allowModeSelection &&
         preference.data()?['mostLikedPoemExpandedMode'] == 'overall'
         ? 'overall'
         : 'personal';
@@ -2662,17 +2664,18 @@ class _SettingsScreenState extends State<SettingsScreen>
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
-          final title = selectedMode == 'overall'
-              ? _supportConfigText(
-                  config,
-                  'overallMostLikedPoemTitle',
-                  'Overall Most Liked Poem',
-                )
-              : _supportConfigText(
-                  config,
-                  'myMostLikedPoemTitle',
-                  'My Most Liked Poem',
-                );
+          final title = titleOverride ??
+              (selectedMode == 'overall'
+                  ? _supportConfigText(
+                      config,
+                      'overallMostLikedPoemTitle',
+                      'Overall Most Liked Poem',
+                    )
+                  : _supportConfigText(
+                      config,
+                      'mostSupportedRequestTitle',
+                      'My Most Liked Poem',
+                    ));
           return AlertDialog(
             backgroundColor: const Color(0xFF1E1E1E),
             shape: RoundedRectangleBorder(
@@ -2690,7 +2693,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  DropdownButtonFormField<String>(
+                  if (allowModeSelection) DropdownButtonFormField<String>(
                     initialValue: selectedMode,
                     dropdownColor: const Color(0xFF292638),
                     decoration: const InputDecoration(
@@ -2790,7 +2793,11 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  Widget _buildMostLikedPoemExpandedModeSelector(String uid) {
+  Widget _buildMostLikedPoemExpandedModeSelector(
+    String uid, {
+    required String personalContent,
+    required int personalLikes,
+  }) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
       builder: (context, preferenceSnapshot) {
@@ -2859,6 +2866,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                       .set({
                         'mostLikedPoemExpandedMode': mode,
                       }, SetOptions(merge: true));
+                  if (mode == 'overall') {
+                    await _showExpandedMostLikedPoem(
+                      uid: uid,
+                      personalContent: personalContent,
+                      personalLikes: personalLikes,
+                    );
+                  }
                 } catch (error) {
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -2945,6 +2959,8 @@ class _SettingsScreenState extends State<SettingsScreen>
             uid: uid,
             personalContent: topComment,
             personalLikes: likes,
+            allowModeSelection: false,
+            titleOverride: 'My Most Liked Post',
           );
 
           return GestureDetector(
@@ -2957,31 +2973,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                   children: [
                     const Icon(Icons.star, color: Colors.amber, size: 16),
                     const SizedBox(width: 8),
-                    Expanded(
-                      child: StreamBuilder<
-                        DocumentSnapshot<Map<String, dynamic>>
-                      >(
-                        stream: FirebaseFirestore.instance
-                            .collection('app_config')
-                            .doc('community_support')
-                            .snapshots(),
-                        builder: (context, configSnapshot) {
-                          final config =
-                              configSnapshot.data?.data() ??
-                              const <String, dynamic>{};
-                          return Text(
-                            _supportConfigText(
-                              config,
-                              'myMostLikedPoemTitle',
-                              'My Most Liked Poem',
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
-                            ),
-                          );
-                        },
+                    const Expanded(
+                      child: Text(
+                        'My Most Liked Post',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.white70, fontSize: 12),
                       ),
                     ),
                     const Spacer(),
@@ -2997,8 +2993,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                _buildMostLikedPoemExpandedModeSelector(uid),
                 const SizedBox(height: 8),
                 Text(
                   commentPreview,
@@ -3263,172 +3257,217 @@ class _SettingsScreenState extends State<SettingsScreen>
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return const Text(
-                  'Most supported request is temporarily unavailable.',
+                  'Most liked poem is temporarily unavailable.',
                   style: TextStyle(color: Colors.white38, fontSize: 11),
                 );
               }
 
-                final emptyRequestText =
-                  (supportConfig['mostSupportedRequestEmptyText'] as String?)
-                      ?.trim()
-                      .isNotEmpty ==
-                    true
-                  ? supportConfig['mostSupportedRequestEmptyText'] as String
-                  : 'Add to Community Focus to start your activity.';
-                String topContent = emptyRequestText;
-              var supportCount = 0;
+              final emptyPoemText = _supportConfigText(
+                supportConfig,
+                'mostSupportedRequestEmptyText',
+                'Add to Community Focus to start your activity.',
+              );
+              String topContent = emptyPoemText;
+              var heartCount = 0;
 
               if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-                final docs = snapshot.data!.docs;
+                final docs = snapshot.data!.docs.where((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return data['isSupportRequest'] == true;
+                }).toList();
                 docs.sort((a, b) {
                   final aData = a.data() as Map<String, dynamic>;
                   final bData = b.data() as Map<String, dynamic>;
-                  final aCount = (aData['supportTapCount'] as int?) ?? 0;
-                  final bCount = (bData['supportTapCount'] as int?) ?? 0;
-                  return bCount.compareTo(aCount);
+                  final aCount = (aData['likes'] as num?)?.toInt() ?? 0;
+                  final bCount = (bData['likes'] as num?)?.toInt() ?? 0;
+                  if (aCount != bCount) return bCount.compareTo(aCount);
+                  final aTime = (aData['timestamp'] as Timestamp?)?.toDate();
+                  final bTime = (bData['timestamp'] as Timestamp?)?.toDate();
+                  if (aTime == null || bTime == null) return 0;
+                  return bTime.compareTo(aTime);
                 });
 
-                final data = docs.first.data() as Map<String, dynamic>;
-                topContent =
-                    (data['content'] as String?)?.trim().isNotEmpty == true
-                    ? data['content'] as String
-                    : 'Request text unavailable';
-                supportCount = (data['supportTapCount'] as int?) ?? 0;
+                if (docs.isNotEmpty) {
+                  final data = docs.first.data() as Map<String, dynamic>;
+                  topContent =
+                      (data['content'] as String?)?.trim().isNotEmpty == true
+                      ? data['content'] as String
+                      : 'Poem text unavailable';
+                  heartCount = (data['likes'] as num?)?.toInt() ?? 0;
+                }
               }
 
-              final contentPreview = '"$topContent"';
-              final canExpand =
-                  topContent.isNotEmpty &&
-                  topContent !=
-                      emptyRequestText &&
-                  topContent != 'Request text unavailable';
+              Widget buildPoemCard({
+                required String content,
+                required int likes,
+                required String author,
+                required bool isOverall,
+              }) {
+                final contentPreview = '"$content"';
+                final canExpand = content.isNotEmpty &&
+                    content != emptyPoemText &&
+                    content != 'Poem text unavailable' &&
+                    content != 'No Community Focus poems have been posted yet.';
 
-              void showExpandedRequest() {
-                showDialog<void>(
-                  context: context,
-                  builder: (dialogContext) {
-                    return AlertDialog(
-                      backgroundColor: const Color(0xFF1E1E1E),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.2),
-                        ),
-                      ),
-                      title: Text(
-                        (supportConfig['mostSupportedRequestTitle'] as String?)?.trim().isNotEmpty == true
-                            ? supportConfig['mostSupportedRequestTitle'] as String
-                            : 'My Most Supported Request',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      content: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              topContent,
+                Future<void> showExpandedPoem() =>
+                    _showExpandedMostLikedPoem(
+                      uid: uid,
+                      personalContent: topContent,
+                      personalLikes: heartCount,
+                      titleOverride: isOverall
+                          ? _supportConfigText(
+                              supportConfig,
+                              'overallMostLikedPoemTitle',
+                              'Overall Most Liked Poem',
+                            )
+                          : _supportConfigText(
+                              supportConfig,
+                              'mostSupportedRequestTitle',
+                              'My Most Liked Poem',
+                            ),
+                    );
+
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: canExpand ? showExpandedPoem : null,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.star, color: Colors.amber, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _supportConfigText(
+                                supportConfig,
+                                'mostSupportedRequestTitle',
+                                'My Most Liked Poem',
+                              ),
                               style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                height: 1.35,
-                                fontStyle: FontStyle.italic,
+                                color: Colors.white70,
+                                fontSize: 12,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (isOverall && author.isNotEmpty)
+                            Flexible(
+                              child: Text(
+                                author,
+                                textAlign: TextAlign.end,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 10,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                SupportIcon(
-                                  config: supportConfig,
-                                  size: 16,
-                                  fallbackColor: Colors.amberAccent,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  '$supportCount',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
+                          const SizedBox(width: 6),
+                          const Icon(
+                            Icons.favorite,
+                            size: 12,
+                            color: Colors.pinkAccent,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$likes',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
                             ),
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      _buildMostLikedPoemExpandedModeSelector(
+                        uid,
+                        personalContent: topContent,
+                        personalLikes: heartCount,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        contentPreview,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontStyle: FontStyle.italic,
                         ),
                       ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(dialogContext).pop(),
-                          child: const Text(
-                            'Close',
-                            style: TextStyle(color: Colors.amberAccent),
+                      if (canExpand) ...[
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Tap anywhere on this card to expand',
+                          style: TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
-                    );
-                  },
+                    ],
+                  ),
                 );
               }
 
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: canExpand ? showExpandedRequest : null,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.star, color: Colors.amber, size: 16),
-                        const SizedBox(width: 8),
-                        Text(
-                          (supportConfig['mostSupportedRequestTitle'] as String?)?.trim().isNotEmpty == true
-                              ? supportConfig['mostSupportedRequestTitle'] as String
-                              : 'My Most Supported Request',
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                        const Spacer(),
-                        SupportIcon(
-                          config: supportConfig,
-                          size: 12,
-                          fallbackColor: Colors.amberAccent,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '$supportCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      contentPreview,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                    if (canExpand) ...[
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Tap anywhere on this card to expand',
-                        style: TextStyle(
-                          color: Colors.amberAccent,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+              return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(uid)
+                    .snapshots(),
+                builder: (context, preferenceSnapshot) {
+                  final showOverall =
+                      preferenceSnapshot.data?.data()?[
+                            'mostLikedPoemExpandedMode'
+                          ] ==
+                          'overall';
+                  if (!showOverall) {
+                    return buildPoemCard(
+                      content: topContent,
+                      likes: heartCount,
+                      author: UserService().userName,
+                      isOverall: false,
+                    );
+                  }
+
+                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance
+                        .collection('community_posts')
+                        .where('isSupportRequest', isEqualTo: true)
+                        .snapshots(),
+                    builder: (context, overallSnapshot) {
+                      final poems =
+                          overallSnapshot.data?.docs.toList() ??
+                          <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                      poems.sort((a, b) {
+                        final aData = a.data();
+                        final bData = b.data();
+                        final aLikes = (aData['likes'] as num?)?.toInt() ?? 0;
+                        final bLikes = (bData['likes'] as num?)?.toInt() ?? 0;
+                        if (aLikes != bLikes) return bLikes.compareTo(aLikes);
+                        final aTime =
+                            (aData['timestamp'] as Timestamp?)?.toDate();
+                        final bTime =
+                            (bData['timestamp'] as Timestamp?)?.toDate();
+                        if (aTime == null || bTime == null) return 0;
+                        return bTime.compareTo(aTime);
+                      });
+                      final data = poems.isEmpty
+                          ? const <String, dynamic>{}
+                          : poems.first.data();
+                      return buildPoemCard(
+                        content: (data['content'] as String?)?.trim().isNotEmpty == true
+                            ? data['content'] as String
+                            : 'No Community Focus poems have been posted yet.',
+                        likes: (data['likes'] as num?)?.toInt() ?? 0,
+                        author: (data['userName'] as String?)?.trim() ?? '',
+                        isOverall: true,
+                      );
+                    },
+                  );
+                },
               );
             },
           );
