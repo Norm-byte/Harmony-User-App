@@ -2594,8 +2594,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     required String uid,
     required String personalContent,
     required int personalLikes,
-    bool allowModeSelection = true,
-    String? titleOverride,
   }) async {
     final firestore = FirebaseFirestore.instance;
     final configSnapshot = await firestore
@@ -2604,7 +2602,7 @@ class _SettingsScreenState extends State<SettingsScreen>
         .get();
     final config = configSnapshot.data() ?? const <String, dynamic>{};
     final preference = await firestore.collection('users').doc(uid).get();
-    var selectedMode = allowModeSelection &&
+    var selectedMode =
         preference.data()?['mostLikedPoemExpandedMode'] == 'overall'
         ? 'overall'
         : 'personal';
@@ -2664,18 +2662,17 @@ class _SettingsScreenState extends State<SettingsScreen>
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
-          final title = titleOverride ??
-              (selectedMode == 'overall'
-                  ? _supportConfigText(
-                      config,
-                      'overallMostLikedPoemTitle',
-                      'Overall Most Liked Poem',
-                    )
-                  : _supportConfigText(
-                      config,
-                      'mostSupportedRequestTitle',
-                      'My Most Liked Poem',
-                    ));
+          final title = selectedMode == 'overall'
+              ? _supportConfigText(
+                  config,
+                  'overallMostLikedPoemTitle',
+                  'Overall Most Liked Poem',
+                )
+              : _supportConfigText(
+                  config,
+                  'mostSupportedRequestTitle',
+                  'My Most Liked Poem',
+                );
           return AlertDialog(
             backgroundColor: const Color(0xFF1E1E1E),
             shape: RoundedRectangleBorder(
@@ -2693,7 +2690,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (allowModeSelection) DropdownButtonFormField<String>(
+                  DropdownButtonFormField<String>(
                     initialValue: selectedMode,
                     dropdownColor: const Color(0xFF292638),
                     decoration: const InputDecoration(
@@ -2793,100 +2790,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  Widget _buildMostLikedPoemExpandedModeSelector(
-    String uid, {
-    required String personalContent,
-    required int personalLikes,
-  }) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
-      builder: (context, preferenceSnapshot) {
-        final selectedMode =
-            preferenceSnapshot.data?.data()?['mostLikedPoemExpandedMode'] ==
-                'overall'
-            ? 'overall'
-            : 'personal';
-        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('app_config')
-              .doc('community_support')
-              .snapshots(),
-          builder: (context, configSnapshot) {
-            final config =
-                configSnapshot.data?.data() ?? const <String, dynamic>{};
-            return DropdownButtonFormField<String>(
-              initialValue: selectedMode,
-              isExpanded: true,
-              dropdownColor: const Color(0xFF292638),
-              decoration: const InputDecoration(
-                labelText: 'Poem shown when expanded',
-                labelStyle: TextStyle(color: Colors.white70),
-                filled: true,
-                fillColor: Color(0x331D1A2B),
-                border: OutlineInputBorder(),
-                enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: Colors.white30),
-                ),
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-              ),
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              items: [
-                DropdownMenuItem(
-                  value: 'personal',
-                  child: Text(
-                    _supportConfigText(
-                      config,
-                      'myMostLikedPoemOptionText',
-                      'My most-liked poem',
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                DropdownMenuItem(
-                  value: 'overall',
-                  child: Text(
-                    _supportConfigText(
-                      config,
-                      'overallMostLikedPoemOptionText',
-                      'Overall most-liked poem',
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-              onChanged: (mode) async {
-                if (mode == null) return;
-                try {
-                  await FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(uid)
-                      .set({
-                        'mostLikedPoemExpandedMode': mode,
-                      }, SetOptions(merge: true));
-                  if (mode == 'overall') {
-                    await _showExpandedMostLikedPoem(
-                      uid: uid,
-                      personalContent: personalContent,
-                      personalLikes: personalLikes,
-                    );
-                  }
-                } catch (error) {
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Could not save poem choice: $error')),
-                  );
-                }
-              },
-            );
-          },
-        );
-      },
-    );
-  }
-
   Widget _buildMostLikedCommentCard() {
     final uid = UserService().userId;
     if (uid.isEmpty) {
@@ -2924,14 +2827,11 @@ class _SettingsScreenState extends State<SettingsScreen>
             );
           }
 
-          String topComment = 'Post your first poem to start your activity.';
+          String topComment = 'Post your first comment to start your activity.';
           var likes = 0;
 
           if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-            final docs = snapshot.data!.docs.where((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              return data['isSupportRequest'] == true;
-            }).toList();
+            final docs = snapshot.data!.docs;
             docs.sort((a, b) {
               final aData = a.data() as Map<String, dynamic>;
               final bData = b.data() as Map<String, dynamic>;
@@ -2940,28 +2840,87 @@ class _SettingsScreenState extends State<SettingsScreen>
               return bLikes.compareTo(aLikes);
             });
 
-            if (docs.isNotEmpty) {
-              final data = docs.first.data() as Map<String, dynamic>;
-              topComment = (data['content'] as String?)?.trim().isNotEmpty == true
-                  ? data['content'] as String
-                  : 'Poem text unavailable';
-              likes = (data['likes'] as num?)?.toInt() ?? 0;
-            }
+            final data = docs.first.data() as Map<String, dynamic>;
+            topComment = (data['content'] as String?)?.trim().isNotEmpty == true
+                ? data['content'] as String
+                : 'Comment text unavailable';
+            likes = (data['likes'] as int?) ?? 0;
           }
 
           final commentPreview = '"$topComment"';
           final canExpand =
               topComment.isNotEmpty &&
-              topComment != 'Post your first poem to start your activity.' &&
-              topComment != 'Poem text unavailable';
+              topComment != 'Post your first comment to start your activity.' &&
+              topComment != 'Comment text unavailable';
 
-          Future<void> showExpandedComment() => _showExpandedMostLikedPoem(
-            uid: uid,
-            personalContent: topComment,
-            personalLikes: likes,
-            allowModeSelection: false,
-            titleOverride: 'My Most Liked Post',
-          );
+          void showExpandedComment() {
+            showDialog<void>(
+              context: context,
+              builder: (dialogContext) {
+                return AlertDialog(
+                  backgroundColor: const Color(0xFF1E1E1E),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  title: const Text(
+                    'My Most Liked Post',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          topComment,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            height: 1.35,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.thumb_up,
+                              size: 16,
+                              color: Colors.greenAccent,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '$likes',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text(
+                        'Close',
+                        style: TextStyle(color: Colors.amberAccent),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          }
 
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
@@ -2973,18 +2932,15 @@ class _SettingsScreenState extends State<SettingsScreen>
                   children: [
                     const Icon(Icons.star, color: Colors.amber, size: 16),
                     const SizedBox(width: 8),
-                    const Expanded(
-                      child: Text(
-                        'My Most Liked Post',
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
+                    const Text(
+                      'My Most Liked Post',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                     const Spacer(),
                     const Icon(
-                      Icons.favorite,
+                      Icons.thumb_up,
                       size: 12,
-                      color: Colors.pinkAccent,
+                      color: Colors.greenAccent,
                     ),
                     const SizedBox(width: 4),
                     Text(
@@ -3297,35 +3253,22 @@ class _SettingsScreenState extends State<SettingsScreen>
                 }
               }
 
+              Future<void> showExpandedPoem() => _showExpandedMostLikedPoem(
+                uid: uid,
+                personalContent: topContent,
+                personalLikes: heartCount,
+              );
+
               Widget buildPoemCard({
+                required String title,
                 required String content,
                 required int likes,
-                required String author,
-                required bool isOverall,
               }) {
                 final contentPreview = '"$content"';
                 final canExpand = content.isNotEmpty &&
                     content != emptyPoemText &&
                     content != 'Poem text unavailable' &&
                     content != 'No Community Focus poems have been posted yet.';
-
-                Future<void> showExpandedPoem() =>
-                    _showExpandedMostLikedPoem(
-                      uid: uid,
-                      personalContent: topContent,
-                      personalLikes: heartCount,
-                      titleOverride: isOverall
-                          ? _supportConfigText(
-                              supportConfig,
-                              'overallMostLikedPoemTitle',
-                              'Overall Most Liked Poem',
-                            )
-                          : _supportConfigText(
-                              supportConfig,
-                              'mostSupportedRequestTitle',
-                              'My Most Liked Poem',
-                            ),
-                    );
 
                 return GestureDetector(
                   behavior: HitTestBehavior.opaque,
@@ -3339,11 +3282,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              _supportConfigText(
-                                supportConfig,
-                                'mostSupportedRequestTitle',
-                                'My Most Liked Poem',
-                              ),
+                              title,
                               style: const TextStyle(
                                 color: Colors.white70,
                                 fontSize: 12,
@@ -3352,19 +3291,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                             ),
                           ),
                           const SizedBox(width: 8),
-                          if (isOverall && author.isNotEmpty)
-                            Flexible(
-                              child: Text(
-                                author,
-                                textAlign: TextAlign.end,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white54,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ),
-                          const SizedBox(width: 6),
                           const Icon(
                             Icons.favorite,
                             size: 12,
@@ -3379,12 +3305,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                             ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 8),
-                      _buildMostLikedPoemExpandedModeSelector(
-                        uid,
-                        personalContent: topContent,
-                        personalLikes: heartCount,
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -3412,6 +3332,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 );
               }
 
+              // Choice is made in the expanded pop-up and saved per user.
               return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                 stream: FirebaseFirestore.instance
                     .collection('users')
@@ -3425,10 +3346,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                           'overall';
                   if (!showOverall) {
                     return buildPoemCard(
+                      title: _supportConfigText(
+                        supportConfig,
+                        'mostSupportedRequestTitle',
+                        'My Most Liked Poem',
+                      ),
                       content: topContent,
                       likes: heartCount,
-                      author: UserService().userName,
-                      isOverall: false,
                     );
                   }
 
@@ -3458,12 +3382,17 @@ class _SettingsScreenState extends State<SettingsScreen>
                           ? const <String, dynamic>{}
                           : poems.first.data();
                       return buildPoemCard(
-                        content: (data['content'] as String?)?.trim().isNotEmpty == true
+                        title: _supportConfigText(
+                          supportConfig,
+                          'overallMostLikedPoemTitle',
+                          'Overall Most Liked Poem',
+                        ),
+                        content:
+                            (data['content'] as String?)?.trim().isNotEmpty ==
+                                true
                             ? data['content'] as String
                             : 'No Community Focus poems have been posted yet.',
                         likes: (data['likes'] as num?)?.toInt() ?? 0,
-                        author: (data['userName'] as String?)?.trim() ?? '',
-                        isOverall: true,
                       );
                     },
                   );
