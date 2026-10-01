@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../services/community_safety_utils.dart';
 import 'translatable_text.dart';
 
 class ThreadedRepliesPanel extends StatelessWidget {
@@ -22,6 +23,8 @@ class ThreadedRepliesPanel extends StatelessWidget {
   onLikeReply;
   final Future<void> Function(String replyId, Map<String, dynamic> reply)
   onReportReply;
+  final Set<String> blockedUserIds;
+  final Future<void> Function(String userId)? onToggleBlockUser;
 
   const ThreadedRepliesPanel({
     super.key,
@@ -37,6 +40,8 @@ class ThreadedRepliesPanel extends StatelessWidget {
     required this.onDeleteReply,
     required this.onLikeReply,
     required this.onReportReply,
+    required this.blockedUserIds,
+    required this.onToggleBlockUser,
   });
 
   @override
@@ -45,7 +50,12 @@ class ThreadedRepliesPanel extends StatelessWidget {
       stream: repliesStream,
       builder: (context, replySnapshot) {
         final replyCount = replySnapshot.hasData
-            ? replySnapshot.data!.docs.length
+            ? replySnapshot.data!.docs.where((doc) {
+                return !CommunitySafetyUtils.isBlocked(
+                  doc.data() as Map<String, dynamic>,
+                  blockedUserIds,
+                );
+              }).length
             : 0;
 
         return Column(
@@ -112,6 +122,8 @@ class ThreadedRepliesPanel extends StatelessWidget {
                 onDeleteReply: onDeleteReply,
                 onLikeReply: onLikeReply,
                 onReportReply: onReportReply,
+                blockedUserIds: blockedUserIds,
+                onToggleBlockUser: onToggleBlockUser,
               ),
           ],
         );
@@ -136,6 +148,8 @@ class _RepliesList extends StatelessWidget {
   onLikeReply;
   final Future<void> Function(String replyId, Map<String, dynamic> reply)
   onReportReply;
+  final Set<String> blockedUserIds;
+  final Future<void> Function(String userId)? onToggleBlockUser;
 
   const _RepliesList({
     required this.repliesSnapshot,
@@ -146,6 +160,8 @@ class _RepliesList extends StatelessWidget {
     required this.onDeleteReply,
     required this.onLikeReply,
     required this.onReportReply,
+    this.blockedUserIds = const {},
+    this.onToggleBlockUser,
   });
 
   DateTime? _replyTime(Map<String, dynamic> reply) {
@@ -221,6 +237,7 @@ class _RepliesList extends StatelessWidget {
     final isOwner = <String>{currentUserId.trim(), currentAuthUid.trim()}
         .where((v) => v.isNotEmpty)
         .any((currentId) => currentId == userId || currentId == replyAuthorUid);
+    final isBlocked = blockedUserIds.contains(userId);
 
     return FutureBuilder<String>(
       future: resolveDisplayName(userId, rawName),
@@ -374,9 +391,11 @@ class _RepliesList extends StatelessWidget {
                           onSelected: (value) async {
                             if (value == 'report') {
                               await onReportReply(replyDoc.id, reply);
+                            } else if (value == 'block' || value == 'unblock') {
+                              await onToggleBlockUser?.call(userId);
                             }
                           },
-                          itemBuilder: (_) => const [
+                          itemBuilder: (_) => [
                             PopupMenuItem<String>(
                               value: 'report',
                               child: Row(
@@ -394,6 +413,14 @@ class _RepliesList extends StatelessWidget {
                                 ],
                               ),
                             ),
+                            if (!isOwner && onToggleBlockUser != null)
+                              PopupMenuItem<String>(
+                                value: isBlocked ? 'unblock' : 'block',
+                                child: Text(
+                                  isBlocked ? 'Unblock user' : 'Block user',
+                                  style: const TextStyle(color: Colors.redAccent),
+                                ),
+                              ),
                           ],
                         ),
                       ],
@@ -476,6 +503,10 @@ class _RepliesList extends StatelessWidget {
     }
 
     final replies = List<QueryDocumentSnapshot>.from(repliesSnapshot.data!.docs)
+      ..removeWhere((doc) => CommunitySafetyUtils.isBlocked(
+            doc.data() as Map<String, dynamic>,
+            blockedUserIds,
+          ))
       ..sort((a, b) {
         final aData = a.data() as Map<String, dynamic>;
         final bData = b.data() as Map<String, dynamic>;
@@ -486,6 +517,19 @@ class _RepliesList extends StatelessWidget {
         if (bTime == null) return 1;
         return aTime.compareTo(bTime);
       });
+
+    if (replies.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 6, left: 26),
+        child: Text(
+          'No replies yet.',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.55),
+            fontSize: 11,
+          ),
+        ),
+      );
+    }
 
     final inlineReplies = replies.length > _maxInlineReplies
         ? replies.take(_maxInlineReplies).toList()

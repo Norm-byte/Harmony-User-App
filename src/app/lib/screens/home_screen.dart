@@ -13,6 +13,7 @@ import 'package:intl/intl.dart';
 import '../services/event_service.dart';
 import '../services/user_service.dart';
 import '../services/home_speaker_state.dart';
+import '../services/community_rules_acceptance_service.dart';
 import '../services/notification_service.dart';
 import '../constants/report_reasons.dart';
 import '../widgets/media/content_viewer.dart';
@@ -329,63 +330,158 @@ class _HomeScreenState extends State<HomeScreen> {
     final showPopup = supportConfig['enableOnboardingPopup'] != false;
     final prefs = await SharedPreferences.getInstance();
     final alreadySeen = prefs.getBool(_supportOnboardingSeenPrefKey) ?? false;
+    final configuredVersion =
+      (supportConfig['communityRulesVersion'] as String?)?.trim() ?? '';
+    final rulesVersion = configuredVersion.isEmpty ? '1' : configuredVersion;
+    final configuredRules =
+      (supportConfig['communityRulesText'] as String?)?.trim() ?? '';
+    final rulesText = configuredRules.isEmpty
+      ? 'Please be respectful and supportive. Do not post harmful, abusive, or identifying information about others.'
+      : configuredRules;
+    final acceptanceService = CommunityRulesAcceptanceService();
+    late final bool accepted;
+    try {
+      accepted = await acceptanceService.hasAccepted(rulesVersion);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not check Poetry rules acceptance: $error'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
 
-    if (!showPopup || alreadySeen) {
+    if (showPopup && !alreadySeen) {
+      final title = (supportConfig['supportPopupTitle'] as String?)
+                  ?.trim()
+                  .isNotEmpty ==
+              true
+          ? supportConfig['supportPopupTitle'] as String
+          : 'Welcome to Community Support';
+      final body = (supportConfig['supportPopupBody'] as String?)
+                  ?.trim()
+                  .isNotEmpty ==
+              true
+          ? supportConfig['supportPopupBody'] as String
+          : 'This is a space to ask for support from the community.';
+        final configuredButtonText =
+          (supportConfig['supportPopupButtonText'] as String?)?.trim() ?? '';
+        final buttonText = accepted
+          ? (configuredButtonText.isNotEmpty ? configuredButtonText : 'Enter')
+          : 'I Agree & Enter';
+      var dontShowAgain = false;
+      final agreed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: Text(title),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(body),
+                  if (!accepted) ...[
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Poetry Community Rules',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(rulesText),
+                  ],
+                  const SizedBox(height: 12),
+                  CheckboxListTile(
+                    value: dontShowAgain,
+                    onChanged: (v) =>
+                        setDialogState(() => dontShowAgain = v ?? false),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text("Don't show this again"),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  try {
+                    if (!accepted) {
+                      await acceptanceService.recordAcceptance(rulesVersion);
+                    }
+                    if (dontShowAgain) {
+                      await prefs.setBool(_supportOnboardingSeenPrefKey, true);
+                    }
+                    if (dialogContext.mounted) {
+                      Navigator.pop(dialogContext, true);
+                    }
+                  } catch (error) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Could not save Poetry rules acceptance: $error'),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                    }
+                  }
+                },
+                child: Text(buttonText),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (agreed != true || !mounted) return;
       _openCommunitySupportScreen(supportConfig);
       return;
     }
 
-    if (!mounted) return;
-    final title = (supportConfig['supportPopupTitle'] as String?)?.trim().isNotEmpty == true
-        ? supportConfig['supportPopupTitle']
-        : 'Welcome to Community Support';
-    final body = (supportConfig['supportPopupBody'] as String?)?.trim().isNotEmpty == true
-        ? supportConfig['supportPopupBody']
-        : 'This is a space to ask for support from the community.';
-    final buttonText = (supportConfig['supportPopupButtonText'] as String?)?.trim().isNotEmpty == true
-        ? supportConfig['supportPopupButtonText']
-        : 'Enter';
-
-    bool dontShowAgain = false;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) => AlertDialog(
-          title: Text(title),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(body),
-                const SizedBox(height: 12),
-                CheckboxListTile(
-                  value: dontShowAgain,
-                  onChanged: (v) => setDialogState(() => dontShowAgain = v ?? false),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: const Text("Don't show this again"),
-                ),
-              ],
-            ),
-          ),
+    if (!accepted) {
+      final agreed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Poetry Community Rules'),
+          content: SingleChildScrollView(child: Text(rulesText)),
           actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
             ElevatedButton(
               onPressed: () async {
-                if (dontShowAgain) {
-                  await prefs.setBool(_supportOnboardingSeenPrefKey, true);
+                try {
+                  await acceptanceService.recordAcceptance(rulesVersion);
+                  if (dialogContext.mounted) {
+                    Navigator.pop(dialogContext, true);
+                  }
+                } catch (error) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Could not save Poetry rules acceptance: $error'),
+                        backgroundColor: Colors.redAccent,
+                      ),
+                    );
+                  }
                 }
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
               },
-              child: Text(buttonText),
+              child: const Text('I Agree & Enter'),
             ),
           ],
         ),
-      ),
-    );
-
-    if (!mounted) return;
+      );
+      if (agreed != true || !mounted) return;
+    }
     _openCommunitySupportScreen(supportConfig);
   }
 

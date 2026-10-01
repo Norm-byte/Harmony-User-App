@@ -18,6 +18,9 @@ class UserService extends ChangeNotifier {
   factory UserService() => _instance;
   UserService._internal() {
     _loadSettings();
+    _authStateSubscription = FirebaseAuth.instance.authStateChanges().listen(
+      _handleAuthStateChanged,
+    );
   }
 
   // User Data
@@ -38,6 +41,9 @@ class UserService extends ChangeNotifier {
   bool _dormantPlaybackEnabled = true;
   bool _settingsLoaded = false;
   Timer? _presenceHeartbeatTimer;
+  StreamSubscription<User?>? _authStateSubscription;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _blockListSubscription;
   // 0 = video (active), 1 = audio (active), 2 = off
   List<List<int>> _hourlyChimes = List.generate(
     24,
@@ -86,8 +92,6 @@ class UserService extends ChangeNotifier {
       _dormantPlaybackEnabled = true;
       await prefs.setBool(_dormantPlaybackEnabledKey, true);
     }
-    _blockedUsers = prefs.getStringList('blocked_users') ?? [];
-
     final savedChimes = prefs.getString('hourly_chimes_matrix');
     if (savedChimes != null) {
       try {
@@ -102,6 +106,8 @@ class UserService extends ChangeNotifier {
         debugPrint('Error loading hourly chimes: $e');
       }
     }
+
+    await _loadBlockedUsers(prefs);
 
     // Prefer Firebase Auth UID as the user identity.
     // Fall back to a locally-generated ID only if not signed in.
@@ -361,14 +367,109 @@ class UserService extends ChangeNotifier {
     }
   }
 
-  Future<void> blockUser(String userId) async {
-    if (!_blockedUsers.contains(userId)) {
-      _blockedUsers.add(userId);
-      notifyListeners();
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList('blocked_users', _blockedUsers);
-      debugPrint("HARMONY_BLOCK: Blocked user $userId");
+  String get _blockedUsersPreferenceKey {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    return uid.isEmpty ? 'blocked_users' : 'blocked_users_account_$uid';
+  }
+
+  Future<void> _loadBlockedUsers(SharedPreferences prefs) async {
+    _blockedUsers = prefs.getStringList(_blockedUsersPreferenceKey) ??
+      prefs.getStringList('blocked_users') ?? [];
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isNotEmpty) {
+      try {
+        await _blockListSubscription?.cancel();
+        final snapshot = await FirebaseFirestore.instance
+            .collection('user_blocks')
+            .doc(uid)
+            .get();
+        final cloudIds = (snapshot.data()?['blockedUserIds'] as List<dynamic>? ?? [])
+            .map((id) => id.toString().trim())
+            .where((id) => id.isNotEmpty && id != uid)
+            .toSet();
+        _blockedUsers = {..._blockedUsers, ...cloudIds}.toList()..sort();
+        await prefs.setStringList(_blockedUsersPreferenceKey, _blockedUsers);
+        await _syncBlockedUsersToCloud();
+        _blockListSubscription = FirebaseFirestore.instance
+            .collection('user_blocks')
+            .doc(uid)
+            .snapshots()
+            .listen((remoteSnapshot) async {
+              if (!remoteSnapshot.exists) return;
+              _blockedUsers =
+                  (remoteSnapshot.data()?['blockedUserIds'] as List<dynamic>? ?? [])
+                      .map((id) => id.toString().trim())
+                      .where((id) => id.isNotEmpty && id != uid)
+                      .toSet()
+                      .toList()
+                    ..sort();
+              await prefs.setStringList(_blockedUsersPreferenceKey, _blockedUsers);
+              notifyListeners();
+            });
+      } catch (e) {
+        debugPrint('HARMONY_BLOCK: Could not sync account block list: $e');
+      }
     }
+  }
+
+  Future<void> _handleAuthStateChanged(User? user) async {
+    if (!_settingsLoaded) return;
+    final prefs = await SharedPreferences.getInstance();
+    await _blockListSubscription?.cancel();
+    _blockListSubscription = null;
+    final preferenceKey = user == null
+        ? 'blocked_users'
+        : 'blocked_users_account_${user.uid}';
+    _blockedUsers = prefs.getStringList(preferenceKey) ??
+        (user == null ? <String>[] : prefs.getStringList('blocked_users') ?? []);
+    notifyListeners();
+    if (user == null) return;
+    await _loadBlockedUsers(prefs);
+  }
+
+  @override
+  void dispose() {
+    _presenceHeartbeatTimer?.cancel();
+    _authStateSubscription?.cancel();
+    _blockListSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _persistBlockedUsers() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_blockedUsersPreferenceKey, _blockedUsers);
+    notifyListeners();
+    try {
+      await _syncBlockedUsersToCloud();
+    } catch (e) {
+      debugPrint('HARMONY_BLOCK: Local block saved; cloud sync failed: $e');
+    }
+  }
+
+  Future<void> _syncBlockedUsersToCloud() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (uid.isEmpty) return;
+    await FirebaseFirestore.instance.collection('user_blocks').doc(uid).set({
+      'blockedUserIds': _blockedUsers.where((id) => id != uid).toList(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> blockUser(String userId) async {
+    final id = userId.trim();
+    if (id.isEmpty || id == FirebaseAuth.instance.currentUser?.uid) return;
+    if (_blockedUsers.contains(id)) return;
+    _blockedUsers = [..._blockedUsers, id]..sort();
+    await _persistBlockedUsers();
+    debugPrint('HARMONY_BLOCK: Blocked user $id');
+  }
+
+  Future<void> unblockUser(String userId) async {
+    final id = userId.trim();
+    if (id.isEmpty || !_blockedUsers.contains(id)) return;
+    _blockedUsers = _blockedUsers.where((blockedId) => blockedId != id).toList();
+    await _persistBlockedUsers();
+    debugPrint('HARMONY_BLOCK: Unblocked user $id');
   }
 
   Future<bool> reportContent(

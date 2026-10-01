@@ -14,10 +14,13 @@ import '../services/media_vault_service.dart';
 import '../services/notification_service.dart';
 import '../services/profanity_service.dart';
 import '../services/community_report_service.dart';
+import '../services/community_rules_acceptance_service.dart';
+import '../services/community_safety_utils.dart';
 import '../services/translation_service.dart';
 import '../services/usage_service.dart';
 import '../services/user_service.dart';
 import '../widgets/gradient_scaffold.dart';
+import '../widgets/community_blocked_users_dialog.dart';
 import '../widgets/live_room_counter_badge.dart';
 import '../widgets/threaded_replies_panel.dart';
 import '../widgets/translatable_text.dart';
@@ -68,6 +71,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    UserService().addListener(_handleBlockListChanged);
     _communityPostsStream = FirebaseFirestore.instance
         .collection('community_posts')
         .orderBy('timestamp', descending: true)
@@ -83,6 +87,10 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
       _handleCommunityNotificationTarget,
     );
     _handleCommunityNotificationTarget();
+  }
+
+  void _handleBlockListChanged() {
+    if (mounted) setState(() {});
   }
 
   void _handleCommunityNotificationTarget() {
@@ -150,6 +158,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     NotificationService.communityNotificationTarget.removeListener(
       _handleCommunityNotificationTarget,
     );
+    UserService().removeListener(_handleBlockListChanged);
     _highlightClearTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _usageService?.removeListener(_calculateRemaining);
@@ -696,6 +705,8 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     final hasPendingImage = _hasPendingImages;
     if (content.isEmpty && !hasPendingImage) return;
 
+    if (_isSupportRequest && !await _ensurePoetryRulesAccepted()) return;
+
     await _calculateRemaining();
 
     final userService = UserService();
@@ -974,6 +985,86 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     }
   }
 
+  Future<bool> _ensurePoetryRulesAccepted() async {
+    final configSnapshot = await FirebaseFirestore.instance
+        .collection('app_config')
+        .doc('community_support')
+        .get();
+    final config = configSnapshot.data() ?? const <String, dynamic>{};
+    if (config['isSupportFeatureEnabled'] != true ||
+        config['showSupportRequestCheckbox'] == false) {
+      if (mounted) setState(() => _isSupportRequest = false);
+      return false;
+    }
+    final configuredVersion =
+        (config['communityRulesVersion'] as String?)?.trim() ?? '';
+    final version = configuredVersion.isEmpty ? '1' : configuredVersion;
+    final acceptanceService = CommunityRulesAcceptanceService();
+    try {
+      if (await acceptanceService.hasAccepted(version)) return true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not check Poetry rules acceptance: $error'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return false;
+    }
+    if (!mounted) return false;
+    final configuredRules =
+      (config['communityRulesText'] as String?)?.trim() ?? '';
+    final rules = configuredRules.isEmpty
+      ? 'Please be respectful and supportive. Do not post harmful, abusive, or identifying information about others.'
+      : configuredRules;
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Poetry Community Rules'),
+        content: SingleChildScrollView(
+            child: Text(rules),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await acceptanceService.recordAcceptance(version);
+                if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+              } catch (error) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Could not save Poetry rules acceptance: $error'),
+                      backgroundColor: Colors.redAccent,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Agree & Post'),
+          ),
+        ],
+      ),
+    );
+    return agreed == true;
+  }
+
+  Future<void> _onSupportRequestChanged(bool selected) async {
+    if (!selected) {
+      setState(() => _isSupportRequest = false);
+      return;
+    }
+    if (await _ensurePoetryRulesAccepted() && mounted) {
+      setState(() => _isSupportRequest = true);
+    }
+  }
+
   Future<void> _toggleLike(String docId, List<dynamic> likedBy) async {
     final uid = _effectiveCurrentUserId();
     if (uid.isEmpty) return;
@@ -1004,6 +1095,43 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     }.where((id) => id.isNotEmpty).toSet();
 
     return currentIds.any(postIds.contains);
+  }
+
+  Future<void> _toggleBlockedUser(String userId) async {
+    final id = userId.trim();
+    if (id.isEmpty || id == _effectiveCurrentUserId()) return;
+    final service = UserService();
+    final currentlyBlocked = service.blockedUsers.contains(id);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(currentlyBlocked ? 'Unblock user?' : 'Block user?'),
+        content: Text(currentlyBlocked
+            ? 'Their posts and replies will appear in your community feeds again.'
+            : 'Their posts and replies will be hidden from your community feeds and chat.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(currentlyBlocked ? 'Unblock' : 'Block'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (currentlyBlocked) {
+      await service.unblockUser(id);
+    } else {
+      await service.blockUser(id);
+    }
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(currentlyBlocked ? 'User unblocked.' : 'User blocked.')),
+    );
   }
 
   Future<void> _showEditPostComposer({
@@ -1904,8 +2032,8 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                 padding: const EdgeInsets.only(bottom: 4),
                 child: CheckboxListTile(
                   value: _isSupportRequest,
-                  onChanged: (value) =>
-                      setState(() => _isSupportRequest = value ?? false),
+                    onChanged: (value) =>
+                      _onSupportRequestChanged(value ?? false),
                   controlAffinity: ListTileControlAffinity.leading,
                   contentPadding: EdgeInsets.zero,
                   dense: true,
@@ -2107,6 +2235,16 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                           ),
                         ),
                       ),
+                      IconButton(
+                        constraints: const BoxConstraints(
+                          minWidth: 36,
+                          minHeight: 36,
+                        ),
+                        padding: EdgeInsets.zero,
+                        tooltip: 'Manage blocked users',
+                        onPressed: () => showCommunityBlockedUsersDialog(context),
+                        icon: const Icon(Icons.block, color: Colors.white70),
+                      ),
                       ValueListenableBuilder<HomeSpeakerUiState>(
                         valueListenable: homeSpeakerUiStateNotifier,
                         builder: (context, speakerState, _) {
@@ -2203,7 +2341,12 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                 }
 
                 final posts = snapshot.data!.docs
-                    .where((doc) => doc.data()['isAutoHidden'] != true)
+                    .where((doc) =>
+                        doc.data()['isAutoHidden'] != true &&
+                        !CommunitySafetyUtils.isBlocked(
+                          doc.data(),
+                          UserService().blockedUsers.toSet(),
+                        ))
                     .toList();
                 if (posts.isEmpty) {
                   return const Center(
@@ -2361,12 +2504,28 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                                       onSelected: (value) async {
                                         if (value == 'report') {
                                           await _reportPost(postId, post);
+                                        } else if (value == 'block' || value == 'unblock') {
+                                          await _toggleBlockedUser(
+                                            CommunitySafetyUtils.authorId(post),
+                                          );
                                         }
                                       },
-                                      itemBuilder: (_) => const [
-                                        PopupMenuItem<String>(
+                                      itemBuilder: (_) => [
+                                        const PopupMenuItem<String>(
                                           value: 'report',
                                           child: Text('Report user'),
+                                        ),
+                                        PopupMenuItem<String>(
+                                          value: UserService().blockedUsers.contains(
+                                                  CommunitySafetyUtils.authorId(post))
+                                              ? 'unblock'
+                                              : 'block',
+                                          child: Text(
+                                            UserService().blockedUsers.contains(
+                                                    CommunitySafetyUtils.authorId(post))
+                                                ? 'Unblock user'
+                                                : 'Block user',
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -2406,6 +2565,8 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                                   replyId,
                                   reply,
                                 ),
+                                blockedUserIds: UserService().blockedUsers.toSet(),
+                                onToggleBlockUser: _toggleBlockedUser,
                               ),
                             ],
                           ),

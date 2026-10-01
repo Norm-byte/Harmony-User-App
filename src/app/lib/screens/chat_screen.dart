@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/event_service.dart';
 import '../services/translation_service.dart';
 import '../services/user_service.dart';
+import '../services/community_safety_utils.dart';
+import '../widgets/community_blocked_users_dialog.dart';
 import '../services/profanity_service.dart'; // Added missing import
 import '../widgets/gradient_scaffold.dart';
 import '../widgets/translatable_text.dart';
@@ -163,6 +165,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    UserService().addListener(_handleBlockListChanged);
     _loadDailyLimit();
     TranslationService.instance.init();
     _resolvedGroupId = widget.groupId;
@@ -172,6 +175,10 @@ class _ChatScreenState extends State<ChatScreen> {
     } else {
       _resolveGroupByName();
     }
+  }
+
+  void _handleBlockListChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _toggleTranslation() async {
@@ -320,6 +327,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    UserService().removeListener(_handleBlockListChanged);
     _messageController.dispose();
     _intentController.dispose();
     super.dispose();
@@ -529,6 +537,16 @@ class _ChatScreenState extends State<ChatScreen> {
         // backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            tooltip: 'Manage blocked users',
+            onPressed: () => showCommunityBlockedUsersDialog(context),
+            icon: const Icon(Icons.block),
+          ),
+          IconButton(
+            tooltip: 'Manage blocked users',
+            onPressed: () => showCommunityBlockedUsersDialog(context),
+            icon: const Icon(Icons.block),
+          ),
           ValueListenableBuilder<bool>(
             valueListenable: TranslationService.instance.enabledNotifier,
             builder: (context, enabled, _) {
@@ -628,8 +646,10 @@ class _ChatScreenState extends State<ChatScreen> {
                    
                    final docs = snapshot.data!.docs.where((doc) {
                       final data = doc.data() as Map<String, dynamic>;
-                      final senderId = data['userId'] ?? '';
-                      return !UserService().blockedUsers.contains(senderId);
+                      return !CommunitySafetyUtils.isBlocked(
+                        data,
+                        UserService().blockedUsers.toSet(),
+                      );
                    }).toList();
                    
                    return ListView.builder(

@@ -7,8 +7,10 @@ import '../constants/report_reasons.dart';
 import '../services/community_report_service.dart';
 import '../services/community_poem_favorites_service.dart';
 import '../services/profanity_service.dart';
+import '../services/community_safety_utils.dart';
 import '../services/translation_service.dart';
 import '../services/user_service.dart';
+import '../widgets/community_blocked_users_dialog.dart';
 import '../widgets/home_speaker_overlay.dart';
 import '../widgets/support_icon.dart';
 import '../widgets/translatable_text.dart';
@@ -31,7 +33,18 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
   final Map<String, TextEditingController> _replyControllers = {};
 
   @override
+  void initState() {
+    super.initState();
+    UserService().addListener(_handleBlockListChanged);
+  }
+
+  void _handleBlockListChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    UserService().removeListener(_handleBlockListChanged);
     for (final c in _replyControllers.values) {
       c.dispose();
     }
@@ -318,6 +331,39 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
     }
   }
 
+  Future<void> _toggleBlockedUser(String userId) async {
+    final id = userId.trim();
+    if (id.isEmpty || id == _effectiveCurrentUserId()) return;
+    final service = UserService();
+    final currentlyBlocked = service.blockedUsers.contains(id);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(currentlyBlocked ? 'Unblock user?' : 'Block user?'),
+        content: Text(currentlyBlocked
+            ? 'Their posts and replies will appear in your community feeds again.'
+            : 'Their posts and replies will be hidden from your community feeds and chat.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(currentlyBlocked ? 'Unblock' : 'Block'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (currentlyBlocked) {
+      await service.unblockUser(id);
+    } else {
+      await service.blockUser(id);
+    }
+    if (mounted) setState(() {});
+  }
+
   bool _isOwnPost(Map<String, dynamic> post) {
     final currentIds = <String>{
       _effectiveCurrentUserId().trim(),
@@ -477,6 +523,11 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
         title: Text(title),
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            tooltip: 'Manage blocked users',
+            onPressed: () => showCommunityBlockedUsersDialog(context),
+            icon: const Icon(Icons.block),
+          ),
           ValueListenableBuilder<bool>(
             valueListenable: TranslationService.instance.enabledNotifier,
             builder: (context, enabled, _) {
@@ -520,7 +571,12 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                   return const Center(child: CircularProgressIndicator(color: Colors.white));
                 }
                 final posts = (snapshot.data?.docs ?? [])
-                  .where((doc) => doc.data()['isAutoHidden'] != true)
+                  .where((doc) =>
+                      doc.data()['isAutoHidden'] != true &&
+                      !CommunitySafetyUtils.isBlocked(
+                        doc.data(),
+                        UserService().blockedUsers.toSet(),
+                      ))
                   .toList();
                 if (posts.isEmpty) {
                   return Center(
@@ -656,11 +712,32 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                                         ],
                                       )
                                     else
-                                      IconButton(
-                                        iconSize: 18,
-                                        tooltip: 'Report this post',
-                                        icon: const Icon(Icons.flag_outlined, color: Colors.white54),
-                                        onPressed: () => _reportPost(doc.id, post),
+                                      PopupMenuButton<String>(
+                                        icon: const Icon(Icons.more_vert, size: 18, color: Colors.white54),
+                                        onSelected: (value) async {
+                                          if (value == 'report') {
+                                            await _reportPost(doc.id, post);
+                                          } else {
+                                            await _toggleBlockedUser(
+                                              CommunitySafetyUtils.authorId(post),
+                                            );
+                                          }
+                                        },
+                                        itemBuilder: (_) => [
+                                          const PopupMenuItem(value: 'report', child: Text('Report user')),
+                                          PopupMenuItem(
+                                            value: UserService().blockedUsers.contains(
+                                                    CommunitySafetyUtils.authorId(post))
+                                                ? 'unblock'
+                                                : 'block',
+                                            child: Text(
+                                              UserService().blockedUsers.contains(
+                                                      CommunitySafetyUtils.authorId(post))
+                                                  ? 'Unblock user'
+                                                  : 'Block user',
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                   ],
                                 ),
@@ -697,7 +774,13 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                                       label: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                                         stream: _repliesCollection(doc.id).snapshots(),
                                         builder: (context, replySnap) {
-                                          final count = replySnap.data?.docs.length ?? 0;
+                                          final blockedIds = UserService().blockedUsers.toSet();
+                                          final count = (replySnap.data?.docs ?? [])
+                                              .where((reply) => !CommunitySafetyUtils.isBlocked(
+                                                    reply.data(),
+                                                    blockedIds,
+                                                  ))
+                                              .length;
                                           return Text('Replies ($count)', style: const TextStyle(color: Colors.white70));
                                         },
                                       ),
@@ -711,7 +794,13 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                                         .orderBy('timestamp', descending: false)
                                         .snapshots(),
                                     builder: (context, replySnap) {
-                                      final replies = replySnap.data?.docs ?? [];
+                                      final blockedIds = UserService().blockedUsers.toSet();
+                                      final replies = (replySnap.data?.docs ?? [])
+                                          .where((reply) => !CommunitySafetyUtils.isBlocked(
+                                                reply.data(),
+                                                blockedIds,
+                                              ))
+                                          .toList();
                                       return Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
@@ -766,6 +855,8 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
     final likes = (reply['likes'] as num?)?.toInt() ?? 0;
     final currentUserId = _effectiveCurrentUserId();
     final isOwnReply = (reply['userId'] == currentUserId) || (reply['authorUid'] == currentUserId);
+    final replyAuthorId = CommunitySafetyUtils.authorId(reply);
+    final isBlocked = UserService().blockedUsers.contains(replyAuthorId);
     final alreadyLiked = likedBy.map((e) => e.toString()).contains(currentUserId);
 
     return Padding(
@@ -807,11 +898,22 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
               ],
             )
           else
-            IconButton(
-              iconSize: 16,
-              tooltip: 'Report this reply',
-              icon: const Icon(Icons.flag_outlined, color: Colors.white54),
-              onPressed: () => _reportReply(postId, replyDoc.id, reply),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, size: 16, color: Colors.white54),
+              onSelected: (value) async {
+                if (value == 'report') {
+                  await _reportReply(postId, replyDoc.id, reply);
+                } else {
+                  await _toggleBlockedUser(replyAuthorId);
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'report', child: Text('Report reply')),
+                PopupMenuItem(
+                  value: isBlocked ? 'unblock' : 'block',
+                  child: Text(isBlocked ? 'Unblock user' : 'Block user'),
+                ),
+              ],
             ),
         ],
       ),
