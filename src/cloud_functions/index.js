@@ -491,6 +491,146 @@ exports.notifyAdminsOnModerationAlert = functions.runWith({ secrets: ['IONOS_SMT
         });
     });
 
+exports.reportCommunityPost = functions.https.onCall(async (data, context) => {
+    if (!context.auth?.uid) {
+        throw new functions.https.HttpsError('unauthenticated', 'Sign in to report a post.');
+    }
+
+    const postId = String(data?.postId || '').trim();
+    const reason = String(data?.reason || '').trim().slice(0, 120);
+    const explanation = String(data?.explanation || '').trim().slice(0, 2000);
+    if (!postId || !reason) {
+        throw new functions.https.HttpsError('invalid-argument', 'A post and report reason are required.');
+    }
+
+    const db = admin.firestore();
+    const reporterUid = context.auth.uid;
+    const postRef = db.collection('community_posts').doc(postId);
+    const policyRef = db.collection('system_settings').doc('moderation_policy');
+    const reporterRef = db.collection('users').doc(reporterUid);
+    const stateRef = db.collection('community_post_report_states').doc(postId);
+    const voteId = crypto.createHash('sha256').update(`${postId}:${reporterUid}`).digest('hex');
+    const voteRef = db.collection('community_post_report_votes').doc(voteId);
+    const queueRef = db.collection('moderation_queue').doc();
+
+    return db.runTransaction(async (transaction) => {
+        const [postSnap, policySnap, voteSnap, stateSnap, reporterSnap] = await Promise.all([
+            transaction.get(postRef),
+            transaction.get(policyRef),
+            transaction.get(voteRef),
+            transaction.get(stateRef),
+            transaction.get(reporterRef),
+        ]);
+        if (!postSnap.exists) {
+            throw new functions.https.HttpsError('not-found', 'This post is no longer available.');
+        }
+        if (voteSnap.exists) {
+            return {
+                accepted: false,
+                duplicate: true,
+                autoHidden: postSnap.data()?.isAutoHidden === true,
+            };
+        }
+
+        const post = postSnap.data() || {};
+        if ([post.userId, post.authorUid].some((id) => String(id || '').trim() === reporterUid)) {
+            throw new functions.https.HttpsError('permission-denied', 'You cannot report your own post.');
+        }
+
+        const policy = policySnap.data() || {};
+        const configuredThreshold = Number(policy.communityAutoHideThreshold);
+        const threshold = Number.isFinite(configuredThreshold)
+            ? Math.max(2, Math.min(10, Math.floor(configuredThreshold)))
+            : 3;
+        const autoHideEnabled = policy.communityAutoHideEnabled !== false;
+        const priorCount = Math.max(0, Number(stateSnap.data()?.distinctReporterCount) || 0);
+        const reportCount = priorCount + 1;
+        const shouldAutoHide = autoHideEnabled &&
+            reportCount >= threshold &&
+            post.isAutoHidden !== true;
+        const reporterName = String(
+            reporterSnap.data()?.name || context.auth.token.name || 'Member',
+        ).trim();
+        const now = admin.firestore.FieldValue.serverTimestamp();
+
+        transaction.create(voteRef, {
+            postId,
+            reporterUid,
+            reason,
+            createdAt: now,
+        });
+        transaction.set(stateRef, {
+            postId,
+            distinctReporterCount: reportCount,
+            lastReportAt: now,
+            updatedAt: now,
+        }, { merge: true });
+
+        const queueItem = {
+            reporterId: reporterUid,
+            reporterName,
+            reportedUserId: String(post.authorUid || post.userId || ''),
+            userId: String(post.userId || post.authorUid || ''),
+            content: String(post.content || '').slice(0, 5000),
+            reason,
+            reportExplanation: explanation,
+            context: 'Community Room',
+            source: 'Community Room',
+            targetKind: 'community_post',
+            targetId: postId,
+            timestamp: now,
+            status: 'pending',
+            distinctReportCount: reportCount,
+            autoHideTriggered: shouldAutoHide,
+        };
+
+        if (shouldAutoHide) {
+            const alertId = crypto.createHash('sha256')
+                .update(`${postId}:${reportCount}`)
+                .digest('hex');
+            const alertRef = db.collection('community_auto_hide_alerts').doc(alertId);
+            transaction.update(postRef, {
+                isAutoHidden: true,
+                autoHideReason: 'distinct_report_threshold',
+                autoHideReportCount: reportCount,
+                autoHideThreshold: threshold,
+                autoHideAlertId: alertId,
+                autoHiddenAt: now,
+            });
+            transaction.create(alertRef, {
+                postId,
+                content: String(post.content || '').slice(0, 2000),
+                reportedUserId: String(post.authorUid || post.userId || ''),
+                distinctReportCount: reportCount,
+                threshold,
+                status: 'open',
+                createdAt: now,
+            });
+            queueItem.autoHideAlertId = alertId;
+        }
+
+        transaction.create(queueRef, queueItem);
+        return {
+            accepted: true,
+            duplicate: false,
+            autoHidden: shouldAutoHide || post.isAutoHidden === true,
+            distinctReportCount: reportCount,
+            threshold,
+        };
+    });
+});
+
+exports.notifyAdminsOnCommunityAutoHide = functions.runWith({ secrets: ['IONOS_SMTP_PASSWORD'] }).firestore
+    .document('community_auto_hide_alerts/{alertId}')
+    .onCreate(async (snap) => {
+        const alert = snap.data() || {};
+        if (String(alert.status || '') !== 'open') return null;
+        return sendAlertNotification({
+            subject: 'URGENT: Community post auto-hidden after distinct reports',
+            text: `A community post has been temporarily hidden after ${alert.distinctReporterCount} distinct reports (configured threshold: ${alert.threshold}).\n\nPost ID: ${alert.postId}\nContent preview: ${String(alert.content || '').slice(0, 500)}\n\nReview the report in the Harmony Admin Community moderation queue.`,
+        });
+    });
+
 exports.notifyAdminsOnSupportAlert = functions.runWith({ secrets: ['IONOS_SMTP_PASSWORD'] }).firestore
     .document('support_inbox/{messageId}')
     .onCreate(async (snap) => {

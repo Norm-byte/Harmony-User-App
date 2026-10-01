@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../constants/report_reasons.dart';
+import '../services/community_report_service.dart';
 import '../services/community_poem_favorites_service.dart';
 import '../services/profanity_service.dart';
 import '../services/translation_service.dart';
@@ -405,29 +406,32 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
   Future<void> _reportPost(String postId, Map<String, dynamic> post) async {
     final reporter = UserService();
     final reportedUserId = (post['authorUid'] ?? post['userId'] ?? '').toString().trim();
-    final content = (post['content'] ?? '').toString().trim();
-    if (reportedUserId.isEmpty || reportedUserId == reporter.userId.trim()) return;
+    final authUid = _currentAuthUid().trim();
+    if (reportedUserId.isEmpty ||
+        reportedUserId == reporter.userId.trim() ||
+        (authUid.isNotEmpty && reportedUserId == authUid)) return;
 
     final reportDetails = await _promptReportDetails(label: 'post');
     if (reportDetails == null) return;
 
-    final imageUrl = (post['hasImage'] == true) ? (post['imageUrl'] as String?) : null;
     try {
-      await reporter.reportContent(
-        reportedUserId,
-        content,
-        reportDetails['reason']!,
-        'Community Support',
-        metadata: {
-          'targetKind': 'community_post',
-          'targetId': postId,
-          if (imageUrl != null) 'imageUrl': imageUrl,
-          if (imageUrl != null) 'thumbnailUrl': imageUrl,
-          'reportExplanation': reportDetails['explanation']!,
-        },
+      final result = await CommunityReportService().reportPost(
+        postId: postId,
+        reason: reportDetails['reason']!,
+        explanation: reportDetails['explanation']!,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report sent to moderation.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.duplicate
+                ? 'You have already reported this post.'
+                : result.autoHidden
+                    ? 'Report received. The post has been temporarily hidden for moderator review.'
+                    : 'Report sent to moderation.',
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not report post: $e')));
@@ -515,7 +519,9 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator(color: Colors.white));
                 }
-                final posts = snapshot.data?.docs ?? [];
+                final posts = (snapshot.data?.docs ?? [])
+                  .where((doc) => doc.data()['isAutoHidden'] != true)
+                  .toList();
                 if (posts.isEmpty) {
                   return Center(
                     child: Padding(
@@ -556,7 +562,12 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                           final post = doc.data();
                           final content = (post['content'] as String?) ?? '';
                           final userName = (post['userName'] as String?) ?? 'Member';
-                          final imageUrl = (post['hasImage'] == true) ? (post['imageUrl'] as String?) : null;
+                            final mediaUrls = post['mediaUrls'];
+                            final imageUrl = (post['hasImage'] == true)
+                              ? (post['imageUrl'] as String?)
+                              : (mediaUrls is List && mediaUrls.isNotEmpty
+                                ? mediaUrls.first?.toString()
+                                : null);
                           final supportedBy = List<String>.from(post['supportedBy'] ?? const []);
                           final alreadySupported = supportedBy.contains(currentUserId);
                           final supportCount = (post['supportTapCount'] as num?)?.toInt() ?? 0;

@@ -13,6 +13,7 @@ import '../services/home_speaker_state.dart';
 import '../services/media_vault_service.dart';
 import '../services/notification_service.dart';
 import '../services/profanity_service.dart';
+import '../services/community_report_service.dart';
 import '../services/translation_service.dart';
 import '../services/usage_service.dart';
 import '../services/user_service.dart';
@@ -1218,50 +1219,43 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     }
   }
 
-  String? _extractImageUrlForReport(Map<String, dynamic> item) {
-    final candidates = [
-      item['imageUrl'],
-      item['downloadUrl'],
-      item['mediaUrl'],
-      item['thumbnailUrl'],
-      item['image'],
-    ];
-    for (final candidate in candidates) {
-      final url = candidate?.toString().trim() ?? '';
-      if (url.isNotEmpty) return url;
-    }
-    return null;
-  }
-
   Future<void> _reportPost(String postId, Map<String, dynamic> post) async {
     final reporter = UserService();
     final reportedUserId =
         (post['authorUid'] ?? post['userId'] ?? '').toString().trim();
-    final content = (post['content'] ?? '').toString().trim();
-    if (reportedUserId.isEmpty || reportedUserId == reporter.userId.trim()) {
+    final authUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (reportedUserId.isEmpty ||
+        reportedUserId == reporter.userId.trim() ||
+        (authUid.isNotEmpty && reportedUserId == authUid)) {
       return;
     }
     final reportDetails = await _promptReportDetails(label: 'post');
     if (reportDetails == null) return;
 
-    final imageUrl = _extractImageUrlForReport(post);
-    await reporter.reportContent(
-      reportedUserId,
-      content,
-      reportDetails['reason']!,
-      'Community Room',
-      metadata: {
-        'targetKind': 'community_post',
-        'targetId': postId,
-        if (imageUrl != null) 'imageUrl': imageUrl,
-        if (imageUrl != null) 'thumbnailUrl': imageUrl,
-        'reportExplanation': reportDetails['explanation']!,
-      },
-    );
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Report sent to moderation.')),
-    );
+    try {
+      final result = await CommunityReportService().reportPost(
+        postId: postId,
+        reason: reportDetails['reason']!,
+        explanation: reportDetails['explanation']!,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.duplicate
+                ? 'You have already reported this post.'
+                : result.autoHidden
+                    ? 'Report received. The post has been temporarily hidden for moderator review.'
+                    : 'Report sent to moderation.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not send report: $error')),
+      );
+    }
   }
 
   CollectionReference<Map<String, dynamic>> _repliesCollection(String postId) {
@@ -2199,7 +2193,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                     child: CircularProgressIndicator(color: Colors.white),
                   );
                 }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                if (!snapshot.hasData) {
                   return const Center(
                     child: Text(
                       'No posts yet. Be the first!',
@@ -2208,7 +2202,17 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                   );
                 }
 
-                final posts = snapshot.data!.docs;
+                final posts = snapshot.data!.docs
+                    .where((doc) => doc.data()['isAutoHidden'] != true)
+                    .toList();
+                if (posts.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'No posts yet. Be the first!',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  );
+                }
                 _scrollToAndHighlightPendingTarget(posts);
                 return ListView.builder(
                   controller: _feedScrollController,
@@ -2218,8 +2222,11 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                     final postDoc = posts[index];
                     final post = postDoc.data();
                     final postId = postDoc.id;
-                    final imageUrl = (post['imageUrl'] ?? '').toString();
-                    final hasImage = (post['hasImage'] ?? false) == true && imageUrl.isNotEmpty;
+                    final mediaUrls = _extractMediaUrls(post);
+                    final imageUrl = (post['imageUrl'] ?? '').toString().trim();
+                    final hasLegacyImage =
+                      (post['hasImage'] ?? false) == true && imageUrl.isNotEmpty;
+                    final hasImage = hasLegacyImage || mediaUrls.isNotEmpty;
                     final ts = (post['timestamp'] as Timestamp?)?.toDate();
                     final likedBy = List<dynamic>.from(post['likedBy'] ?? const []);
                     final isOwnPost = _isPostOwnedByCurrentUser(post);
