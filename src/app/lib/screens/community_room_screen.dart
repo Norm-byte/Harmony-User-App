@@ -21,6 +21,7 @@ import '../services/usage_service.dart';
 import '../services/user_service.dart';
 import '../widgets/gradient_scaffold.dart';
 import '../widgets/community_blocked_users_dialog.dart';
+import '../widgets/community_message_editor.dart';
 import '../widgets/live_room_counter_badge.dart';
 import '../widgets/threaded_replies_panel.dart';
 import '../widgets/translatable_text.dart';
@@ -57,6 +58,7 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   final Map<String, Future<Uint8List>> _pendingPreviewFutureByPath = {};
   bool _saveCameraToVault = true;
   bool _isPosting = false;
+  bool _isMessageEditorOpen = false;
   bool _isSupportRequest = false;
   String? _postingStatus;
   bool _isLoadingImageUsage = false;
@@ -539,7 +541,6 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     if (!mounted) return;
     setState(() {
       _pendingPickedImages.add(picked);
-      _pendingVaultImages.clear();
       _saveCameraToVault = true;
     });
   }
@@ -560,7 +561,6 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
     if (!mounted) return;
     setState(() {
       _pendingPickedImages.addAll(picked);
-      _pendingVaultImages.clear();
       _saveCameraToVault = true;
     });
   }
@@ -624,7 +624,6 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
                         };
                         setState(() {
                           _pendingVaultImages.add(vaultEntry);
-                          _pendingPickedImages.clear();
                         });
                         Navigator.of(sheetContext).pop();
                       },
@@ -645,6 +644,22 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
 
   Future<void> _openImagePickerSheet() async {
     FocusScope.of(context).unfocus();
+    if (_pendingImageCount >= _maximumImagesPerPost) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Image limit reached'),
+          content: Text('You can attach up to $_maximumImagesPerPost images. Remove an image before adding another.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     const cameraChoice = 'camera';
     const galleryChoice = 'gallery';
     const vaultChoice = 'vault';
@@ -698,6 +713,114 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
         await _pickFromVault();
         break;
     }
+  }
+
+  Future<void> _openMessageEditor({bool review = false}) async {
+    if (_isPosting || _isMessageEditorOpen) return;
+    _isMessageEditorOpen = true;
+    try {
+      final shouldPost = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => CommunityMessageEditor(
+            controller: _postController,
+            startInReview: review,
+            attachmentCount: _pendingPickedImages.length + _pendingVaultImages.length,
+            isPoetry: _isSupportRequest,
+            isPoetrySelected: () => _isSupportRequest,
+            optionsBuilder: _buildMessageEditorOptions,
+            onAddImages: _openImagePickerSheet,
+            onRemoveImage: _removePendingImageAt,
+            attachmentPreviews: () => [
+              ..._pendingPickedImages.map((image) => FutureBuilder<Uint8List>(
+                future: _previewBytesFor(image),
+                builder: (context, snapshot) {
+                  if (snapshot.hasData) {
+                    return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                  }
+                  return const ColoredBox(
+                    color: Colors.white10,
+                    child: Center(child: Icon(Icons.image_outlined, color: Colors.white54)),
+                  );
+                },
+              )),
+              ..._pendingVaultImages.map((image) => Image.network(
+                (image['downloadUrl'] ?? '').toString(),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined, color: Colors.white54),
+              )),
+            ],
+          ),
+        ),
+      );
+      if (!mounted) return;
+      setState(() {});
+      if (shouldPost == true) await _submitPost();
+    } finally {
+      _isMessageEditorOpen = false;
+    }
+  }
+
+  Widget _buildMessageEditorOptions(BuildContext editorContext, VoidCallback refresh) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_isLoadingImageUsage)
+          const Text('Checking image allowance...',
+            style: TextStyle(color: Colors.white54, fontSize: 11))
+        else if ((_usageService?.monthlyImageUploadLimit ?? 0) > 0)
+          Text(
+            '${((_usageService?.monthlyImageUploadLimit ?? 0) - _imageUploadsUsedThisMonth).clamp(0, _usageService?.monthlyImageUploadLimit ?? 0)} monthly image uploads remaining • Up to $_maximumImagesPerPost images per post',
+            style: const TextStyle(color: Colors.white54, fontSize: 11),
+          ),
+        StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('app_config')
+              .doc('community_support')
+              .snapshots(),
+          builder: (context, snapshot) {
+            final config = snapshot.data?.data() ?? const <String, dynamic>{};
+            if (config['isSupportFeatureEnabled'] != true ||
+                config['showSupportRequestCheckbox'] == false) {
+              return const SizedBox.shrink();
+            }
+            final label = (config['supportRequestCheckboxText'] as String?)?.trim() ?? '';
+            return CheckboxListTile(
+              value: _isSupportRequest,
+              onChanged: (value) async {
+                FocusScope.of(editorContext).unfocus();
+                await _onSupportRequestChanged(value ?? false);
+                refresh();
+              },
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              activeColor: Colors.amber,
+              title: Text(
+                label.isEmpty ? 'Add to Community Focus' : label,
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+            );
+          },
+        ),
+        if (_pendingPickedImages.isNotEmpty)
+          CheckboxListTile(
+            value: _saveCameraToVault,
+            onChanged: (value) {
+              setState(() => _saveCameraToVault = value ?? false);
+              refresh();
+            },
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            activeColor: Colors.amber,
+            title: const Text(
+              'Save selected images to My Harmony Vault as well',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ),
+      ],
+    );
   }
 
   Future<void> _submitPost() async {
@@ -1829,330 +1952,42 @@ class _CommunityRoomScreenState extends State<CommunityRoomScreen>
   }
 
   Widget _buildComposer() {
+    final hasDraft = _postController.text.isNotEmpty || _hasPendingImages;
     return Container(
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       decoration: _panelDecoration(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          if (_hasPendingImages) ...[
-            Container(
-              padding: const EdgeInsets.all(10),
-              margin: const EdgeInsets.only(bottom: 10),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white24),
+          Expanded(
+            child: TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.amber,
+                alignment: Alignment.centerLeft,
+                minimumSize: const Size(0, 44),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Text(
-                        'Photos attached',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        onPressed: _clearPendingImage,
-                        icon: const Icon(Icons.close, color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    '$_pendingImageCount of $_maximumImagesPerPost selected • '
-                    '${_remainingImageSlots()} more can be added to this post',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                  if (_postingStatus != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      _postingStatus!,
-                      style: const TextStyle(color: Colors.amberAccent, fontSize: 12),
-                    ),
-                  ],
-                  if ((_usageService?.monthlyImageUploadLimit ?? 0) > 0) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      '${((_usageService?.monthlyImageUploadLimit ?? 0) - _imageUploadsUsedThisMonth).clamp(0, _usageService?.monthlyImageUploadLimit ?? 0)} monthly image uploads remaining',
-                      style: const TextStyle(color: Colors.white54, fontSize: 11),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 120,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: (_pendingPickedImages.length + _pendingVaultImages.length),
-                      itemBuilder: (context, index) {
-                        if (index < _pendingPickedImages.length) {
-                          final image = _pendingPickedImages[index];
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: Stack(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: SizedBox(
-                                    width: 92,
-                                    height: 120,
-                                    child: FutureBuilder<Uint8List>(
-                                      future: _previewBytesFor(image),
-                                      builder: (context, snapshot) {
-                                        if (snapshot.hasData) {
-                                          return Image.memory(snapshot.data!, fit: BoxFit.cover);
-                                        }
-                                        return Container(
-                                          color: Colors.black.withValues(alpha: 0.2),
-                                          child: const Center(
-                                            child: SizedBox(
-                                              width: 18,
-                                              height: 18,
-                                              child: CircularProgressIndicator(strokeWidth: 2),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ),
-                                Positioned(
-                                  top: 4,
-                                  right: 4,
-                                  child: GestureDetector(
-                                    onTap: () => _removePendingImageAt(index),
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(alpha: 0.7),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      padding: const EdgeInsets.all(4),
-                                      child: const Icon(Icons.close, size: 14, color: Colors.white),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-
-                        final vaultIndex = index - _pendingPickedImages.length;
-                        final item = _pendingVaultImages[vaultIndex];
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: Stack(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(10),
-                                child: SizedBox(
-                                  width: 92,
-                                  height: 120,
-                                  child: Image.network(
-                                    (item['downloadUrl'] ?? '').toString(),
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                top: 4,
-                                right: 4,
-                                child: GestureDetector(
-                                  onTap: () => _removePendingImageAt(index),
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.7),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    padding: const EdgeInsets.all(4),
-                                    child: const Icon(Icons.close, size: 14, color: Colors.white),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  if (_pendingPickedImages.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: _saveCameraToVault,
-                          onChanged: (value) {
-                            if (!mounted) return;
-                            setState(() => _saveCameraToVault = value ?? false);
-                          },
-                          activeColor: Colors.amber,
-                          checkColor: Colors.black,
-                        ),
-                        const Expanded(
-                          child: Text(
-                            'Save selected images to My Harmony Vault as well',
-                            style: TextStyle(color: Colors.white70, fontSize: 12),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  if ((_pendingPickedImages.length + _pendingVaultImages.length) > 1) ...[
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Remove any image before posting, or clear all selections.',
-                      style: TextStyle(color: Colors.white70, fontSize: 12),
-                    ),
-                  ],
-                ],
+              onPressed: _isPosting ? null : () => _openMessageEditor(),
+              icon: _isPosting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.amber),
+                    )
+                  : const Icon(Icons.add_circle_outline),
+              label: Text(
+                _isPosting ? (_postingStatus ?? 'Sharing post...')
+                    : hasDraft ? 'Continue Post' : 'Add Post',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-          ],
-          StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('app_config')
-                .doc('community_support')
-                .snapshots(),
-            builder: (context, supportSnapshot) {
-              final supportConfig =
-                  supportSnapshot.data?.data() as Map<String, dynamic>? ?? {};
-              if (supportConfig['isSupportFeatureEnabled'] != true ||
-                supportConfig['showSupportRequestCheckbox'] == false) {
-                return const SizedBox.shrink();
-              }
-              final checkboxText =
-                (supportConfig['supportRequestCheckboxText'] as String?)
-                    ?.trim()
-                    .isNotEmpty ==
-                  true
-                ? supportConfig['supportRequestCheckboxText'] as String
-                : 'Add to Community Focus';
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: CheckboxListTile(
-                  value: _isSupportRequest,
-                    onChanged: (value) =>
-                      _onSupportRequestChanged(value ?? false),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  activeColor: Colors.amber,
-                  title: Text(
-                    checkboxText,
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                ),
-              );
-            },
           ),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _postController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: 'Message...',
-                    hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    fillColor: Colors.white.withValues(alpha: 0.08),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton(
-                tooltip: _isLoadingImageUsage
-                    ? 'Checking image uploads...'
-                    : ((_usageService?.monthlyImageUploadLimit ?? 0) > 0
-                        ? '${((_usageService?.monthlyImageUploadLimit ?? 0) - _imageUploadsUsedThisMonth).clamp(0, _usageService?.monthlyImageUploadLimit ?? 0)} image uploads left'
-                        : 'Attach image'),
-                onPressed: _isPosting ? null : _openImagePickerSheet,
-                icon: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    const Icon(Icons.add_photo_alternate_outlined, color: Colors.white),
-                    if ((_usageService?.monthlyImageUploadLimit ?? 0) > 0)
-                      Positioned(
-                        right: -8,
-                        top: -8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: Colors.amber,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.black87, width: 0.8),
-                          ),
-                          child: Text(
-                            _isLoadingImageUsage
-                                ? '...'
-                                : '${((_usageService?.monthlyImageUploadLimit ?? 0) - _imageUploadsUsedThisMonth).clamp(0, _usageService?.monthlyImageUploadLimit ?? 0)}',
-                            style: const TextStyle(
-                              color: Colors.black,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              Container(
-                margin: const EdgeInsets.only(right: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _messagesRemaining <= 3
-                      ? Colors.red.withValues(alpha: 0.2)
-                      : Colors.white.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: _messagesRemaining <= 3
-                        ? Colors.red.withValues(alpha: 0.5)
-                        : Colors.white24,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.bolt,
-                      size: 14,
-                      color: _messagesRemaining <= 3 ? Colors.redAccent : Colors.amber,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '$_messagesRemaining/$_dailyLimit',
-                      style: TextStyle(
-                        color: _messagesRemaining <= 3
-                            ? Colors.redAccent
-                            : Colors.white70,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                onPressed: _isPosting ? null : _submitPost,
-                icon: _isPosting
-                    ? SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                          semanticsLabel: _postingStatus ?? 'Sharing post',
-                        ),
-                      )
-                    : const Icon(Icons.send, color: Colors.amber),
-              ),
-            ],
+          Text(
+            '$_messagesRemaining/$_dailyLimit',
+            style: TextStyle(
+              color: _messagesRemaining <= 3 ? Colors.redAccent : Colors.white54,
+              fontSize: 12,
+            ),
           ),
         ],
       ),
