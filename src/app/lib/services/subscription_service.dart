@@ -44,7 +44,9 @@ class SubscriptionService extends ChangeNotifier {
   );
   final String _iosApiKey = const String.fromEnvironment(
     'RC_IOS_API_KEY',
-    defaultValue: '',
+    // RevenueCat public SDK key for Harmony by Intent (App Store).
+    // This client-side key is not an Apple private key or shared secret.
+    defaultValue: 'appl_lxUwKHvtHbMWzOCOupmcauHoXkl',
   );
   final String _starterEntitlement = 'starter_access';
   final String _unlimitedEntitlement = 'unlimited_access';
@@ -96,7 +98,11 @@ class SubscriptionService extends ChangeNotifier {
     if (Platform.isAndroid) {
       selectedApiKey = _androidApiKey;
     } else if (Platform.isIOS) {
-      selectedApiKey = _iosApiKey.trim().isNotEmpty ? _iosApiKey : _androidApiKey;
+      selectedApiKey = _iosApiKey;
+      if (!selectedApiKey.trim().startsWith('appl_')) {
+        debugPrint('HARMONY_RC: Invalid App Store SDK key; skipping purchases init.');
+        return;
+      }
     } else {
       // Purchases plugin is only configured on mobile platforms.
       return;
