@@ -1,4 +1,5 @@
 ﻿import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -42,6 +43,10 @@ class EventService extends ChangeNotifier {
   String? _lastNoticeboardDebugSignature;
   bool _hasLoadedNationalDocs = false;
   bool _hasLoadedGlobalDocs = false;
+  bool _nationalSourceCurrent = false;
+  bool _globalSourceCurrent = false;
+  bool _canvasSourceCurrent = false;
+  bool _canvasConfigCurrent = false;
 
   List<Event> _events = [];
   List<Event> _nationalEvents = [];
@@ -475,10 +480,11 @@ class EventService extends ChangeNotifier {
     // Listen to National Events
     _eventsSubscription = _firestore
         .collection('events')
-        .snapshots()
+      .snapshots(includeMetadataChanges: true)
         .listen(
           (snapshot) {
             _hasLoadedNationalDocs = true;
+            _nationalSourceCurrent = !snapshot.metadata.isFromCache;
             _nationalDocs = snapshot.docs;
             _refreshEvents();
           },
@@ -490,10 +496,11 @@ class EventService extends ChangeNotifier {
     // Listen to Global Events
     _globalEventsSubscription = _firestore
         .collection('global_events')
-        .snapshots()
+      .snapshots(includeMetadataChanges: true)
         .listen(
           (snapshot) {
             _hasLoadedGlobalDocs = true;
+            _globalSourceCurrent = !snapshot.metadata.isFromCache;
             _globalDocs = snapshot.docs;
             _refreshEvents();
           },
@@ -505,8 +512,9 @@ class EventService extends ChangeNotifier {
     _livingCanvasConfigSubscription = _firestore
         .collection('app_config')
         .doc('living_canvas')
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
         .listen((snapshot) {
+          _canvasConfigCurrent = !snapshot.metadata.isFromCache;
           _livingCanvasEnabled = snapshot.data()?['isThumbprintModeActive'] == true;
           _livingCanvasDefaults = Map<String, dynamic>.from(
             (snapshot.data()?['repeatingDefaults'] as Map?) ?? const <String, dynamic>{},
@@ -525,8 +533,9 @@ class EventService extends ChangeNotifier {
     _livingCanvasSubscription = _firestore
         .collection('living_canvas_slots')
         .where('published', isEqualTo: true)
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
         .listen((snapshot) {
+          _canvasSourceCurrent = !snapshot.metadata.isFromCache;
           _livingCanvasDocs = snapshot.docs;
           _refreshEvents();
         });
@@ -1098,32 +1107,79 @@ class EventService extends ChangeNotifier {
   void _scheduleDormantPlaybackSync() {
     _notificationSyncTimer?.cancel();
     _notificationSyncTimer = Timer(const Duration(milliseconds: 300), () {
-      final dormantEvents = _livingCanvasEnabled
-          ? List<Event>.from(_livingCanvasEvents)
-          : [
-              ..._processDocs(
-                _nationalDocs,
-                overrideType: EventType.national,
-                forDormantScheduling: true,
-              ),
-              ..._processDocs(
-                _globalDocs,
-                overrideType: EventType.global,
-                forDormantScheduling: true,
-              ),
-            ];
+      final now = DateTime.now();
+        final dormantEvents = !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+          ? buildDormantLookahead(now, (probe) =>
+          _livingCanvasEnabled
+              ? [
+                  ..._processLivingCanvasDocs(_livingCanvasDocs, at: probe),
+                  ..._processLivingCanvasDefaults(_livingCanvasDefaults, at: probe),
+                ]
+              : [
+                  ..._processDocs(
+                    _nationalDocs,
+                    overrideType: EventType.national,
+                    forDormantScheduling: true,
+                    at: probe,
+                  ),
+                  ..._processDocs(
+                    _globalDocs,
+                    overrideType: EventType.global,
+                    forDormantScheduling: true,
+                    at: probe,
+                  ),
+                ])
+          : _livingCanvasEnabled
+              ? List<Event>.from(_livingCanvasEvents)
+              : [
+                  ..._processDocs(
+                    _nationalDocs,
+                    overrideType: EventType.national,
+                    forDormantScheduling: true,
+                  ),
+                  ..._processDocs(
+                    _globalDocs,
+                    overrideType: EventType.global,
+                    forDormantScheduling: true,
+                  ),
+                ];
 
       dormantEvents.sort((a, b) => a.startTime.compareTo(b.startTime));
 
       NotificationService().syncDormantPlaybackReminders(
         events: dormantEvents,
         userService: UserService(),
+        authoritative: _canvasConfigCurrent &&
+            (_livingCanvasEnabled
+                ? _canvasSourceCurrent
+                : _nationalSourceCurrent && _globalSourceCurrent),
       );
 
       print(
         'HARMONY_DORMANT: sync requested with ${dormantEvents.length} candidate events',
       );
     });
+  }
+
+  @visibleForTesting
+  static List<Event> buildDormantLookahead(
+    DateTime now,
+    List<Event> Function(DateTime probe) resolve,
+  ) {
+    final end = now.add(const Duration(days: 7));
+    final unique = <String, Event>{};
+    for (var day = 0; day <= 7; day++) {
+      final probe = day == 0
+          ? now
+          : DateTime(now.year, now.month, now.day + day);
+      for (final event in resolve(probe)) {
+        if (event.startTime.isAfter(end) ||
+            event.endTime.isBefore(now)) continue;
+        unique['${event.id}:${event.startTime.millisecondsSinceEpoch}'] = event;
+      }
+    }
+    return unique.values.toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
   }
 
   bool _areEventListsEqual(List<Event> a, List<Event> b) {
@@ -1144,8 +1200,9 @@ class EventService extends ChangeNotifier {
     List<QueryDocumentSnapshot> docs, {
     EventType? overrideType,
     bool forDormantScheduling = false,
+    DateTime? at,
   }) {
-    final now = DateTime.now();
+    final now = at ?? DateTime.now();
     List<Event> processedEvents = [];
 
     for (var doc in docs) {
@@ -1195,6 +1252,7 @@ class EventService extends ChangeNotifier {
               event.startTime,
               recurrence,
               duration,
+              at: now,
             );
 
             if (nextStart != event.startTime) {
@@ -1245,8 +1303,8 @@ class EventService extends ChangeNotifier {
     return processedEvents;
   }
 
-  List<Event> _processLivingCanvasDocs(List<QueryDocumentSnapshot> docs) {
-    final now = DateTime.now();
+  List<Event> _processLivingCanvasDocs(List<QueryDocumentSnapshot> docs, {DateTime? at}) {
+    final now = at ?? DateTime.now();
     final events = <Event>[];
     for (final doc in docs) {
       final data = Map<String, dynamic>.from(doc.data() as Map<String, dynamic>);
@@ -1280,8 +1338,8 @@ class EventService extends ChangeNotifier {
     return events;
   }
 
-  List<Event> _processLivingCanvasDefaults(Map<String, dynamic> defaults) {
-    final now = DateTime.now();
+  List<Event> _processLivingCanvasDefaults(Map<String, dynamic> defaults, {DateTime? at}) {
+    final now = at ?? DateTime.now();
     final events = <Event>[];
     for (final entry in defaults.entries) {
       final data = Map<String, dynamic>.from(entry.value as Map);
@@ -1318,9 +1376,10 @@ class EventService extends ChangeNotifier {
   DateTime _getNextOccurrence(
     DateTime start,
     String recurrenceType,
-    Duration duration,
-  ) {
-    final now = DateTime.now();
+    Duration duration, {
+    DateTime? at,
+  }) {
+    final now = at ?? DateTime.now();
     if (start.add(duration).isAfter(now)) return start;
 
     final normalized = recurrenceType.trim().toLowerCase();
