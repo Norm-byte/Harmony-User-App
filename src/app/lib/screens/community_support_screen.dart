@@ -696,6 +696,19 @@ class _CommunitySupportScreenState extends State<CommunitySupportScreen> {
                                         );
                                       },
                                     ),
+                                    if (!isOwnPost &&
+                                        CommunitySafetyUtils.authorId(post).isNotEmpty)
+                                      IconButton(
+                                        iconSize: 18,
+                                        tooltip: 'Block author',
+                                        icon: const Icon(
+                                          Icons.block,
+                                          color: Colors.white54,
+                                        ),
+                                        onPressed: () => _toggleBlockedUser(
+                                          CommunitySafetyUtils.authorId(post),
+                                        ),
+                                      ),
                                     if (isOwnPost)
                                       PopupMenuButton<String>(
                                         icon: const Icon(Icons.more_vert, size: 18, color: Colors.white54),
