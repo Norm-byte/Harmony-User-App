@@ -3005,3 +3005,72 @@ exports.checkYoutubeEmbeddable = functions.runWith({ secrets: ['YOUTUBE_API_KEY'
         return { checked: false, embeddable: true, reason: `Check failed: ${e.message}` };
     }
 });
+
+exports.getYoutubeVideoCardDetails = functions.runWith({ secrets: ['YOUTUBE_API_KEY'] }).https.onCall(async (data, context) => {
+    if (!context.auth || !context.auth.uid) {
+        throw new functions.https.HttpsError('unauthenticated', 'You must be signed in.');
+    }
+
+    const videoId = String(data.videoId || '').trim();
+    if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+        throw new functions.https.HttpsError('invalid-argument', 'A valid YouTube video ID is required.');
+    }
+
+    const userLimitRef = admin.firestore()
+        .collection('youtube_video_card_daily_limits')
+        .doc(context.auth.uid);
+    const dayKey = new Date().toISOString().slice(0, 10);
+    const limitResult = await admin.firestore().runTransaction(async (transaction) => {
+        const limitDoc = await transaction.get(userLimitRef);
+        const current = limitDoc.exists ? limitDoc.data() : {};
+        const requestCount = current.dayKey === dayKey ? Number(current.requestCount || 0) : 0;
+        if (requestCount >= 100) return false;
+        transaction.set(userLimitRef, { dayKey, requestCount: requestCount + 1 });
+        return true;
+    });
+    if (!limitResult) {
+        throw new functions.https.HttpsError('resource-exhausted', 'Daily YouTube details limit reached.');
+    }
+
+    const cacheRef = admin.firestore().collection('youtube_public_metadata').doc(videoId);
+    const cached = await cacheRef.get();
+    const cachedData = cached.exists ? cached.data() : null;
+    const fetchedAt = cachedData && cachedData.fetchedAt && cachedData.fetchedAt.toDate
+        ? cachedData.fetchedAt.toDate()
+        : null;
+    if (cachedData && fetchedAt && Date.now() - fetchedAt.getTime() < 12 * 60 * 60 * 1000) {
+        return cachedData.details;
+    }
+
+    const apiKey = String(process.env.YOUTUBE_API_KEY || '').trim();
+    if (!apiKey) return { available: false };
+
+    try {
+        const response = await fetch(
+            `https://www.googleapis.com/youtube/v3/videos?id=${encodeURIComponent(videoId)}&part=snippet&key=${apiKey}`
+        );
+        if (!response.ok) return { available: false };
+        const json = await response.json();
+        const snippet = Array.isArray(json.items) && json.items[0]
+            ? json.items[0].snippet
+            : null;
+        if (!snippet) return { available: false };
+
+        const details = {
+            available: true,
+            channelId: String(snippet.channelId || ''),
+            channelTitle: String(snippet.channelTitle || ''),
+            channelThumbnail: String(
+                snippet.thumbnails && snippet.thumbnails.default
+                    ? snippet.thumbnails.default.url || ''
+                    : ''
+            ),
+            description: String(snippet.description || ''),
+        };
+        await cacheRef.set({ details, fetchedAt: admin.firestore.FieldValue.serverTimestamp() });
+        return details;
+    } catch (e) {
+        console.error('getYoutubeVideoCardDetails failed', e.message);
+        return { available: false };
+    }
+});

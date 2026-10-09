@@ -497,7 +497,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final appBarTitle = switch (_selectedIndex) {
-      1 => 'Events',
+      1 => 'Notices',
       2 => 'Common Room',
       3 => 'Interesting Topics',
       4 => 'My Space',
@@ -601,7 +601,7 @@ class _HomeScreenState extends State<HomeScreen> {
             items: [
               const BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
               if (!hideEvents)
-                const BottomNavigationBarItem(icon: Icon(Icons.event), label: 'Events'),
+                const BottomNavigationBarItem(icon: Icon(Icons.event), label: 'Notices'),
               const BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Community'),
               const BottomNavigationBarItem(icon: Icon(Icons.lightbulb_outline), label: 'Topics'),
               const BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'My Harmony'),

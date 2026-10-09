@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../services/favorites_service.dart';
 import '../services/user_service.dart';
@@ -997,52 +999,308 @@ class _TopicsFullscreenYoutubeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: _TopicsFullscreenYoutubePlayer(url: url),
-          ),
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            left: 12,
-            child: CircleAvatar(
-              backgroundColor: Colors.black.withOpacity(0.45),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isPortrait = constraints.maxHeight >= constraints.maxWidth;
+          final safeTop = MediaQuery.of(context).padding.top;
+          final safeBottom = MediaQuery.of(context).padding.bottom;
+          final portraitPlayerHeight = constraints.maxWidth * 9 / 16;
+          const creatorCardGap = 76.0;
+          return Stack(
+            children: [
+              if (isPortrait)
+                Positioned(
+                  top: safeTop,
+                  left: 0,
+                  right: 0,
+                  height: portraitPlayerHeight,
+                  child: _TopicsFullscreenYoutubePlayer(url: url),
+                )
+              else
+                Positioned.fill(
+                  child: _TopicsFullscreenYoutubePlayer(url: url),
+                ),
+              if (isPortrait)
+                Positioned(
+                  top: safeTop + portraitPlayerHeight + creatorCardGap,
+                  left: 0,
+                  right: 0,
+                  bottom: safeBottom,
+                  child: _TopicsYoutubeCreatorCard(url: url, title: title),
+                ),
+              if (isPortrait)
+                Positioned(
+                  top: safeTop + portraitPlayerHeight,
+                  left: 16,
+                  right: 16,
+                  height: creatorCardGap,
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.screen_rotation_outlined,
+                        color: Colors.amberAccent,
+                        size: 18,
+                      ),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'Rotate your phone for fullscreen viewing',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              Positioned(
+                top: safeTop + 8,
+                left: 12,
+                child: CircleAvatar(
+                  backgroundColor: Colors.black.withOpacity(0.45),
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ),
               ),
+              Positioned(
+                top: safeTop + 8,
+                right: 14,
+                child: CircleAvatar(
+                  backgroundColor: Colors.black.withOpacity(0.45),
+                  child: PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: Colors.white),
+                    color: Colors.grey.shade900,
+                    onSelected: (value) {
+                      if (value == 'report') {
+                        _showReportSheet(context);
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'report',
+                        child: Row(
+                          children: [
+                            Icon(Icons.flag_outlined, color: Colors.redAccent, size: 18),
+                            SizedBox(width: 8),
+                            Text('Report', style: TextStyle(color: Colors.white)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _TopicsYoutubeCreatorCard extends StatefulWidget {
+  final String url;
+  final String title;
+
+  const _TopicsYoutubeCreatorCard({required this.url, required this.title});
+
+  @override
+  State<_TopicsYoutubeCreatorCard> createState() =>
+      _TopicsYoutubeCreatorCardState();
+}
+
+class _TopicsYoutubeCreatorCardState extends State<_TopicsYoutubeCreatorCard> {
+  late Future<Map<String, dynamic>?> _detailsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _detailsFuture = _loadDetails();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TopicsYoutubeCreatorCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) _detailsFuture = _loadDetails();
+  }
+
+  Future<Map<String, dynamic>?> _loadDetails() async {
+    final videoId = YoutubePlayer.convertUrlToId(widget.url);
+    if (videoId == null) return null;
+    try {
+      final result = await FirebaseFunctions.instance
+          .httpsCallable('getYoutubeVideoCardDetails')
+          .call<Map<String, dynamic>>({'videoId': videoId});
+      return result.data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _open(Uri uri, {bool confirmExternal = false}) async {
+    if (confirmExternal) {
+      final approved = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Open creator link?'),
+          content: Text('This link opens outside Harmony: ${uri.host}'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
             ),
-          ),
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
-            right: 14,
-            child: CircleAvatar(
-              backgroundColor: Colors.black.withOpacity(0.45),
-              child: PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, color: Colors.white),
-                color: Colors.grey.shade900,
-                onSelected: (value) {
-                  if (value == 'report') {
-                    _showReportSheet(context);
-                  }
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'report',
-                    child: Row(
-                      children: [
-                        Icon(Icons.flag_outlined, color: Colors.redAccent, size: 18),
-                        SizedBox(width: 8),
-                        Text('Report', style: TextStyle(color: Colors.white)),
-                      ],
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+      if (approved != true) return;
+    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  List<Uri> _descriptionLinks(String description) {
+    final matches = RegExp(r'https?://[^\s<>"\]]+')
+        .allMatches(description)
+        .map((match) => match.group(0)!.replaceFirst(RegExp(r'[),.!?;:]+$'), ''));
+    final links = <Uri>{};
+    for (final match in matches) {
+      final uri = Uri.tryParse(match);
+      if (uri != null && uri.scheme == 'https') {
+        links.add(uri);
+      }
+    }
+    return links.take(6).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final videoId = YoutubePlayer.convertUrlToId(widget.url);
+    final videoUri = Uri.https('www.youtube.com', '/watch', {'v': videoId ?? ''});
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _detailsFuture,
+      builder: (context, snapshot) {
+        final details = snapshot.data ?? const <String, dynamic>{};
+        final channelId = details['channelId']?.toString() ?? '';
+        final channelTitle = details['channelTitle']?.toString() ?? '';
+        final description = details['description']?.toString() ?? '';
+        final thumbnail = details['channelThumbnail']?.toString() ?? '';
+        final links = _descriptionLinks(description);
+        final subscribeUri = channelId.isEmpty
+            ? videoUri
+            : Uri.https('www.youtube.com', '/channel/$channelId', {
+                'sub_confirmation': '1',
+              });
+
+        return Container(
+          color: const Color(0xFF171717),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.play_circle_fill, color: Colors.red, size: 24),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'YouTube creator',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                  ),
+                  const Spacer(),
+                  const Text('YouTube', style: TextStyle(color: Colors.white70)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (thumbnail.isNotEmpty)
+                    CircleAvatar(backgroundImage: NetworkImage(thumbnail))
+                  else
+                    const CircleAvatar(
+                      backgroundColor: Colors.white12,
+                      child: Icon(Icons.person_outline, color: Colors.white70),
+                    ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      channelTitle.isNotEmpty ? channelTitle : widget.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
                     ),
                   ),
                 ],
               ),
-            ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _open(videoUri),
+                    icon: const Icon(Icons.thumb_up_alt_outlined, size: 18),
+                    label: const Text('Watch / Like / Dislike on YouTube'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _open(subscribeUri),
+                    icon: const Icon(Icons.notifications_active_outlined, size: 18),
+                    label: const Text('Subscribe'),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => _open(videoUri),
+                    icon: const Icon(Icons.flag_outlined, size: 18),
+                    label: const Text('Report on YouTube'),
+                  ),
+                ],
+              ),
+              const Text(
+                'These actions open YouTube. You can keep watching here; signing in may be required for likes or subscriptions.',
+                style: TextStyle(color: Colors.white60, fontSize: 12),
+              ),
+              if (snapshot.connectionState == ConnectionState.waiting) ...[
+                const SizedBox(height: 16),
+                const LinearProgressIndicator(minHeight: 2),
+              ],
+              if (links.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'Links shared by the creator',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                ...links.map(
+                  (uri) => ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.open_in_new, color: Colors.lightBlueAccent),
+                    title: Text(
+                      uri.host,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.lightBlueAccent),
+                    ),
+                    onTap: () => _open(uri, confirmExternal: true),
+                  ),
+                ),
+              ] else if (snapshot.connectionState == ConnectionState.done &&
+                  details.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'No external links were found in the public video description.',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

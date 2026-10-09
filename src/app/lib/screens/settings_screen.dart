@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:share_plus/share_plus.dart';
 import '../models/event.dart';
 import '../services/favorites_service.dart';
 import '../services/community_poem_favorites_service.dart';
@@ -12,6 +11,7 @@ import '../services/group_service.dart';
 import '../services/event_service.dart';
 import '../services/user_service.dart';
 import '../services/subscription_service.dart';
+import '../services/profanity_service.dart';
 import 'category_favorites_screen.dart';
 import 'chat_screen.dart';
 import 'community_groups_screen.dart';
@@ -38,55 +38,23 @@ class _SettingsScreenState extends State<SettingsScreen>
   String _supportIntentFilter = '';
 
   Future<void> _addIntentFromMyIntents(BuildContext context) async {
-    final eventService = context.read<EventService>();
-    final events = eventService.visibleNoticeboardEvents;
-    if (events.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'There are no active intent time slots available right now.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    Event selectedEvent = events.first;
+    final userId = UserService().userId.trim();
+    if (userId.isEmpty) return;
     final intentController = TextEditingController();
     final result = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Add an intent'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<Event>(
-                initialValue: selectedEvent,
-                decoration: const InputDecoration(
-                  labelText: 'Choose a time slot',
-                ),
-                items: events
-                    .map(
-                      (event) => DropdownMenuItem(
-                        value: event,
-                        child: Text(
-                          '${event.title} • ${DateFormat('MMM d, h:mm a').format(event.startTime.toLocal())}',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (event) => event == null
-                    ? null
-                    : setDialogState(() => selectedEvent = event),
-              ),
-              TextField(
-                controller: intentController,
-                maxLines: 2,
-                decoration: const InputDecoration(labelText: 'Your intent'),
-              ),
-            ],
+      builder: (dialogContext) => AlertDialog(
+          title: const Text('Add a personal intent'),
+          content: TextField(
+            controller: intentController,
+            autofocus: true,
+            maxLines: 3,
+            maxLength: 120,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Your intent',
+              hintText: 'Type or dictate what you want to focus on',
+            ),
           ),
           actions: [
             TextButton(
@@ -96,39 +64,118 @@ class _SettingsScreenState extends State<SettingsScreen>
             ElevatedButton(
               onPressed: () =>
                   Navigator.pop(dialogContext, intentController.text.trim()),
-              child: const Text('Add intent'),
+              child: const Text('Save intent'),
             ),
           ],
-        ),
       ),
     );
     final intent = result?.trim() ?? '';
     intentController.dispose();
     if (intent.isEmpty || !context.mounted) return;
 
-    final joinResult = await eventService.joinEvent(
-      selectedEvent.id,
-      selectedEvent.title,
-      intent,
-      selectedEvent.type,
-      selectedEvent.startTime,
-      selectedEvent.endTime,
-      visibilityAfterMinutes: selectedEvent.visibilityAfterMinutes ?? 0,
-    );
-    if (!context.mounted) return;
-    if (joinResult.startsWith('Success')) {
-      await SharePlus.instance.share(
-        ShareParams(
-          text:
-              'Join me for "${selectedEvent.title}" on Harmony by Intent at ${DateFormat('HH:mm').format(selectedEvent.startTime.toLocal())}.',
+    if (intent.split(RegExp(r'\s+')).length > 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please limit your intent to 5 words.')),
+      );
+      return;
+    }
+    if (ProfanityService().hasProfanity(intent)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please keep the intent positive and clean.'),
+          backgroundColor: Colors.red,
         ),
       );
+      return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          joinResult.startsWith('Success') ? 'Intent added' : joinResult,
+
+    try {
+      final now = DateTime.now();
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('personal_intents')
+          .add({
+            'intent': intent,
+            'createdAt': Timestamp.fromDate(now),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Intent added')),
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save your intent. Please try again.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showIntentFilter() async {
+    final controller = TextEditingController(text: _pastIntentFilter);
+    final filter = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Filter My Intents'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Search a word or phrase'),
+          onSubmitted: (value) => Navigator.of(dialogContext).pop(value.trim()),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(''),
+            child: const Text('Clear'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (filter != null && mounted) {
+      setState(() => _pastIntentFilter = filter);
+    }
+  }
+
+  void _showIntentDetails(Map<String, dynamic> intent, DateTime? date) {
+    final isPersonal = intent['intentKind'] == 'personal';
+    final title = isPersonal
+        ? 'Personal Intent'
+        : (intent['eventTitle'] ?? 'Event Intent').toString();
+    final text = (intent['intent'] ?? 'No intent').toString();
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(text),
+              if (date != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  DateFormat('MMMM d, yyyy, h:mm a').format(date),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }
@@ -162,6 +209,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Future<void> _editPastIntent(Map<String, dynamic> event) async {
     final eventId = (event['registeredEventId'] ?? '').toString().trim();
+    final isPersonal = event['intentKind'] == 'personal';
     final userId = UserService().userId.trim();
     if (eventId.isEmpty || userId.isEmpty) return;
 
@@ -171,7 +219,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     final updatedIntent = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Edit Past Intent'),
+        title: Text(isPersonal ? 'Edit Personal Intent' : 'Edit Past Intent'),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -195,20 +243,40 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
     controller.dispose();
     if (updatedIntent == null || updatedIntent.isEmpty) return;
+    if (isPersonal && updatedIntent.split(RegExp(r'\s+')).length > 5) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please limit your intent to 5 words.')),
+        );
+      }
+      return;
+    }
+    if (isPersonal && ProfanityService().hasProfanity(updatedIntent)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please keep the intent positive and clean.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
 
-    await FirebaseFirestore.instance
+    final collection = FirebaseFirestore.instance
         .collection('users')
         .doc(userId)
-        .collection('registered_events')
-        .doc(eventId)
-        .update({
+        .collection(isPersonal ? 'personal_intents' : 'registered_events');
+    await collection.doc(eventId).update({
           'intent': updatedIntent,
-          'intentEditedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          if (!isPersonal) 'intentEditedAt': FieldValue.serverTimestamp(),
         });
   }
 
   Future<void> _deletePastIntent(Map<String, dynamic> event) async {
     final eventId = (event['registeredEventId'] ?? '').toString().trim();
+    final isPersonal = event['intentKind'] == 'personal';
     final userId = UserService().userId.trim();
     if (eventId.isEmpty || userId.isEmpty) return;
 
@@ -216,8 +284,10 @@ class _SettingsScreenState extends State<SettingsScreen>
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete past intent?'),
-        content: const Text(
-          'This removes the reflection from your My Harmony history.',
+        content: Text(
+          isPersonal
+              ? 'This removes the personal intent from your My Harmony list.'
+              : 'This removes the reflection from your My Harmony history.',
         ),
         actions: [
           TextButton(
@@ -236,7 +306,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     await FirebaseFirestore.instance
         .collection('users')
         .doc(userId)
-        .collection('registered_events')
+      .collection(isPersonal ? 'personal_intents' : 'registered_events')
         .doc(eventId)
         .delete();
   }
@@ -1378,8 +1448,19 @@ class _SettingsScreenState extends State<SettingsScreen>
                     const SizedBox(height: 24),
 
                     // My Intents (Scrollable Cards)
-                    Consumer2<EventService, UserService>(
-                      builder: (context, eventService, userService, _) {
+                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: UserService().userId.isEmpty
+                          ? const Stream.empty()
+                          : FirebaseFirestore.instance
+                                .collection('users')
+                                .doc(UserService().userId)
+                                .collection('personal_intents')
+                                .snapshots(),
+                      builder: (context, personalSnapshot) {
+                        final personalDocs =
+                            personalSnapshot.data?.docs ?? const [];
+                        final eventService = context.watch<EventService>();
+                        final userService = context.watch<UserService>();
                         final now = DateTime.now();
 
                         // 1. Start with confirmed events from Database
@@ -1462,75 +1543,37 @@ class _SettingsScreenState extends State<SettingsScreen>
                           }
                         }
 
-                        final activeEvents = combinedEvents.where((e) {
-                          // Robust Timestamp handling
-                          dynamic rawEnd = e['endTime'];
-                          DateTime? end;
-                          if (rawEnd is Timestamp) {
-                            end = rawEnd.toDate();
-                          } else if (rawEnd is DateTime) {
-                            end = rawEnd; // Handle optimistic updates
-                          } else if (rawEnd is String) {
-                            end = DateTime.tryParse(rawEnd); // Fallback
-                          }
-
-                          // Robust StartTime handling to catch missing EndTime
-                          dynamic rawStart = e['startTime'] ?? e['timestamp'];
-                          DateTime? start;
-                          if (rawStart is Timestamp) {
-                            start = rawStart
-                                .toDate()
-                                .toUtc(); // Normalize to UTC
-                          } else if (rawStart is DateTime) {
-                            start = rawStart.toUtc();
-                          } else if (rawStart is String) {
-                            start = DateTime.tryParse(rawStart)?.toUtc();
-                          }
-
-                          // If we have no end time, assume 1 hour duration from start
-                          if (end == null && start != null) {
-                            end = start.add(const Duration(hours: 1));
-                          }
-
-                          // Normalize End Time to UTC for comparison
-                          if (end != null) {
-                            end = end.toUtc();
-                          }
-                          final nowUtc = now.toUtc();
-
-                          // Check Visibility After Preference (Default to 0 if not saved)
-                          int visibilityAfter =
-                              e['visibilityAfterMinutes'] ?? 0;
-
-                          // Filter: Remove strictly after EndTime + Visibility Duration
-                          if (end != null) {
-                            final expirationTime = end.add(
-                              Duration(minutes: visibilityAfter),
+                        final myIntents = <Map<String, dynamic>>[
+                          ...combinedEvents
+                              .where((event) => event['isVirtual'] != true)
+                              .map((event) => {
+                                    ...event,
+                                    'intentKind': 'event',
+                                  }),
+                          ...personalDocs.map((doc) => {
+                                ...doc.data(),
+                                'registeredEventId': doc.id,
+                                'intentKind': 'personal',
+                                'timestamp': doc.data()['createdAt'],
+                              }),
+                        ]..sort((a, b) {
+                            final dateA = _registeredEventDate(
+                              a['timestamp'] ?? a['startTime'],
                             );
-                            if (expirationTime.isBefore(nowUtc)) {
-                              return false;
-                            }
-                          }
-
-                          // Safety: If no timestamps at all, remove it to be safe/clean
-                          if (end == null && start == null) {
-                            return false;
-                          }
-
-                          return true;
-                        }).toList();
-
-                        final pastIntents = combinedEvents.where((event) {
-                          return event['isVirtual'] != true &&
-                              _isPastRegisteredEvent(event, now);
-                        }).toList();
+                            final dateB = _registeredEventDate(
+                              b['timestamp'] ?? b['startTime'],
+                            );
+                            if (dateA == null) return dateB == null ? 0 : 1;
+                            if (dateB == null) return -1;
+                            return dateB.compareTo(dateA);
+                          });
                         final normalizedPastIntentFilter = _pastIntentFilter
                             .trim()
                             .toLowerCase();
-                        final visiblePastIntents =
+                        final visibleMyIntents =
                             normalizedPastIntentFilter.isEmpty
-                            ? pastIntents
-                            : pastIntents.where((event) {
+                            ? myIntents
+                            : myIntents.where((event) {
                                 final intent = (event['intent'] ?? '')
                                     .toString()
                                     .toLowerCase();
@@ -1539,11 +1582,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 );
                               }).toList();
 
-                        // DEBUG MODE: SHOW ALL EVENTS NO FILTER
-                        // final activeEvents = eventService.myEvents;
-                        final totalIntents = combinedEvents
-                          .where((event) => event['isVirtual'] != true)
-                          .length;
+                        final totalIntents = myIntents.length;
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1553,11 +1592,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 Expanded(
                                   child: Text(
                                     'My Intents ($totalIntents)',
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
                                   ),
                                 ),
                                 TextButton.icon(
@@ -1566,160 +1607,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                                   icon: const Icon(Icons.add, size: 17),
                                   label: const Text('Add intent'),
                                 ),
-                              ],
-                            ),
-
-                            const SizedBox(height: 12),
-                            if (activeEvents.isEmpty)
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Text(
-                                  "You haven't added any active intents.",
-                                  style: TextStyle(color: Colors.white54),
-                                ),
-                              )
-                            else
-                              SizedBox(
-                                height:
-                                    80, // Matched to Favorites Dimensions (80)
-                                child: ListView.builder(
-                                  scrollDirection: Axis.horizontal,
-                                  itemCount: activeEvents.length,
-                                  itemBuilder: (context, index) {
-                                    final event = activeEvents[index];
-                                    final title =
-                                        event['eventTitle'] ?? 'Event';
-                                    final intent = event['intent'] ?? '';
-
-                                    // Robust StartTime handling
-                                    dynamic rawStart =
-                                        event['startTime'] ??
-                                        event['timestamp'];
-                                    DateTime? start;
-                                    if (rawStart is Timestamp) {
-                                      start = rawStart.toDate();
-                                    } else if (rawStart is DateTime) {
-                                      start = rawStart;
-                                    }
-
-                                    final dateStr = start != null
-                                        ? DateFormat(
-                                            'MMM d, h:mm a',
-                                          ).format(start)
-                                        : 'Recent';
-
-                                    return Container(
-                                      width:
-                                          140, // Matched to Favorites Dimensions (140)
-                                      margin: const EdgeInsets.only(right: 12),
-                                      padding: const EdgeInsets.all(
-                                        12,
-                                      ), // Restored padding
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.1,
-                                        ),
-                                        borderRadius: BorderRadius.circular(
-                                          12,
-                                        ), // Restored radius
-                                        border: Border.all(
-                                          color: Colors.white12,
-                                        ),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                title,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 13,
-                                                ), // Restored font size
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                intent.isNotEmpty
-                                                    ? intent
-                                                    : 'No intent',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  color: Colors.amberAccent,
-                                                  fontSize: 11,
-                                                ), // Restored font size
-                                              ),
-                                            ],
-                                          ),
-                                          Row(
-                                            children: [
-                                              const Icon(
-                                                Icons.event,
-                                                color: Colors.white54,
-                                                size: 10,
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Expanded(
-                                                child: Text(
-                                                  dateStr,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    color: Colors.white54,
-                                                    fontSize: 10,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            const SizedBox(height: 18),
-                            Row(
-                              children: [
-                                Text(
-                                  'Past Intents (${pastIntents.length})',
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                const Spacer(),
-                                if (normalizedPastIntentFilter.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(right: 4),
-                                    child: Text(
-                                      '${visiblePastIntents.length} match${visiblePastIntents.length == 1 ? '' : 'es'}',
-                                      style: const TextStyle(
-                                        color: Colors.amberAccent,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ),
                                 IconButton(
                                   tooltip: normalizedPastIntentFilter.isEmpty
-                                      ? 'Filter past intents'
-                                      : 'Change past intent filter',
+                                      ? 'Filter My Intents'
+                                      : 'Change My Intents filter',
                                   padding: EdgeInsets.zero,
                                   visualDensity: VisualDensity.compact,
                                   icon: Icon(
@@ -1731,53 +1622,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                                         : Colors.amberAccent,
                                     size: 20,
                                   ),
-                                  onPressed: () async {
-                                    final controller = TextEditingController(
-                                      text: _pastIntentFilter,
-                                    );
-                                    final filter = await showDialog<String>(
-                                      context: context,
-                                      builder: (dialogContext) => AlertDialog(
-                                        title: const Text(
-                                          'Filter Past Intents',
-                                        ),
-                                        content: TextField(
-                                          controller: controller,
-                                          autofocus: true,
-                                          decoration: const InputDecoration(
-                                            hintText: 'Search a word or phrase',
-                                          ),
-                                          onSubmitted: (value) => Navigator.of(
-                                            dialogContext,
-                                          ).pop(value.trim()),
-                                        ),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () => Navigator.of(
-                                              dialogContext,
-                                            ).pop(''),
-                                            child: const Text('Clear'),
-                                          ),
-                                          TextButton(
-                                            onPressed: () => Navigator.of(
-                                              dialogContext,
-                                            ).pop(controller.text.trim()),
-                                            child: const Text('Apply'),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                    controller.dispose();
-                                    if (filter != null && mounted) {
-                                      setState(
-                                        () => _pastIntentFilter = filter,
-                                      );
-                                    }
-                                  },
+                                  onPressed: _showIntentFilter,
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 4),
+                            const SizedBox(height: 8),
                             const Text(
                               'A private reflection of what you chose to focus on and when.',
                               style: TextStyle(
@@ -1785,8 +1634,19 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 fontSize: 12,
                               ),
                             ),
+                            if (normalizedPastIntentFilter.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  '${visibleMyIntents.length} match${visibleMyIntents.length == 1 ? '' : 'es'}',
+                                  style: const TextStyle(
+                                    color: Colors.amberAccent,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
                             const SizedBox(height: 8),
-                            if (visiblePastIntents.isEmpty)
+                            if (visibleMyIntents.isEmpty)
                               Container(
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(16),
@@ -1796,8 +1656,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 ),
                                 child: Text(
                                   normalizedPastIntentFilter.isEmpty
-                                      ? 'Past intents will appear here after their event has ended.'
-                                      : 'No past intents match this filter.',
+                                      ? 'Your personal and event intents will appear here.'
+                                      : 'No intents match this filter.',
                                   style: const TextStyle(color: Colors.white54),
                                 ),
                               )
@@ -1809,14 +1669,22 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 height: 264,
                                 child: ListView.builder(
                                   padding: EdgeInsets.zero,
-                                  itemCount: visiblePastIntents.length,
+                                  itemCount: visibleMyIntents.length,
                                   itemBuilder: (context, index) {
-                                    final event = visiblePastIntents[index];
+                                    final event = visibleMyIntents[index];
+                                    final isPersonal =
+                                        event['intentKind'] == 'personal';
+                                    final isPast = !isPersonal &&
+                                        _isPastRegisteredEvent(
+                                          event,
+                                          DateTime.now(),
+                                        );
+                                    final canManage = isPersonal || isPast;
                                     final intent =
                                         (event['intent'] ?? 'No intent')
                                             .toString();
                                     final start = _registeredEventDate(
-                                      event['startTime'] ?? event['timestamp'],
+                                      event['timestamp'] ?? event['startTime'],
                                     );
                                     final date = start == null
                                         ? 'Date unavailable'
@@ -1849,51 +1717,70 @@ class _SettingsScreenState extends State<SettingsScreen>
                                           ),
                                           const SizedBox(width: 10),
                                           Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  intent,
-                                                  maxLines: 2,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    color: Colors.amberAccent,
-                                                    fontSize: 13,
-                                                  ),
+                                            child: InkWell(
+                                              onTap: () => _showIntentDetails(
+                                                event,
+                                                start,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 4,
+                                                    ),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      intent,
+                                                      maxLines: 2,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        color: Colors.amberAccent,
+                                                        fontSize: 13,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 2),
+                                                    Text(
+                                                      '${isPersonal ? 'Personal intent' : (event['eventTitle'] ?? 'Event')}${isPast ? ' • Past' : isPersonal ? '' : ' • Active'}  ·  $date',
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        color: Colors.white54,
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                  ],
                                                 ),
-                                                const SizedBox(height: 2),
-                                                Text(
-                                                  date,
-                                                  style: const TextStyle(
-                                                    color: Colors.white54,
-                                                    fontSize: 11,
-                                                  ),
-                                                ),
-                                              ],
+                                              ),
                                             ),
                                           ),
-                                          IconButton(
-                                            tooltip: 'Edit past intent',
-                                            onPressed: () =>
-                                                _editPastIntent(event),
-                                            icon: const Icon(
-                                              Icons.edit_outlined,
-                                              color: Colors.white70,
-                                              size: 19,
+                                          if (canManage) ...[
+                                            IconButton(
+                                              tooltip: 'Edit intent',
+                                              onPressed: () =>
+                                                  _editPastIntent(event),
+                                              icon: const Icon(
+                                                Icons.edit_outlined,
+                                                color: Colors.white70,
+                                                size: 19,
+                                              ),
                                             ),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Delete past intent',
-                                            onPressed: () =>
-                                                _deletePastIntent(event),
-                                            icon: const Icon(
-                                              Icons.delete_outline,
-                                              color: Colors.white54,
-                                              size: 19,
+                                            IconButton(
+                                              tooltip: 'Delete intent',
+                                              onPressed: () =>
+                                                  _deletePastIntent(event),
+                                              icon: const Icon(
+                                                Icons.delete_outline,
+                                                color: Colors.white54,
+                                                size: 19,
+                                              ),
                                             ),
-                                          ),
+                                          ],
                                         ],
                                       ),
                                     );
