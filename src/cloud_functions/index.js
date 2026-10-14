@@ -12,6 +12,8 @@ const { onObjectFinalized } = require('firebase-functions/v2/storage');
 admin.initializeApp();
 const visionClient = new vision.ImageAnnotatorClient();
 
+Object.assign(exports, require('./seller-partners')(functions, admin));
+
 const SAFE_SEARCH_LEVEL_RANK = {
     UNKNOWN: 0,
     VERY_UNLIKELY: 1,
@@ -3074,3 +3076,5 @@ exports.getYoutubeVideoCardDetails = functions.runWith({ secrets: ['YOUTUBE_API_
         return { available: false };
     }
 });
+
+Object.assign(exports, require('./seller-partners')(functions, admin));
