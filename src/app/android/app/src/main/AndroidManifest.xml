@@ -6,7 +6,6 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission
@@ -57,14 +56,6 @@
             android:value="high_importance_channel" />
 
         <!-- Dormant Alarm Receiver for exact-while-idle scheduling -->
-        <receiver
-            android:name=".DormantRecoveryReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
         <receiver
             android:name=".DormantAlarmReceiver"
             android:exported="false">

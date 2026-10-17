@@ -269,14 +269,6 @@ class MainActivity: FlutterFragmentActivity() {
                         result.error("CANCEL_ALL_ERROR", e.message, null)
                     }
                 }
-                "reconcile_registered_alarms" -> {
-                    val keepIds = call.argument<List<Int>>("keep_ids")?.toSet() ?: emptySet()
-                    try {
-                        result.success(DormantAlarmReceiver.reconcileRegisteredAlarms(this, keepIds))
-                    } catch (e: Exception) {
-                        result.error("RECONCILE_ERROR", e.message, null)
-                    }
-                }
                 "purge_stale_registered_alarms" -> {
                     try {
                         val purged = DormantAlarmReceiver.purgeStaleRegisteredAlarms(this)

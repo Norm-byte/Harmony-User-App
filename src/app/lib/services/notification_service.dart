@@ -648,7 +648,6 @@ class NotificationService {
   Future<void> syncDormantPlaybackReminders({
     required List<Event> events,
     required UserService userService,
-    bool authoritative = true,
   }) {
     final eventSnapshot = List<Event>.from(events);
     _dormantSyncQueue = _dormantSyncQueue
@@ -656,7 +655,6 @@ class NotificationService {
         .then((_) => _performDormantPlaybackSync(
               events: eventSnapshot,
               userService: userService,
-              authoritative: authoritative,
             ));
     return _dormantSyncQueue;
   }
@@ -664,19 +662,31 @@ class NotificationService {
   Future<void> _performDormantPlaybackSync({
     required List<Event> events,
     required UserService userService,
-    required bool authoritative,
   }) async {
-    if (Platform.isAndroid && (!authoritative || !userService.settingsLoaded)) {
-      debugPrint('Dormant sync: incomplete/offline snapshot; retaining queued alarms');
-      return;
+    final probeNow = DateTime.now();
+    final probeWindowEnd = probeNow.add(const Duration(hours: 24));
+
+    if (Platform.isAndroid) {
+      final hasAndroidCandidate = events.any((event) {
+        final startLocal = event.startTime.toLocal();
+        if (startLocal.isAfter(probeWindowEnd)) return false;
+        if (startLocal.isBefore(probeNow.subtract(const Duration(seconds: 15)))) {
+          return false;
+        }
+        return true;
+      });
+
+      if (!hasAndroidCandidate) {
+        // Avoid wiping already-armed native alarms when a transient snapshot
+        // provides no schedulable events (e.g. temporary network stream gap).
+        debugPrint(
+          'Dormant reminder guard: no Android candidates in current snapshot; preserving existing alarms',
+        );
+        return;
+      }
     }
-    if (!Platform.isAndroid) await cancelDormantPlaybackReminders();
-    final pendingBefore = Platform.isAndroid
-      ? await _localNotifications.pendingNotificationRequests()
-      : <PendingNotificationRequest>[];
-    final keepNativeIds = <int>{};
-    final keepPluginIds = <int>{};
-    var schedulingFailed = false;
+
+    await cancelDormantPlaybackReminders();
 
     final notificationsGranted = await requestNotificationPermission();
     if (!notificationsGranted) {
@@ -686,9 +696,7 @@ class NotificationService {
     }
 
     final now = DateTime.now();
-    final windowEnd = now.add(Platform.isAndroid
-      ? const Duration(days: 7)
-      : const Duration(hours: 24));
+    final windowEnd = now.add(const Duration(hours: 24));
     int scheduledCount = 0;
     int fallbackCount = 0;
     int attemptCount = 0;
@@ -713,15 +721,6 @@ class NotificationService {
       final slotGuardStart = startLocal.subtract(const Duration(seconds: 2));
       final slotGuardEnd = startLocal.add(const Duration(seconds: 90));
       if (now.isAfter(slotGuardStart) && now.isBefore(slotGuardEnd)) {
-        for (var i = 0; i < 3; i++) {
-          keepNativeIds.add((event.id.hashCode ^
-              startLocal.millisecondsSinceEpoch ^ ((i + 1) * 9973)) & 0x7fffffff);
-        }
-        for (final notification in pendingBefore) {
-          if (notification.payload?.startsWith(_dormantPayloadPrefix(event.id)) ?? false) {
-            keepPluginIds.add(notification.id);
-          }
-        }
         debugPrint(
           'Dormant reminder guard: skipping in-slot reschedule for ${event.id} at $now',
         );
@@ -814,9 +813,7 @@ class NotificationService {
             );
             fallbackCount++;
             iosQueuedAlerts++;
-            keepPluginIds.add(alertId);
           } catch (e) {
-            schedulingFailed = true;
             debugPrint(
               'iOS reminder schedule failed for ${event.id} at $alertTime (${secondsBefore}s): $e',
             );
@@ -827,10 +824,6 @@ class NotificationService {
       }
 
       // Use multiple close attempts to improve delivery under OEM idle policies.
-      if (keepNativeIds.length >= 450) {
-        debugPrint('Android alarm safety cap reached; later slots refresh on next app visit');
-        break;
-      }
       final attempts = <DateTime>[
         startLocal.subtract(const Duration(seconds: 5)),
         startLocal,
@@ -852,7 +845,6 @@ class NotificationService {
                     startLocal.millisecondsSinceEpoch ^
                     ((i + 1) * 9973)) &
                 0x7fffffff);
-              keepNativeIds.add(alarmId);
 
         Future<void> schedulePluginReminder({required String reason}) async {
           await _localNotifications.zonedSchedule(
@@ -882,13 +874,20 @@ class NotificationService {
             payload: 'harmony_dormant:${event.id}:',
           );
           fallbackCount++;
-          keepPluginIds.add(alarmId);
           debugPrint(
             '$reason for ${event.id} attempt=$i at $scheduleLocal (alarm_id=$alarmId)',
           );
         }
 
         try {
+          // Clear any existing native alarm for this ID before scheduling.
+          await _dormantAlarmChannel.invokeMethod<bool>(
+            'cancel_alarm',
+            {
+              'alarm_id': alarmId,
+            },
+          );
+
           // Call native Android alarm scheduling
           final nativeScheduled = await _dormantAlarmChannel.invokeMethod<bool>(
             'schedule_exact_alarm',
@@ -923,30 +922,12 @@ class NotificationService {
               reason: 'Native alarm failed; plugin fallback scheduled',
             );
           } catch (fallbackError) {
-            schedulingFailed = true;
             debugPrint(
               'Plugin fallback also failed for ${event.id} attempt=$i at $scheduleLocal: $fallbackError',
             );
           }
         }
       }
-    }
-
-    if (Platform.isAndroid && !schedulingFailed) {
-      for (final notification in pendingBefore) {
-        if ((notification.payload?.startsWith('harmony_dormant:') ?? false) &&
-            !keepPluginIds.contains(notification.id)) {
-          await _localNotifications.cancel(notification.id);
-        }
-      }
-      if (Platform.isAndroid) {
-        await _dormantAlarmChannel.invokeMethod<int>(
-          'reconcile_registered_alarms',
-          {'keep_ids': keepNativeIds.toList()},
-        );
-      }
-    } else if (Platform.isAndroid) {
-      debugPrint('Dormant sync: schedule failure; obsolete alarms retained for retry');
     }
 
     debugPrint(

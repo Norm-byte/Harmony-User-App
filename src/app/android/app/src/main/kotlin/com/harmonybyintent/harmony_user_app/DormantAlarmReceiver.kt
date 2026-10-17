@@ -24,7 +24,6 @@ class DormantAlarmReceiver : BroadcastReceiver() {
         private const val PREFS = "harmony_dormant_debug"
         private const val DEDUPE_WINDOW_MS = 90_000L
         private const val ALARM_REGISTRY_KEY = "registered_alarm_entries"
-        private const val ALARM_PAYLOAD_PREFIX = "alarm_payload_"
         private const val STALE_ALARM_WINDOW_MS = 2 * 60 * 60 * 1000L
         private const val EVENT_NOTIFICATION_AUTO_DISMISS_MS = 7_000L
 
@@ -58,8 +57,6 @@ class DormantAlarmReceiver : BroadcastReceiver() {
 
         private fun unregisterAlarm(context: Context, alarmId: Int) {
             val registry = loadRegistry(context)
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit().remove("$ALARM_PAYLOAD_PREFIX$alarmId").apply()
             if (registry.remove(alarmId) != null) {
                 saveRegistry(context, registry)
             }
@@ -86,8 +83,6 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                     )
                     alarmManager.cancel(pendingIntent)
                     updated.remove(alarmId)
-                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                        .edit().remove("$ALARM_PAYLOAD_PREFIX$alarmId").apply()
                     cancelled++
                 }
             }
@@ -114,46 +109,10 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 alarmManager.cancel(pendingIntent)
-                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .edit().remove("$ALARM_PAYLOAD_PREFIX$alarmId").apply()
             }
 
             saveRegistry(context, emptyMap())
             return registry.size
-        }
-
-        fun reconcileRegisteredAlarms(context: Context, keepIds: Set<Int>): Int {
-            val obsolete = loadRegistry(context).keys.filter { it !in keepIds }
-            for (id in obsolete) cancelAlarm(context, id)
-            return obsolete.size
-        }
-
-        fun restoreRegisteredAlarms(context: Context): Int {
-            val now = System.currentTimeMillis()
-            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            var restored = 0
-            for ((id, trigger) in loadRegistry(context)) {
-                if (trigger <= now) {
-                    cancelAlarm(context, id)
-                    continue
-                }
-                val encoded = prefs.getString("$ALARM_PAYLOAD_PREFIX$id", null) ?: continue
-                try {
-                    val saved = Intent.parseUri(encoded, Intent.URI_INTENT_SCHEME)
-                    if (scheduleExactAlarm(
-                            context, id, trigger,
-                            saved.getStringExtra("event_id") ?: continue,
-                            saved.getStringExtra("slot_key") ?: continue,
-                            saved.getStringExtra("event_title") ?: "Harmony by Intent",
-                            saved.getStringExtra("event_body") ?: "Event starting now",
-                            saved.getBooleanExtra("is_full_screen", false)
-                        )) restored++
-                } catch (e: Exception) {
-                    android.util.Log.e("DormantAlarmReceiver", "Restore failed for $id: ${e.message}")
-                }
-            }
-            android.util.Log.i("DormantAlarmReceiver", "Recovery restored=$restored")
-            return restored
         }
 
         fun scheduleExactAlarm(
@@ -207,8 +166,6 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                         pendingIntent
                     )
                     registerAlarm(context, alarmId, triggerTimeMillis)
-                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                        .putString("$ALARM_PAYLOAD_PREFIX$alarmId", intent.toUri(Intent.URI_INTENT_SCHEME)).apply()
                     android.util.Log.d("DormantAlarmReceiver", "Scheduled alarm clock for $eventId at $triggerTimeMillis")
                     return true
                 } else {
@@ -219,8 +176,6 @@ class DormantAlarmReceiver : BroadcastReceiver() {
                         pendingIntent
                     )
                     registerAlarm(context, alarmId, triggerTimeMillis)
-                    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                        .putString("$ALARM_PAYLOAD_PREFIX$alarmId", intent.toUri(Intent.URI_INTENT_SCHEME)).apply()
                     android.util.Log.d("DormantAlarmReceiver", "Scheduled exact alarm for $eventId at $triggerTimeMillis")
                     return true
                 }
