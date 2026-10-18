@@ -11,6 +11,13 @@ class FavoritesService extends ChangeNotifier {
 
   List<Map<String, dynamic>> get favorites => List.unmodifiable(_favorites);
 
+  static String contentUrl(Map<String, dynamic> item) {
+    final youtubeUrl = (item['youtubeUrl'] as String?)?.trim() ?? '';
+    return youtubeUrl.isNotEmpty
+        ? youtubeUrl
+        : (item['url'] as String?)?.trim() ?? '';
+  }
+
   FavoritesService() {
     _init();
   }
@@ -56,21 +63,16 @@ class FavoritesService extends ChangeNotifier {
   }
 
   Future<void> toggleFavorite(Map<String, dynamic> topic) async {
-    final url = topic['youtubeUrl'] ?? topic['url'];
-    if (url == null || url.isEmpty) return;
+    final url = contentUrl(topic);
+    if (url.isEmpty) return;
 
     // Ensure consistency
     final data = Map<String, dynamic>.from(topic);
-    if (!data.containsKey('youtubeUrl')) {
+    if ((data['youtubeUrl'] as String?)?.trim().isNotEmpty != true) {
       data['youtubeUrl'] = url;
     }
 
     if (isFavorite(url)) {
-      // Optimistic update: Remove locally first
-      _favorites.removeWhere((item) => item['youtubeUrl'] == url || item['url'] == url);
-      notifyListeners();
-      _saveLocalFavorites();
-
       await removeFavorite(url);
     } else {
       // Optimistic update: Add locally first
@@ -124,8 +126,13 @@ class FavoritesService extends ChangeNotifier {
       for (var doc in snapshot2.docs) {
         await doc.reference.delete();
       }
+      _favorites.removeWhere((item) =>
+          item['youtubeUrl'] == url || item['url'] == url || contentUrl(item) == url);
+      notifyListeners();
+      await _saveLocalFavorites();
     } catch (e) {
       debugPrint("Error removing favorite: $e");
+      rethrow;
     }
   }
 }

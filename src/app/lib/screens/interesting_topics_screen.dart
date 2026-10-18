@@ -274,7 +274,7 @@ class TopicsLandingScreen extends StatelessWidget {
   static void _showVideoDialog(BuildContext context, String url, {String title = ''}) {
     Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
-        builder: (_) => _TopicsFullscreenYoutubeScreen(url: url, title: title),
+        builder: (_) => TopicsFullscreenYoutubeScreen(url: url, title: title),
       ),
     );
   }
@@ -844,11 +844,11 @@ class _FeaturedTopicViewerState extends State<FeaturedTopicViewer> {
   }
 }
 
-class _TopicsFullscreenYoutubeScreen extends StatelessWidget {
+class TopicsFullscreenYoutubeScreen extends StatelessWidget {
   final String url;
   final String title;
 
-  const _TopicsFullscreenYoutubeScreen({required this.url, this.title = ''});
+  const TopicsFullscreenYoutubeScreen({super.key, required this.url, this.title = ''});
 
   Future<void> _showReportSheet(BuildContext context) async {
     final reasons = kReportReasons;

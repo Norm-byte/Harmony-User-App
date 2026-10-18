@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../services/favorites_service.dart';
 import '../widgets/favorite_item_card.dart';
 import '../widgets/gradient_scaffold.dart';
 import '../widgets/locked_feature_widget.dart';
@@ -23,7 +25,14 @@ class CategoryFavoritesScreen extends StatelessWidget {
       ),
       body: LockedFeatureWidget(
         featureName: "Favorites",
-        child: favorites.isEmpty
+        child: Consumer<FavoritesService>(
+          builder: (context, service, _) {
+            final categoryItems = service.favorites.where((item) {
+              final url = FavoritesService.contentUrl(item);
+              return favorites.any((original) =>
+                  FavoritesService.contentUrl(original) == url);
+            }).toList();
+            return categoryItems.isEmpty
             ? const Center(child: Text("No items found", style: TextStyle(color: Colors.white)))
             : GridView.builder(
                 padding: const EdgeInsets.all(16),
@@ -33,12 +42,14 @@ class CategoryFavoritesScreen extends StatelessWidget {
                   mainAxisSpacing: 12,
                   childAspectRatio: 0.65,
                 ),
-                itemCount: favorites.length,
+                itemCount: categoryItems.length,
                 itemBuilder: (context, index) {
-                  final item = favorites[index];
+                  final item = categoryItems[index];
                   return FavoriteItemCard(topic: item);
                 },
-              ),
+              );
+          },
+        ),
       ),
     );
   }

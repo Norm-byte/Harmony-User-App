@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/favorites_service.dart';
 import '../screens/video_player_screen.dart';
+import '../screens/interesting_topics_screen.dart';
 
 class FavoriteItemCard extends StatelessWidget {
   final Map<String, dynamic> topic;
@@ -43,14 +44,11 @@ class FavoriteItemCard extends StatelessWidget {
             onTap: () {
               debugPrint('FavoriteItemCard: Tapped ${topic['title']}');
               
-              String? url = topic['youtubeUrl'] as String?;
-              if (url == null || url.isEmpty) {
-                url = topic['url'] as String?;
-              }
+              final url = FavoritesService.contentUrl(topic);
 
               debugPrint('FavoriteItemCard: Resolved URL: $url');
 
-              if (url != null && url.isNotEmpty) {
+              if (url.isNotEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Playing: ${topic['title']}'),
@@ -58,12 +56,19 @@ class FavoriteItemCard extends StatelessWidget {
                   ),
                 );
                 
-                Navigator.push(
-                  context,
+                final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
+                final isYoutube = host == 'youtu.be' ||
+                    host == 'youtube.com' || host.endsWith('.youtube.com') ||
+                    host == 'youtube-nocookie.com' ||
+                    host.endsWith('.youtube-nocookie.com');
+                Navigator.of(context, rootNavigator: true).push(
                   MaterialPageRoute(
-                    builder: (context) => VideoPlayerScreen(
-                      videoUrl: url!,
-                    ),
+                    builder: (context) => isYoutube
+                        ? TopicsFullscreenYoutubeScreen(
+                            url: url,
+                            title: topic['title'] as String? ?? '',
+                          )
+                        : VideoPlayerScreen(videoUrl: url),
                   ),
                 );
               } else {
@@ -132,11 +137,17 @@ class FavoriteItemCard extends StatelessWidget {
             right: 0,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () {
+              onTap: () async {
                 debugPrint('FavoriteItemCard: Remove tapped for ${topic['title']}');
-                final url = topic['youtubeUrl'] as String? ?? topic['url'] as String?;
-                if (url != null) {
-                  Provider.of<FavoritesService>(context, listen: false).removeFavorite(url);
+                final url = FavoritesService.contentUrl(topic);
+                try {
+                  if (url.isEmpty) throw StateError('Missing favourite URL');
+                  await context.read<FavoritesService>().removeFavorite(url);
+                } catch (_) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Could not remove favourite. Please try again.')),
+                  );
                 }
               },
               child: Container(
