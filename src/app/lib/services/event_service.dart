@@ -1282,35 +1282,39 @@ class EventService extends ChangeNotifier {
 
   List<Event> _processLivingCanvasDefaults(Map<String, dynamic> defaults) {
     final now = DateTime.now();
+    final windowEnd = now.add(const Duration(hours: 24));
     final events = <Event>[];
     for (final entry in defaults.entries) {
       final data = Map<String, dynamic>.from(entry.value as Map);
       final hour = (data['hour'] as num?)?.toInt();
       final minute = (data['laneMinute'] as num?)?.toInt();
       if (hour == null || minute == null) continue;
-      final start = DateTime(now.year, now.month, now.day, hour, minute);
       final duration = ((data['durationSeconds'] as num?)?.toInt() ?? 30).clamp(1, 3600);
-      final end = start.add(Duration(seconds: duration));
-      if (now.isAfter(end)) continue;
-      events.add(Event.fromJson({
-        ...data,
-        'id': 'repeating_${entry.key}_${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}',
-        'title': data['title'] ?? 'Thumbprint',
-        'description': data['thankYouBody'] ?? '',
-        'startTimeUTC': start.toUtc().toIso8601String(),
-        'endTime': end.toUtc().toIso8601String(),
-        'durationSeconds': duration,
-        'type': data['canvasScope'] == 'international' ? 'global' : 'national',
-        'isPublished': true,
-        'isThumbprintEvent': true,
-        'visualUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
-        'mediaUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
-        'soundUrl': data['chimeAudioUrl'] ?? data['customAudioUrl'],
-        'thankYouDisplaySeconds': data['thankYouDisplaySeconds'],
-        'originTimeZone': data['originTimeZone'],
-        'noticeBoardShowBeforeMinutes': 0,
-        'showBeforeMinutes': 0,
-      }));
+      // Tomorrow is included so slots just after midnight are armed before the day rolls over.
+      for (var dayOffset = 0; dayOffset < 2; dayOffset++) {
+        final start = DateTime(now.year, now.month, now.day + dayOffset, hour, minute);
+        final end = start.add(Duration(seconds: duration));
+        if (now.isAfter(end) || start.isAfter(windowEnd)) continue;
+        events.add(Event.fromJson({
+          ...data,
+          'id': 'repeating_${entry.key}_${start.year}${start.month.toString().padLeft(2, '0')}${start.day.toString().padLeft(2, '0')}',
+          'title': data['title'] ?? 'Thumbprint',
+          'description': data['thankYouBody'] ?? '',
+          'startTimeUTC': start.toUtc().toIso8601String(),
+          'endTime': end.toUtc().toIso8601String(),
+          'durationSeconds': duration,
+          'type': data['canvasScope'] == 'international' ? 'global' : 'national',
+          'isPublished': true,
+          'isThumbprintEvent': true,
+          'visualUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
+          'mediaUrl': data['mediaUrl'] ?? data['backgroundImageUrl'],
+          'soundUrl': data['chimeAudioUrl'] ?? data['customAudioUrl'],
+          'thankYouDisplaySeconds': data['thankYouDisplaySeconds'],
+          'originTimeZone': data['originTimeZone'],
+          'noticeBoardShowBeforeMinutes': 0,
+          'showBeforeMinutes': 0,
+        }));
+      }
     }
     return events;
   }
