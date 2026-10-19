@@ -2481,18 +2481,13 @@ class _SettingsScreenState extends State<SettingsScreen>
     required String uid,
     required String personalContent,
     required int personalLikes,
+    required Map<String, dynamic> config,
+    required String initialMode,
+    required String initialContent,
+    required int initialLikes,
   }) async {
     final firestore = FirebaseFirestore.instance;
-    final configSnapshot = await firestore
-        .collection('app_config')
-        .doc('community_support')
-        .get();
-    final config = configSnapshot.data() ?? const <String, dynamic>{};
-    final preference = await firestore.collection('users').doc(uid).get();
-    var selectedMode =
-        preference.data()?['mostLikedPoemExpandedMode'] == 'overall'
-        ? 'overall'
-        : 'personal';
+    var selectedMode = initialMode;
 
     Future<Map<String, dynamic>> poemForMode(String mode) async {
       if (mode == 'personal') {
@@ -2505,7 +2500,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       final overallSnapshot = await firestore
           .collection('community_posts')
           .where('isSupportRequest', isEqualTo: true)
-          .get();
+          .get().timeout(const Duration(seconds: 8));
       final poems = overallSnapshot.docs.toList()
         ..sort((a, b) {
           final aData = a.data();
@@ -2537,7 +2532,13 @@ class _SettingsScreenState extends State<SettingsScreen>
       };
     }
 
-    var selectedPoem = await poemForMode(selectedMode);
+    var selectedPoem = <String, dynamic>{
+      'content': initialContent,
+      'likes': initialLikes,
+      'author': initialMode == 'personal' ? UserService().userName : '',
+    };
+    var changingMode = false;
+    String? selectionError;
     final countLabel = _supportConfigText(
       config,
       'overallPoemLikesLabel',
@@ -2545,7 +2546,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
 
     if (!mounted) return;
-    showDialog<void>(
+    await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) {
@@ -2610,19 +2611,40 @@ class _SettingsScreenState extends State<SettingsScreen>
                         ),
                       ),
                     ],
-                    onChanged: (mode) async {
+                    onChanged: changingMode ? null : (mode) async {
                       if (mode == null) return;
-                      final poem = await poemForMode(mode);
-                      await firestore.collection('users').doc(uid).set({
-                        'mostLikedPoemExpandedMode': mode,
-                      }, SetOptions(merge: true));
-                      if (!dialogContext.mounted) return;
                       setDialogState(() {
-                        selectedMode = mode;
-                        selectedPoem = poem;
+                        changingMode = true;
+                        selectionError = null;
                       });
+                      try {
+                        final poem = await poemForMode(mode);
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() {
+                          selectedMode = mode;
+                          selectedPoem = poem;
+                        });
+                        firestore.collection('users').doc(uid).set({
+                          'mostLikedPoemExpandedMode': mode,
+                        }, SetOptions(merge: true)).catchError((Object error) {
+                          if (!dialogContext.mounted) return;
+                          setDialogState(() => selectionError =
+                              'Your display preference could not be saved.');
+                        });
+                      } catch (_) {
+                        if (!dialogContext.mounted) return;
+                        setDialogState(() => selectionError =
+                            'Could not load that poem. Please try again.');
+                      } finally {
+                        if (dialogContext.mounted) {
+                          setDialogState(() => changingMode = false);
+                        }
+                      }
                     },
                   ),
+                  if (changingMode) const LinearProgressIndicator(),
+                  if (selectionError != null)
+                    Text(selectionError!, style: const TextStyle(color: Colors.amberAccent)),
                   const SizedBox(height: 12),
                   if ((selectedPoem['author'] as String).isNotEmpty) ...[
                     Text(
@@ -3140,16 +3162,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                 }
               }
 
-              Future<void> showExpandedPoem() => _showExpandedMostLikedPoem(
-                uid: uid,
-                personalContent: topContent,
-                personalLikes: heartCount,
-              );
-
               Widget buildPoemCard({
                 required String title,
                 required String content,
                 required int likes,
+                required String mode,
               }) {
                 final contentPreview = '"$content"';
                 final canExpand = content.isNotEmpty &&
@@ -3159,7 +3176,15 @@ class _SettingsScreenState extends State<SettingsScreen>
 
                 return GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: canExpand ? showExpandedPoem : null,
+                  onTap: canExpand ? () => _showExpandedMostLikedPoem(
+                    uid: uid,
+                    personalContent: topContent,
+                    personalLikes: heartCount,
+                    config: supportConfig,
+                    initialMode: mode,
+                    initialContent: content,
+                    initialLikes: likes,
+                  ) : null,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -3233,6 +3258,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                           'overall';
                   if (!showOverall) {
                     return buildPoemCard(
+                      mode: 'personal',
                       title: _supportConfigText(
                         supportConfig,
                         'mostSupportedRequestTitle',
@@ -3269,6 +3295,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                           ? const <String, dynamic>{}
                           : poems.first.data();
                       return buildPoemCard(
+                        mode: 'overall',
                         title: _supportConfigText(
                           supportConfig,
                           'overallMostLikedPoemTitle',

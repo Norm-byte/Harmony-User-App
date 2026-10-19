@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -7,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/user_service.dart';
 import '../widgets/media/content_viewer.dart';
+import '../widgets/live_stats_config_gate.dart';
 
 class EventOverlayScreen extends StatelessWidget {
   final String title;
@@ -387,10 +389,26 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
   String? _countryCode;
   String? _flagEmoji;
   String? _activePresenceEventId;
+  late final Stream<Map<String, dynamic>?> _statsSettings;
+  bool _refreshInFlight = false;
+  bool _heartbeatInFlight = false;
+  bool _disposed = false;
+  bool _hasLiveData = false;
+  bool _liveDataFailed = false;
+
+  void _logStats(String message, [Object? error]) {
+    final text = 'HARMONY_LIVE_STATS event=${widget.eventId} $message';
+    developer.log(text, name: 'harmony.live_stats', error: error);
+    debugPrint('$text${error == null ? '' : ' error=$error'}');
+  }
 
   @override
   void initState() {
     super.initState();
+    _statsSettings = FirebaseFirestore.instance
+        .collection('app_config').doc('home_screen').snapshots()
+        .map((snapshot) => snapshot.data());
+    unawaited(_ensureGeoIdentity());
     _refreshLiveData();
     _timer = Timer.periodic(const Duration(seconds: 5), (_) {
       _refreshLiveData();
@@ -401,6 +419,12 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
   void didUpdateWidget(covariant _OverlayLiveStatsLayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.eventId != widget.eventId) {
+      _hasLiveData = false;
+      _liveDataFailed = false;
+      _liveViewers = 0;
+      _thumbprintCount = 0;
+      _activeFlags = const [];
+      _activeZones = const [];
       unawaited(_stopPresenceSession(eventIdOverride: oldWidget.eventId));
       _refreshLiveData();
     }
@@ -408,12 +432,14 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
 
   @override
   void dispose() {
+    _disposed = true;
     _timer?.cancel();
     unawaited(_stopPresenceSession());
     super.dispose();
   }
 
   Future<void> _refreshLiveData() async {
+    if (_refreshInFlight || _disposed) return;
     final id = (widget.eventId ?? '').trim();
     if (id.isEmpty) {
       if (mounted) {
@@ -426,13 +452,15 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
       return;
     }
 
+    _refreshInFlight = true;
+    unawaited(_heartbeatPresence(id));
     try {
-      await _heartbeatPresence(id);
 
         final eventCounter = await FirebaseFirestore.instance
           .collection('event_live_viewers')
           .doc(id)
-          .get();
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 8));
         final thumbprintCount =
           (eventCounter.data()?['thumbprintCount'] as num?)?.toInt() ?? 0;
 
@@ -442,7 +470,8 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
           .doc(id)
           .collection('sessions')
           .where('lastSeenAt', isGreaterThan: Timestamp.fromDate(cutoff))
-          .get();
+          .get(const GetOptions(source: Source.server))
+          .timeout(const Duration(seconds: 8));
       final realActiveSessions = active.docs.where((doc) {
         return doc.data()['source'] != 'backend_live_counter_bridge_v3';
       }).toList();
@@ -481,43 +510,51 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
         ..sort((a, b) => b.value.compareTo(a.value));
       final nextZones = sortedZones.take(3).map((e) => e.key).toList();
 
-      if (!mounted) return;
+      if (_disposed || !mounted || widget.eventId != id) return;
       setState(() {
+        _hasLiveData = true;
+        _liveDataFailed = false;
         _liveViewers = realActiveSessions.length;
           _thumbprintCount = thumbprintCount;
         _activeFlags = nextFlags;
         _activeZones = nextZones;
       });
-    } catch (_) {
-      if (!mounted) return;
+      _logStats('read ok viewers=${realActiveSessions.length} thumbprints=$thumbprintCount');
+    } catch (error) {
+      _logStats('read failed', error);
+      if (_disposed || !mounted || widget.eventId != id) return;
       setState(() {
-        _liveViewers = 0;
-          _thumbprintCount = 0;
-        _activeFlags = const [];
-        _activeZones = const [];
+        _liveDataFailed = true;
       });
+    } finally {
+      _refreshInFlight = false;
     }
   }
 
   Future<void> _heartbeatPresence(String eventId) async {
+    if (_heartbeatInFlight || _disposed) return;
+    _heartbeatInFlight = true;
+    try {
     final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (userId.isEmpty) return;
+    if (userId.isEmpty) {
+      _logStats('presence skipped: no authenticated user');
+      return;
+    }
 
     final sessionId = await _resolvePresenceSessionId();
     if (sessionId.isEmpty) return;
-
-    await _ensureGeoIdentity();
 
     final eventRef = FirebaseFirestore.instance
         .collection('event_live_viewers')
         .doc(eventId);
 
-    await eventRef.set({
+    final batch = FirebaseFirestore.instance.batch();
+    batch.set(eventRef, {
       'eventId': eventId,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    await eventRef.collection('sessions').doc(sessionId).set({
+    batch.set(eventRef.collection('sessions').doc(sessionId), {
       'sessionId': sessionId,
       'userId': userId,
       'lastSeenAt': FieldValue.serverTimestamp(),
@@ -525,8 +562,18 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
       'countryCode': _countryCode,
       'flagEmoji': _flagEmoji,
     }, SetOptions(merge: true));
-
+    await batch.commit();
+    if (_disposed || widget.eventId != eventId) {
+      await _stopPresenceSession(eventIdOverride: eventId);
+      return;
+    }
     _activePresenceEventId = eventId;
+    _logStats('presence acknowledged');
+    } catch (error) {
+      _logStats('presence failed', error);
+    } finally {
+      _heartbeatInFlight = false;
+    }
   }
 
   Future<String> _resolvePresenceSessionId() async {
@@ -623,18 +670,10 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('app_config')
-          .doc('home_screen')
-          .snapshots(),
-      builder: (context, snapshot) {
-        final data = snapshot.data?.data() ?? const <String, dynamic>{};
-        final showLiveStats = data['showLiveStats'] == true;
-        if (!showLiveStats) {
-          return const SizedBox.shrink();
-        }
-
+    return LiveStatsConfigGate(
+      settings: _statsSettings,
+      onError: (error) => _logStats('settings failed', error),
+      builder: (context, data) {
         final position = (data['statsOverlayPosition'] as String? ?? 'bottom')
             .trim()
             .toLowerCase();
@@ -664,7 +703,11 @@ class _OverlayLiveStatsLayerState extends State<_OverlayLiveStatsLayer> {
                   ),
                   const SizedBox(width: 6),
                   Text(
-                    '${_liveViewers + adjustment + _thumbprintCount} live viewers',
+                    _liveDataFailed
+                      ? 'Live viewers temporarily unavailable'
+                      : !_hasLiveData
+                        ? 'Connecting live viewers…'
+                        : '${_liveViewers + adjustment + _thumbprintCount} live viewers',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
