@@ -53,6 +53,13 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    // Keep iOS Firestore reads/writes on memory-only cache to avoid stale or
+    // stuck persisted watch state. Android retains its existing settings.
+    if (Platform.isIOS) {
+      FirebaseFirestore.instance.settings = const Settings(
+        persistenceEnabled: false,
+      );
+    }
     debugPrint("HARMONY_APP_FIREBASE: Initialized successfully");
   } catch (e) {
     debugPrint("HARMONY_APP_FIREBASE_ERROR: $e");

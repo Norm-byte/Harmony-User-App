@@ -2,6 +2,64 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:harmony_user_app/services/community_poem_favorites_service.dart';
 
 void main() {
+  group('saved poem image retention', () {
+    const saved = {'imageUrl': 'https://example.com/saved.jpg'};
+
+    test('automatic public expiry retains the personal saved image', () {
+      expect(CommunityPoemFavoritesService.savedImageUrl(
+        saved: saved,
+        livePost: {'hasImage': false, 'imageStatus': 'expired_auto'},
+      ), saved['imageUrl']);
+    });
+
+    test('saved image remains when the original post is no longer available', () {
+      expect(CommunityPoemFavoritesService.savedImageUrl(saved: saved),
+          saved['imageUrl']);
+    });
+
+    test('explicit removal and moderation do not restore saved images', () {
+      for (final status in ['removed_by_owner', 'removed_by_admin', 'blocked']) {
+        expect(CommunityPoemFavoritesService.savedImageUrl(
+          saved: saved,
+          livePost: {'hasImage': false, 'imageStatus': status},
+        ), isNull);
+      }
+    });
+
+    test('legacy explicit removal without status remains hidden', () {
+      expect(CommunityPoemFavoritesService.savedImageUrl(
+        saved: saved, livePost: {'hasImage': false},
+      ), isNull);
+    });
+
+    test('active images prefer saved snapshot, with legacy live fallback', () {
+      const live = {'hasImage': true, 'imageUrl': 'https://example.com/live.jpg'};
+      expect(CommunityPoemFavoritesService.savedImageUrl(
+        saved: saved, livePost: live,
+      ), saved['imageUrl']);
+      expect(CommunityPoemFavoritesService.savedImageUrl(
+        saved: {}, livePost: live,
+      ), live['imageUrl']);
+    });
+
+    test('admin-restored source image remains visible in saved poems', () {
+      expect(CommunityPoemFavoritesService.savedImageUrl(
+        saved: saved,
+        livePost: {
+          'hasImage': true,
+          'imageStatus': 'restored_admin',
+          'imageUrl': 'https://example.com/restored.jpg',
+        },
+      ), saved['imageUrl']);
+    });
+
+    test('expiry cannot invent an image for a text-only saved poem', () {
+      expect(CommunityPoemFavoritesService.savedImageUrl(
+        saved: {}, livePost: {'imageStatus': 'expired_auto', 'hasImage': false},
+      ), isNull);
+    });
+  });
+
   group('CommunityPoemFavoritesService', () {
     test('a signed-in user can save their own or another member’s poem', () {
       expect(

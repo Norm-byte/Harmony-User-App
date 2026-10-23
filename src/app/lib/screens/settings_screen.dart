@@ -516,11 +516,10 @@ class _SettingsScreenState extends State<SettingsScreen>
         final isLive = livePost != null;
         final content =
             (isLive ? livePost['content'] : intent['content']) as String? ?? '';
-        final imageUrl = isLive
-            ? ((livePost['hasImage'] == true)
-                  ? livePost['imageUrl'] as String?
-                  : null)
-            : intent['imageUrl'] as String?;
+        final imageUrl = CommunityPoemFavoritesService.savedImageUrl(
+          saved: intent,
+          livePost: livePost,
+        );
         final likes = isLive ? ((livePost['likes'] as num?)?.toInt() ?? 0) : 0;
         final supportCount = isLive
             ? ((livePost['supportTapCount'] as num?)?.toInt() ?? 0)
@@ -949,11 +948,10 @@ class _SettingsScreenState extends State<SettingsScreen>
         final authorName = (isLive ? livePost['userName'] : saved['userName'])
                 as String? ??
             'Member';
-        final imageUrl = isLive
-            ? (livePost['hasImage'] == true
-                ? livePost['imageUrl'] as String?
-                : null)
-            : saved['imageUrl'] as String?;
+        final imageUrl = CommunityPoemFavoritesService.savedImageUrl(
+          saved: saved,
+          livePost: livePost,
+        );
         final likes = isLive ? (livePost['likes'] as num?)?.toInt() ?? 0 : 0;
 
         void showSavedPoem() {

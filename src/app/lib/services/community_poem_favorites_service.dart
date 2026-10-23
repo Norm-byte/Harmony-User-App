@@ -28,6 +28,29 @@ class CommunityPoemFavoritesService {
     return uid.isNotEmpty && post['isSupportRequest'] == true;
   }
 
+  /// Personal saved images outlive automatic public-feed expiry.
+  /// Explicit source removal must not revive an old saved image.
+  static String? savedImageUrl({
+    required Map<String, dynamic> saved,
+    Map<String, dynamic>? livePost,
+  }) {
+    String? image(Object? value) {
+      if (value is! String || value.trim().isEmpty) return null;
+      return value.trim();
+    }
+
+    if (livePost == null) return image(saved['imageUrl']);
+    final status = livePost['imageStatus']?.toString() ?? '';
+    if (status == 'expired_auto') return image(saved['imageUrl']);
+    if (status.isNotEmpty &&
+        status != 'active' &&
+        status != 'restored_admin') {
+      return null;
+    }
+    if (livePost['hasImage'] != true) return null;
+    return image(saved['imageUrl']) ?? image(livePost['imageUrl']);
+  }
+
   static Map<String, dynamic> snapshotForSave({
     required String postId,
     required Map<String, dynamic> post,
@@ -39,7 +62,7 @@ class CommunityPoemFavoritesService {
       'sourceAuthorUid': (post['authorUid'] ?? '').toString(),
       'userName': (post['userName'] ?? 'Member').toString(),
       'content': (post['content'] ?? '').toString(),
-      'imageUrl': post['hasImage'] == true ? post['imageUrl'] : null,
+      'imageUrl': savedImageUrl(saved: post, livePost: post),
       if (timestamp is Timestamp) 'sourceTimestamp': timestamp,
       'savedAt': FieldValue.serverTimestamp(),
     };

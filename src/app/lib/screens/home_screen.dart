@@ -15,6 +15,7 @@ import '../services/user_service.dart';
 import '../services/home_speaker_state.dart';
 import '../services/community_rules_acceptance_service.dart';
 import '../services/notification_service.dart';
+import '../services/ios_firestore_client.dart';
 import '../constants/report_reasons.dart';
 import '../widgets/media/content_viewer.dart';
 import '../widgets/gradient_scaffold.dart';
@@ -41,6 +42,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+  FirebaseFirestore _homeConfigFirestore = FirebaseFirestore.instance;
   VideoPlayerController? _backgroundAudioController;
   String? _activeBackgroundAudioUrl;
   bool _isBackgroundAudioMuted = false;
@@ -61,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _handleCommunityNotificationTarget,
     );
     _handleCommunityNotificationTarget();
+    unawaited(_initializeHomeConfigFirestore());
     unawaited(_loadNoticeboardVisibility());
     _noticeboardConfigPollTimer = Timer.periodic(
       const Duration(seconds: 3),
@@ -82,6 +85,16 @@ class _HomeScreenState extends State<HomeScreen> {
         }, onError: (Object error) {
           debugPrint('HARMONY_NOTICEBOARD_CONFIG: $error');
         });
+  }
+
+  Future<void> _initializeHomeConfigFirestore() async {
+    try {
+      final firestore = await IosFirestoreClient.instance.counterClient();
+      if (!mounted) return;
+      setState(() => _homeConfigFirestore = firestore);
+    } catch (error) {
+      debugPrint('HARMONY_HOME_CONFIG_CLIENT_ERROR $error');
+    }
   }
 
   Future<void> _loadNoticeboardVisibility() async {
@@ -617,7 +630,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, eventService, _) {
         final shouldPlayHomeAudio = !eventService.isEventActive;
         return StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance
+          stream: _homeConfigFirestore
               .collection('app_config')
               .doc('home_screen')
               .snapshots(),
