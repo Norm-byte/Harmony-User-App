@@ -2,6 +2,23 @@
 
 ## Current status — 23 October 2026, after 14:00 BST
 
+### Final user acceptance and upload-only authorization
+
+- User reports selecting an image and creating a Common Room post while Airplane Mode was enabled; after disabling Airplane Mode, the post appeared on Android as expected. This is a successful user-observed reconnect/post-delivery test. It does not prove the image reached Storage while offline or establish the exact moment of server acknowledgement (Wi-Fi can remain enabled in Airplane Mode).
+- User explicitly requests checkpoint commit/push and upload-only of iOS100 to App Store Connect. Cleared-lane non-recurrence is accepted as an unresolved documented issue, not a verified scheduling fix. Memory-only pending writes are not durable across process termination; that limitation remains documented.
+- Code checkpoint: 1b3877e on v86-stable-events. All temporary diagnostic tracing removed; 47 tests passed. Build100 user checks passed: Home live publish, Poetry entry, Camera/Photos/Vault, saved-poem image display, short offline/reconnect, cold-offline relaunch/reconnect and observed live count at 14:00.
+- Upload is separate from review submission. Do not withdraw, replace, release, or submit the current Apple review item. Android88 unchanged. Capture actual IPA identity/hash and uploader result; do not retry a completed upload solely because its receipt was not read.
+
+### Build100 cold-offline/reconnect user test (14:15 BST)
+
+- User later reports no recurrence of cleared :15/:45 playback throughout the day and previous evening. User explicitly accepts recording this as unresolved/non-reproduced rather than blocking upload100 on a 24-hour test. Do not claim a proven scheduling fix. No lane/scheduler change is authorized.
+- User requests final offline-write check, followed by notes commit/push and upload-only iOS100 to App Store Connect. Existing Apple review submission must remain untouched. Password only through secure hidden macOS dialog, never chat.
+- Safe pending-write test: while online select a disposable saved text-only favourite (not the painting), then in Airplane Mode remove it from My Favourite Poems; reconnect without terminating the app; verify server deletion and restore favourite online if desired. This exercises ordinary queued delete, not savePost transaction (transactions require network). Memory-only pending writes do NOT survive app termination, so do not describe this as durable offline write support.
+
+- User reports following the procedure exactly: online -> Airplane Mode -> force-close Harmony only -> cold-launch while offline -> restore network -> check Home/Poetry/image actions. User reports the entire flow was smooth/successful.
+- This verifies the tested cold-offline launch and reconnect experience on build100, in addition to the earlier 30-second airplane round-trip and 14:00 live-count pass. No destructive cache clear, uninstall, device reboot, app-data clear, or attempted offline post/upload.
+- Evidence is user-observed; device logs were not captured for each sub-step. Do not claim every pending-write/offline-write path was tested.
+
 - Current source is clean of temporary tracing and built/installed as local iOS build 100. The old entries below describing installed 96/97/98/99 are chronological history, not current state.
 - Build 100 changes the iOS default Firestore client to memory-only persistence, routes Home `app_config/home_screen` through the existing isolated memory client, and adjusts My Harmony saved-poem image resolution after public-feed automatic image expiry. Temporary `HARMONY_READ_TRACE` code is removed.
 - Validation: 47 Flutter tests pass; focused analyzer reports existing issues but no errors in changed files; clean signed iOS build 100 was installed and tested. On build100, user confirmed Home live update, Poetry, Camera/Photos and My Harmony checks. User confirmed Airplane Mode reconnect round trip and successful image post. User confirmed accurate/smooth 13:00 and 14:00 live-count events. The 14:00 monitor recorded two thumbprints, two active sessions at event start, 100 reads without error; iPhone logged event selection/dismissal. These are strong device observations, not a guarantee against intermittent regressions.
