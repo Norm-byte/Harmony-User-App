@@ -2,6 +2,14 @@
 
 ## Current status — 23 October 2026, after 14:00 BST
 
+### Build100 uploaded — 14:37 BST
+
+- Apple uploader returned UPLOAD SUCCEEDED with no errors, exit0. Delivery UUID: 199fff70-8eca-40b3-a512-66193ed23878. Processing completion has NOT been verified.
+- Verified IPA: release/harmony_user_app-1.0.17+100.ipa, 64,962,684 bytes; embedded version1.0.17 build100; bundle com.harmonybyintent.harmonyUserApp.
+- SHA256: 5e8c8d84f6f9e5c2be03a1a209f02486719077f162fbe09e4d352527627d5748.
+- Code commit1b3877e; acceptance notes0b4c989, both pushed to origin/v86-stable-events. This receipt will be a subsequent documentation commit.
+- Upload ONLY: no withdrawal/replacement/submission of current Apple review item, no release-setting changes. Android88 untouched. All limitations/known issues below remain documented; upload does not assert they were uniquely root-caused or that every offline path passed.
+
 ### Final user acceptance and upload-only authorization
 
 - User reports selecting an image and creating a Common Room post while Airplane Mode was enabled; after disabling Airplane Mode, the post appeared on Android as expected. This is a successful user-observed reconnect/post-delivery test. It does not prove the image reached Storage while offline or establish the exact moment of server acknowledgement (Wi-Fi can remain enabled in Airplane Mode).
